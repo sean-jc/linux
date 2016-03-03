@@ -99,6 +99,7 @@ implementation.
    :maxdepth: 2
 
    sh/index
+   x86/index
 
 Korean translations
 -------------------
