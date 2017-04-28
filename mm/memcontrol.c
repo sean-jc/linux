@@ -755,6 +755,7 @@ struct mem_cgroup *mem_cgroup_iter(struct mem_cgroup *root,
 	struct cgroup_subsys_state *css = NULL;
 	struct mem_cgroup *memcg = NULL;
 	struct mem_cgroup *pos = NULL;
+	bool inc_gen = false;
 
 	if (mem_cgroup_disabled())
 		return NULL;
@@ -806,6 +807,14 @@ start:
 		css = css_next_descendant_pre(css, &root->css);
 		if (!css) {
 			/*
+			 * Increment the generation as the next call to
+			 * css_next_descendant_pre will restart at root.
+			 * Do not update iter->generation directly as we
+			 * should only do so if we update iter->position.
+			 */
+			inc_gen = true;
+
+			/*
 			 * Reclaimers share the hierarchy walk, and a
 			 * new one might jump in right at the end of
 			 * the hierarchy - make sure they see at least
@@ -853,16 +862,28 @@ start:
 				css_put(&pos->css);
 			css = NULL;
 			memcg = NULL;
+			inc_gen = false;
 			goto start;
 		}
 
+		/*
+		 * Update iter->generation asap to minimize the window where
+		 * a different thread compares against a stale generation but
+		 * consumes an updated position.
+		 */
+		if (inc_gen)
+			iter->generation++;
+
+		/*
+		 * Initialize the reclaimer's generation after the potential
+		 * update to iter->generation; if we restarted the hierarchy
+		 * walk then we are part of the new generation.
+		 */
+		if (!prev)
+			reclaim->generation = iter->generation;
+
 		if (pos)
 			css_put(&pos->css);
-
-		if (!memcg)
-			iter->generation++;
-		else if (!prev)
-			reclaim->generation = iter->generation;
 	}
 
 out_unlock:
