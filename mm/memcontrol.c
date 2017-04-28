@@ -906,6 +906,136 @@ static void invalidate_reclaim_iterators(struct mem_cgroup *dead_memcg)
 	     iter != NULL;				\
 	     iter = mem_cgroup_iter(NULL, iter, NULL))
 
+#include <linux/kthread.h>
+
+static bool test_done = false;
+static atomic_t loop_ready = ATOMIC_INIT(0);
+static atomic_t loop_done = ATOMIC_INIT(0);
+static atomic_t nr_entries = ATOMIC_INIT(0);
+static DECLARE_WAIT_QUEUE_HEAD(test_waitq);
+
+struct memcg_reclaim_entry {
+	bool master;
+	struct mem_cgroup *memcg;
+	unsigned int generation;
+};
+static struct memcg_reclaim_entry entries[100];
+
+static int mem_cgroup_iter_test_func(void *p)
+{
+	int i, x, y, nr;
+	bool duplicate = false;
+	struct seq_file *sf = (struct seq_file *)p;
+	struct mem_cgroup *memcg;
+	struct mem_cgroup_reclaim_cookie reclaim = {
+		.priority = 0,
+	};
+
+	reclaim.pgdat = first_online_pgdat();
+
+	for (i = 1; i <= 10; i++) {
+		if (atomic_inc_return(&loop_ready) != i*2) {
+			while (atomic_read(&loop_ready) != i*2)
+				cpu_relax();
+		}
+		if (READ_ONCE(test_done))
+			break;
+
+		for (memcg = mem_cgroup_iter(NULL, NULL, &reclaim);
+		     memcg;
+		     memcg = mem_cgroup_iter(NULL, memcg, &reclaim)) {
+			nr = atomic_inc_return(&nr_entries) - 1;
+			if (nr < 100) {
+				entries[nr].master = sf ? true : false;
+				entries[nr].memcg = memcg;
+				entries[nr].generation = reclaim.generation;
+			} else {
+				mem_cgroup_iter_break(NULL, memcg);
+				break;
+			}
+
+			if (nr == 30) {
+				mem_cgroup_iter_break(NULL, memcg);
+				memcg = mem_cgroup_iter(NULL, NULL, &reclaim);
+			}
+		}
+
+		if (atomic_inc_return(&loop_done) != i*2) {
+			while (atomic_read(&loop_done) != i*2)
+				cpu_relax();
+		}
+		
+		if (sf) {
+			nr = atomic_read(&nr_entries);
+			nr = min(nr, 32);
+			for (x = 0; x < nr; x++) {
+				for (y = x + 1; y < nr; y++) {
+					if (entries[x].memcg == entries[y].memcg &&
+					    entries[x].generation == entries[y].generation) {
+						duplicate = true;
+						seq_printf(sf, "ERROR: x = [%d%s], y = [%d%s], memcg = %p, gen = %u\n",
+							x, entries[x].master ? "m" : "s",
+							y, entries[y].master ? "m" : "s",
+							entries[x].memcg, entries[x].generation);
+					}
+				}
+			}
+			if (duplicate) {
+				for (x = 0; x < nr; x++)
+					seq_printf(sf, "cgroup_iter: nr = [%d%s], memcg = %p, gen = %u\n",
+						x, entries[x].master ? "m" : "s",
+						entries[x].memcg, entries[x].generation);
+				test_done = true;
+			}
+			atomic_set(&nr_entries, 0);
+		}
+	}
+
+	if (sf) {
+		test_done = true;
+		wake_up(&test_waitq);
+	}
+
+	return 0;
+}
+
+static int mem_cgroup_iter_test(struct seq_file *sf, void *v)
+{
+	struct task_struct *t1 = NULL, *t2 = NULL;
+
+	struct mem_cgroup *memcg;
+	struct mem_cgroup_reclaim_cookie reclaim = {
+		.priority = 0,
+	};
+	reclaim.pgdat = first_online_pgdat();
+
+	for (memcg = mem_cgroup_iter(NULL, NULL, &reclaim);
+	     memcg;
+	     memcg = mem_cgroup_iter(NULL, memcg, &reclaim)) {
+	}
+
+	atomic_set(&loop_ready, 0);
+	atomic_set(&loop_done, 0);
+
+	test_done = false;
+
+	t1 = kthread_run(mem_cgroup_iter_test_func, (void *)sf, "iter_test1");
+	if (IS_ERR(t1))
+		return PTR_ERR(t1);
+
+	t2 = kthread_run(mem_cgroup_iter_test_func, NULL, "iter_test2");
+	if (IS_ERR(t2)) {
+		kthread_stop(t1);
+		return PTR_ERR(t2);
+	}
+
+	while (!READ_ONCE(test_done))
+		wait_event_interruptible(test_waitq, test_done);
+
+	kthread_stop(t2);
+	return kthread_stop(t1);
+}
+
 /**
  * mem_cgroup_scan_tasks - iterate over tasks of a memory cgroup hierarchy
  * @memcg: hierarchy root
@@ -4070,6 +4200,10 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.private = MEMFILE_PRIVATE(_TCP, RES_MAX_USAGE),
 		.write = mem_cgroup_reset,
 		.read_u64 = mem_cgroup_read_u64,
+	},
+	{
+		.name = "iter_test",
+		.seq_show = mem_cgroup_iter_test,
 	},
 	{ },	/* terminate */
 };
