@@ -773,6 +773,7 @@ struct mem_cgroup *mem_cgroup_iter(struct mem_cgroup *root,
 
 	rcu_read_lock();
 
+start:
 	if (reclaim) {
 		struct mem_cgroup_per_node *mz;
 
@@ -833,11 +834,27 @@ struct mem_cgroup *mem_cgroup_iter(struct mem_cgroup *root,
 
 	if (reclaim) {
 		/*
-		 * The position could have already been updated by a competing
-		 * thread, so check that the value hasn't changed since we read
-		 * it to avoid reclaiming from the same cgroup twice.
+		 * Competing reclaim threads may attempt to consume the same
+		 * iter->position, check that the value hasn't changed since
+		 * we read it to avoid reclaiming from the same cgroup twice.
+		 * Note that just avoiding multiple writes to iter->position
+		 * does not prevent redundant reclaims to memcg.  Given the
+		 * same input css on competing threads, the css returned by
+		 * css_next_descendant_pre will also be the same (unless the
+		 * tree itself changes).  So, if a different thread read the
+		 * same iter->position, then it also computed the same memcg.
+		 * If we lost the race, put our css references and restart
+		 * the entire process of reading and updating iter->position.
 		 */
-		(void)cmpxchg(&iter->position, pos, memcg);
+		if (cmpxchg(&iter->position, pos, memcg) != pos) {
+			if (memcg && memcg != root)
+				css_put(&memcg->css);
+			if (pos)
+				css_put(&pos->css);
+			css = NULL;
+			memcg = NULL;
+			goto start;
+		}
 
 		if (pos)
 			css_put(&pos->css);
