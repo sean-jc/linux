@@ -31,6 +31,32 @@ u64 sgx_encl_size_max_64;
 u64 sgx_xfrm_mask = 0x3;
 u32 sgx_misc_reserved;
 u32 sgx_xsave_size_tbl[64];
+bool sgx_unlocked_msrs;
+u64 sgx_le_pubkeyhash[4];
+
+static DECLARE_RWSEM(sgx_file_sem);
+
+static int sgx_open(struct inode *inode, struct file *file)
+{
+	int ret;
+
+	ret = sgx_le_start(&sgx_le_ctx);
+
+	if (!ret)
+		file->private_data = &sgx_le_ctx;
+
+	return ret;
+}
+
+static int sgx_release(struct inode *inode, struct file *file)
+{
+	if (!file->private_data)
+		return 0;
+
+	sgx_le_stop(file->private_data, true);
+
+	return 0;
+}
 
 #ifdef CONFIG_COMPAT
 long sgx_compat_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
@@ -84,8 +110,10 @@ static unsigned long sgx_get_unmapped_area(struct file *file,
 	return addr;
 }
 
-static const struct file_operations sgx_fops = {
+const struct file_operations sgx_fops = {
 	.owner			= THIS_MODULE,
+	.open			= sgx_open,
+	.release		= sgx_release,
 	.unlocked_ioctl		= sgx_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl		= sgx_compat_ioctl,
@@ -100,6 +128,7 @@ static int sgx_pm_suspend(struct device *dev)
 	struct sgx_epc_page *epc_page;
 	struct sgx_encl *encl;
 
+	sgx_le_stop(&sgx_le_ctx, false);
 	list_for_each_entry(epc_page, &sgx_active_page_list, list) {
 		encl_page = container_of(epc_page->impl, struct sgx_encl_page,
 					 impl);
@@ -176,6 +205,39 @@ static struct sgx_context *sgxm_ctx_alloc(struct device *parent)
 	return ctx;
 }
 
+static int sgx_init_msrs(void)
+{
+	unsigned long fc;
+	u64 msrs[4];
+	int ret;
+
+	rdmsrl(MSR_IA32_FEATURE_CONTROL, fc);
+	if (fc & FEATURE_CONTROL_SGX_LE_WR)
+		sgx_unlocked_msrs = true;
+
+	ret = sgx_get_key_hash(sgx_le_ss.modulus, sgx_le_pubkeyhash);
+	if (ret)
+		return ret;
+
+	if (sgx_unlocked_msrs)
+		return 0;
+
+	rdmsrl(MSR_IA32_SGXLEPUBKEYHASH0, msrs[0]);
+	rdmsrl(MSR_IA32_SGXLEPUBKEYHASH1, msrs[1]);
+	rdmsrl(MSR_IA32_SGXLEPUBKEYHASH2, msrs[2]);
+	rdmsrl(MSR_IA32_SGXLEPUBKEYHASH3, msrs[3]);
+
+	if ((sgx_le_pubkeyhash[0] != msrs[0]) ||
+	    (sgx_le_pubkeyhash[1] != msrs[1]) ||
+	    (sgx_le_pubkeyhash[2] != msrs[2]) ||
+	    (sgx_le_pubkeyhash[3] != msrs[3])) {
+		pr_err("IA32_SGXLEPUBKEYHASHn MSRs do not match to the launch enclave signing key\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 static int sgx_dev_init(struct device *parent)
 {
 	struct sgx_context *sgx_dev;
@@ -185,6 +247,10 @@ static int sgx_dev_init(struct device *parent)
 	unsigned int edx;
 	int ret;
 	int i;
+
+	ret = sgx_init_msrs();
+	if (ret)
+		return ret;
 
 	sgx_dev = sgxm_ctx_alloc(parent);
 
@@ -213,11 +279,17 @@ static int sgx_dev_init(struct device *parent)
 	if (!sgx_add_page_wq)
 		return -ENOMEM;
 
-	ret = cdev_device_add(&sgx_dev->cdev, &sgx_dev->dev);
+	ret = sgx_le_init(&sgx_le_ctx);
 	if (ret)
 		goto out_workqueue;
 
+	ret = cdev_device_add(&sgx_dev->cdev, &sgx_dev->dev);
+	if (ret)
+		goto out_le;
+
 	return 0;
+out_le:
+	sgx_le_exit(&sgx_le_ctx);
 out_workqueue:
 	destroy_workqueue(sgx_add_page_wq);
 	return ret;
@@ -236,6 +308,7 @@ static int sgx_drv_remove(struct platform_device *pdev)
 	struct sgx_context *ctx = dev_get_drvdata(&pdev->dev);
 
 	cdev_device_del(&ctx->cdev, &ctx->dev);
+	sgx_le_exit(&sgx_le_ctx);
 	destroy_workqueue(sgx_add_page_wq);
 
 	return 0;

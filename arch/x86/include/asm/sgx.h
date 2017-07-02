@@ -248,7 +248,6 @@ struct sgx_launch_request {
 	u8 mrsigner[32];
 	uint64_t attributes;
 	uint64_t xfrm;
-	struct sgx_einittoken token;
 };
 
 #endif /* _ASM_X86_SGX_H */

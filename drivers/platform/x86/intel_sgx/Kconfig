@@ -2,12 +2,16 @@
 # Intel SGX
 #
 
+menu "Intel SGX"
+
 config INTEL_SGX
 	tristate "Intel(R) SGX Driver"
 	default n
 	depends on X86_64 && CPU_SUP_INTEL
 	select INTEL_SGX_CORE
 	select MMU_NOTIFIER
+	select CRYPTO
+	select CRYPTO_SHA256
 	---help---
 	Intel(R) SGX is a set of CPU instructions that can be used by
 	applications to set aside private regions of code and data.  The code
@@ -18,3 +22,14 @@ config INTEL_SGX
 	called Enclave Page Cache (EPC). There is a hardware unit in the
 	processor called Memory Encryption Engine. The MEE encrypts and decrypts
 	the EPC pages as they enter and leave the processor package.
+
+
+config INTEL_SGX_SIGNING_KEY
+	string "Path to the Intel SGX LE signing key"
+	default "drivers/platform/x86/intel_sgx/signing_key.pem"
+	depends on INTEL_SGX
+	---help---
+	Provide a path to a 3072-bit RSA private key that will be used to
+	sign the launch enclave.
+
+endmenu
