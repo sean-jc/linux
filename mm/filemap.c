@@ -130,17 +130,8 @@ static int page_cache_tree_insert(struct address_space *mapping,
 			return -EEXIST;
 
 		mapping->nrexceptional--;
-		if (!dax_mapping(mapping)) {
-			if (shadowp)
-				*shadowp = p;
-		} else {
-			/* DAX can replace empty locked entry with a hole */
-			WARN_ON_ONCE(p !=
-				dax_radix_locked_entry(0, RADIX_DAX_EMPTY));
-			/* Wakeup waiters for exceptional entry lock */
-			dax_wake_mapping_entry_waiter(mapping, page->index, p,
-						      true);
-		}
+		if (shadowp)
+			*shadowp = p;
 	}
 	__radix_tree_replace(&mapping->page_tree, node, slot, page,
 			     workingset_update_node, mapping);
@@ -621,7 +612,7 @@ int file_check_and_advance_wb_err(struct file *file)
 {
 	int err = 0;
 	errseq_t old = READ_ONCE(file->f_wb_err);
-	s                     mapping = file->f_mapping;
+	struct address_space *mapping = file->f_mapping;
 
 	/* Locklessly handle the common case where nothing has changed */
 	if (errseq_check(&mapping->wb_err, old)) {
@@ -654,7 +645,7 @@ EXPORT_SYMBOL(file_check_and_advance_wb_err);
 int file_write_and_wait_range(struct file *file, loff_t lstart, loff_t lend)
 {
 	int err = 0, err2;
-	s                     mapping = file->f_mapping;
+	struct address_space *mapping = file->f_mapping;
 
 	if ((!dax_mapping(mapping) && mapping->nrpages) ||
 	    (dax_mapping(mapping) && mapping->nrexceptional)) {
