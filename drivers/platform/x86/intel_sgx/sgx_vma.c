@@ -78,7 +78,7 @@ static int sgx_edbgrd(struct sgx_encl *encl, struct sgx_encl_page *page,
 	sgx_put_page(ptr);
 	if (ret) {
 		sgx_dbg(encl, "EDBGRD returned %d\n", ret);
-		return -EFAULT;
+		return ENCLS_TO_ERR(ret);
 	}
 
 	return 0;
@@ -103,7 +103,7 @@ static int sgx_edbgwr(struct sgx_encl *encl, struct sgx_encl_page *page,
 	sgx_put_page(ptr);
 	if (ret) {
 		sgx_dbg(encl, "EDBGWR returned %d\n", ret);
-		return -EFAULT;
+		return ENCLS_TO_ERR(ret);
 	}
 
 	return 0;
