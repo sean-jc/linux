@@ -5,6 +5,7 @@
 
 #include "cpuid.h"
 #include "kvm_cache_regs.h"
+#include "sgx.h"
 #include "vmx.h"
 #include "x86.h"
 
