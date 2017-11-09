@@ -366,41 +366,67 @@ static __init int sgx_page_cache_init(void)
 	return 0;
 }
 
-static __init bool sgx_is_enabled(void)
+static __init void __sgx_check_support(void *data)
 {
+	unsigned long *per_cpu_fc = (unsigned long *)data;
 	unsigned long fc;
 
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
-		return false;
+		return;
 
 	if (!boot_cpu_has(X86_FEATURE_SGX))
-		return false;
+		return;
 
 	if (!boot_cpu_has(X86_FEATURE_SGX1))
-		return false;
+		return;
 
 	rdmsrl(MSR_IA32_FEATURE_CONTROL, fc);
 	if (!(fc & FEATURE_CONTROL_LOCKED))
-		return false;
+		return;
 
 	if (!(fc & FEATURE_CONTROL_SGX_ENABLE))
-		return false;
+		return;
 
-	return true;
+	per_cpu_fc[smp_processor_id()] = fc;
+}
+
+static __init int sgx_is_enabled(void)
+{
+	unsigned long *fc;
+	int i, ret;
+
+	fc = kcalloc(nr_cpu_ids, sizeof(unsigned long), GFP_KERNEL);
+	if (!fc)
+		return -ENOMEM;
+
+	on_each_cpu(__sgx_check_support, fc, 1);
+
+	ret = 0;
+	for_each_online_cpu(i) {
+		if (!(fc[i] & FEATURE_CONTROL_SGX_ENABLE)) {
+			ret = -ENODEV;
+			break;
+		}
+	}
+
+	kfree(fc);
+
+	return ret;
 }
 
 static __init int sgx_init(void)
 {
-	bool enabled;
 	int ret;
 
-	enabled = sgx_is_enabled();
-	if (enabled) {
-		ret = sgx_page_cache_init();
-		if (ret)
-			return ret;
-	}
-	sgx_enabled = enabled;
+	ret = sgx_is_enabled();
+	if (ret)
+		return ret;
+
+	ret = sgx_page_cache_init();
+	if (ret)
+		return ret;
+
+	sgx_enabled = true;
 	return 0;
 }
 
