@@ -232,6 +232,7 @@ struct sgx_epc_bank {
 };
 
 extern bool sgx_enabled;
+extern bool sgx_lc_enabled;
 extern atomic_t sgx_nr_free_pages;
 extern struct sgx_epc_bank sgx_epc_banks[];
 extern int sgx_nr_epc_banks;
@@ -248,6 +249,8 @@ struct sgx_epc_page *sgx_alloc_page(struct sgx_epc_page_impl *impl,
 int sgx_free_page(struct sgx_epc_page *page);
 void *sgx_get_page(struct sgx_epc_page *ptr);
 void sgx_put_page(void *epc_page_ptr);
+int sgx_einit(struct sgx_sigstruct *sigstruct, struct sgx_einittoken *token,
+	      struct sgx_epc_page *secs_page, u64 le_pubkey_hash[4]);
 
 struct sgx_launch_request {
 	u8 mrenclave[32];

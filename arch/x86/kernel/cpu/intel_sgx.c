@@ -21,6 +21,8 @@
 
 bool sgx_enabled __ro_after_init = false;
 EXPORT_SYMBOL(sgx_enabled);
+bool sgx_lc_enabled __ro_after_init;
+EXPORT_SYMBOL(sgx_lc_enabled);
 atomic_t sgx_nr_free_pages = ATOMIC_INIT(0);
 EXPORT_SYMBOL(sgx_nr_free_pages);
 struct sgx_epc_bank sgx_epc_banks[SGX_MAX_EPC_BANKS];
@@ -34,6 +36,8 @@ EXPORT_SYMBOL(sgx_active_page_list_lock);
 
 static struct task_struct *ksgxswapd_tsk;
 static DECLARE_WAIT_QUEUE_HEAD(ksgxswapd_waitq);
+
+static DEFINE_PER_CPU(u64 [4], sgx_le_pubkey_hash_cache);
 
 static void sgx_swap_cluster(void)
 {
@@ -255,6 +259,46 @@ void sgx_put_page(void *ptr)
 }
 EXPORT_SYMBOL(sgx_put_page);
 
+/**
+ * sgx_put_page - EINIT an enclave with the appropriate LE pubkey hash
+ * @sigstruct:		a pointer to the enclave's sigstruct
+ * @token:		a pointer to the enclave's EINIT token
+ * @secs_page:		a pointer to the enclave's SECS EPC page
+ * @le_pubkey_hash:	the desired LE pubkey hash for EINIT
+ */
+int sgx_einit(struct sgx_sigstruct *sigstruct, struct sgx_einittoken *token,
+	      struct sgx_epc_page *secs_page, u64 le_pubkey_hash[4])
+{
+	u64 __percpu *cache;
+	void *secs;
+	int i, ret;
+
+	secs = sgx_get_page(secs_page);
+
+	if (!sgx_lc_enabled) {
+		ret = __einit(sigstruct, token, secs);
+		goto out;
+	}
+
+	cache = per_cpu(sgx_le_pubkey_hash_cache, smp_processor_id());
+
+	preempt_disable();
+	for (i = 0; i < 4; i++) {
+		if (le_pubkey_hash[i] == cache[i])
+			continue;
+
+		wrmsrl(MSR_IA32_SGXLEPUBKEYHASH0 + i, le_pubkey_hash[i]);
+		cache[i] = le_pubkey_hash[i];
+	}
+	ret = __einit(sigstruct, token, secs);
+	preempt_enable();
+
+out:
+	sgx_put_page(secs);
+	return ret;
+}
+EXPORT_SYMBOL(sgx_einit);
+
 static __init int sgx_init_epc_bank(unsigned long addr, unsigned long size,
 				    unsigned long index,
 				    struct sgx_epc_bank *bank)
@@ -370,6 +414,8 @@ static __init void __sgx_check_support(void *data)
 {
 	unsigned long *per_cpu_fc = (unsigned long *)data;
 	unsigned long fc;
+	u64 __percpu *cache;
+	int i, cpu;
 
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
 		return;
@@ -387,10 +433,17 @@ static __init void __sgx_check_support(void *data)
 	if (!(fc & FEATURE_CONTROL_SGX_ENABLE))
 		return;
 
-	per_cpu_fc[smp_processor_id()] = fc;
+	cpu = smp_processor_id();
+	if (fc & FEATURE_CONTROL_SGX_LE_WR) {
+		cache = per_cpu(sgx_le_pubkey_hash_cache, cpu);
+		for (i = 0; i < 4; i++)
+			rdmsrl(MSR_IA32_SGXLEPUBKEYHASH0+i, cache[i]);
+	}
+
+	per_cpu_fc[cpu] = fc;
 }
 
-static __init int sgx_is_enabled(void)
+static __init int sgx_is_enabled(bool *lc_enabled)
 {
 	unsigned long *fc;
 	int i, ret;
@@ -402,11 +455,15 @@ static __init int sgx_is_enabled(void)
 	on_each_cpu(__sgx_check_support, fc, 1);
 
 	ret = 0;
+	*lc_enabled = true;
 	for_each_online_cpu(i) {
 		if (!(fc[i] & FEATURE_CONTROL_SGX_ENABLE)) {
 			ret = -ENODEV;
+			*lc_enabled = false;
 			break;
 		}
+		if (!(fc[i] & FEATURE_CONTROL_SGX_LE_WR))
+			*lc_enabled = false;
 	}
 
 	kfree(fc);
@@ -416,9 +473,10 @@ static __init int sgx_is_enabled(void)
 
 static __init int sgx_init(void)
 {
+	bool lc_enabled = false;
 	int ret;
 
-	ret = sgx_is_enabled();
+	ret = sgx_is_enabled(&lc_enabled);
 	if (ret)
 		return ret;
 
@@ -427,6 +485,8 @@ static __init int sgx_init(void)
 		return ret;
 
 	sgx_enabled = true;
+	sgx_lc_enabled = lc_enabled;
+
 	return 0;
 }
 

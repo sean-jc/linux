@@ -31,7 +31,6 @@ u64 sgx_encl_size_max_64;
 u64 sgx_xfrm_mask = 0x3;
 u32 sgx_misc_reserved;
 u32 sgx_xsave_size_tbl[64];
-bool sgx_unlocked_msrs;
 u64 sgx_le_pubkeyhash[4];
 
 static DECLARE_RWSEM(sgx_file_sem);
@@ -207,19 +206,14 @@ static struct sgx_context *sgxm_ctx_alloc(struct device *parent)
 
 static int sgx_init_msrs(void)
 {
-	unsigned long fc;
 	u64 msrs[4];
 	int ret;
-
-	rdmsrl(MSR_IA32_FEATURE_CONTROL, fc);
-	if (fc & FEATURE_CONTROL_SGX_LE_WR)
-		sgx_unlocked_msrs = true;
 
 	ret = sgx_get_key_hash(sgx_le_ss.modulus, sgx_le_pubkeyhash);
 	if (ret)
 		return ret;
 
-	if (sgx_unlocked_msrs)
+	if (sgx_lc_enabled)
 		return 0;
 
 	rdmsrl(MSR_IA32_SGXLEPUBKEYHASH0, msrs[0]);
