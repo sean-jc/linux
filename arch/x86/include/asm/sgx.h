@@ -41,6 +41,10 @@ enum sgx_commands {
 	EAUG	= 0xD,
 	EMODPR	= 0xE,
 	EMODT	= 0xF,
+	ERDINFO = 0x10,
+	ETRACKC = 0x11,
+	ELDBC   = 0x12,
+	ELDUC   = 0x13,
 };
 
 #define IS_ENCLS_FAULT(r) ((r) & 0xffff0000)
@@ -192,6 +196,26 @@ static inline int __emodpr(struct sgx_secinfo *secinfo, void *epc)
 static inline int __emodt(struct sgx_secinfo *secinfo, void *epc)
 {
 	return __encls_ret_2(EMODT, secinfo, epc);
+}
+
+static inline int __erdinfo(struct sgx_rdinfo *rdinfo, void *epc)
+{
+	return __encls_ret_2(ERDINFO, rdinfo, epc);
+}
+
+static inline int __etrackc(void *epc)
+{
+	return __encls_ret_1(ETRACKC, epc);
+}
+
+static inline int __elduc(struct sgx_pageinfo *pginfo, void *epc, void *va)
+{
+	return __encls_ret_3(ELDUC, pginfo, epc, va);
+}
+
+static inline int __eldbc(struct sgx_pageinfo *pginfo, void *epc, void *va)
+{
+	return __encls_ret_3(ELDBC, pginfo, epc, va);
 }
 
 #define SGX_MAX_EPC_BANKS 8

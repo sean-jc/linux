@@ -221,4 +221,33 @@ struct sgx_keyrequest {
 	uint8_t reserved2[436];
 };
 
+enum sgx_rdinfo_status {
+	SGX_STATUS_CHILDPRESENT		= 0x01,
+	SGX_STATUS_VIRTCHILDPRESENT	= 0x02,
+};
+
+enum sgx_rdinfo_flags {
+	SGX_RDINFO_R		= 0x01,
+	SGX_RDINFO_W		= 0x02,
+	SGX_RDINFO_X		= 0x04,
+	SGX_RDINFO_PENDING	= 0x08, // EAUG
+	SGX_RDINFO_MODIFIED	= 0x10, // EMODT
+	SGX_RDINFO_PR		= 0x20,	// EMODPR (Permission Restriction)
+
+	SGX_RDINFO_PT_SHIFT	= 8,
+	SGX_RDINFO_PT_MASK	= (0xFF << SGX_RDINFO_PT_SHIFT),
+
+	SGX_RDINFO_BLOCKED	= (1ULL << 63),
+};
+
+#define SGX_RDINFO_TO_PAGE_TYPE(x) \
+	(((x).flags & SGX_RDINFO_PT_MASK) >> SGX_RDINFO_PT_SHIFT)
+
+struct sgx_rdinfo {
+	uint64_t status;
+	uint64_t flags;
+	uint64_t enclavecontext;
+} __attribute__((aligned(32)));
+
+
 #endif /* _ASM_X86_SGX_ARCH_H */
