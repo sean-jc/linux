@@ -233,4 +233,24 @@ static inline int __ewb(struct sgx_pageinfo *pginfo, void *addr,
 	return __encls_ret_3(EWB, pginfo, addr, va);
 }
 
+static inline int __erdinfo(struct sgx_rdinfo *rdinfo, void *addr)
+{
+	return __encls_ret_2(ERDINFO, rdinfo, addr);
+}
+
+static inline int __etrackc(void *addr)
+{
+	return __encls_ret_1(ETRACKC, addr);
+}
+
+static inline int __elduc(struct sgx_pageinfo *pginfo, void *addr, void *va)
+{
+	return __encls_ret_3(ELDUC, pginfo, addr, va);
+}
+
+static inline int __eldbc(struct sgx_pageinfo *pginfo, void *addr, void *va)
+{
+	return __encls_ret_3(ELDBC, pginfo, addr, va);
+}
+
 #endif /* _X86_ENCLS_H */
