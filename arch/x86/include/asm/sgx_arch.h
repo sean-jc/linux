@@ -249,5 +249,8 @@ struct sgx_rdinfo {
 	uint64_t enclavecontext;
 } __attribute__((aligned(32)));
 
+struct sgx_enclavecontext {
+	uint64_t enclavecontext;
+} __attribute__((aligned(8)));
 
 #endif /* _ASM_X86_SGX_ARCH_H */

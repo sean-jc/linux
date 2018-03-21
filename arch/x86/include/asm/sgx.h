@@ -47,6 +47,12 @@ enum sgx_encls_leafs {
 	ELDUC   = 0x13,
 };
 
+enum sgx_enclv_leafs {
+	EDECVIRTCHILD = 0x0,
+	EINCVIRTCHILD = 0x1,
+	ESETCONTEXT   = 0x2,
+};
+
 #define IS_ENCLS_FAULT(r) ((r) & 0xffff0000)
 #define ENCLS_FAULT_VECTOR(r) ((r) >> 16)
 
@@ -218,6 +224,43 @@ static inline int __eldbc(struct sgx_pageinfo *pginfo, void *epc, void *va)
 	return __encls_ret_3(ELDBC, pginfo, epc, va);
 }
 
+#define __enclv_ret_N(rax, inputs...)			\
+	({						\
+	int ret;					\
+	asm volatile(					\
+	"1: .byte 0x0f, 0x01, 0xc0;\n\t"		\
+	"2:\n"						\
+	".section .fixup,\"ax\"\n"			\
+	"3: shll $16,%%eax\n"				\
+	"   jmp 2b\n"					\
+	".previous\n"					\
+	_ASM_EXTABLE_FAULT(1b, 3b)			\
+	: "=a"(ret)					\
+	: "a"(rax), inputs				\
+	: "cc", "memory");				\
+	ret;						\
+	})
+
+#define __enclv_ret_2(rax, rbx, rcx)			\
+	({						\
+	__enclv_ret_N(rax, "b"(rbx),"c"(rcx));		\
+	})
+
+static inline int __edecvirtchild(void *epc, void *secs)
+{
+	return __enclv_ret_2(EDECVIRTCHILD, epc, secs);
+}
+
+static inline int __eincvirtchild(void *epc, void *secs)
+{
+	return __enclv_ret_2(EINCVIRTCHILD, epc, secs);
+}
+
+static inline int __esetcontext(void *secs, struct sgx_enclavecontext *ctxt)
+{
+	return __enclv_ret_N(ESETCONTEXT, "c"(secs),"d"(ctxt));
+}
+
 #define SGX_MAX_EPC_BANKS 8
 
 #define SGX_EPC_BANK(epc_page) \
@@ -295,6 +338,18 @@ struct sgx_launch_request {
 	return ret;			\
 }
 
+#define SGX_FN2(name, aux, params...)	\
+{					\
+	void *epc, *aux;		\
+	int ret;			\
+	epc = sgx_get_page(epc_page);	\
+	aux = sgx_get_page(aux##_page);	\
+	ret = __##name(params);		\
+	sgx_put_page(aux);		\
+	sgx_put_page(epc);		\
+	return ret;			\
+}
+
 #define BUILD_SGX_FN(fn, name)				\
 static inline int fn(struct sgx_epc_page *epc_page)	\
 	SGX_FN(name, epc)
@@ -309,5 +364,22 @@ static inline int sgx_emodpr(struct sgx_secinfo *secinfo,
 static inline int sgx_emodt(struct sgx_secinfo *secinfo,
 			    struct sgx_epc_page *epc_page)
 	SGX_FN(emodt, secinfo, epc)
+
+static inline int sgx_eincvirtchild(struct sgx_epc_page *epc_page,
+				    struct sgx_epc_page *secs_page)
+	SGX_FN2(eincvirtchild, secs, epc, secs)
+static inline int sgx_edecvirtchild(struct sgx_epc_page *epc_page,
+				    struct sgx_epc_page *secs_page)
+	SGX_FN2(edecvirtchild, secs, epc, secs)
+
+static inline int __sgx_esetcontext(struct sgx_epc_page *epc_page,
+				    struct sgx_enclavecontext *ctxt)
+	SGX_FN(esetcontext, epc, ctxt)
+
+static inline int sgx_esetcontext(struct sgx_epc_page *epc_page, uint64_t val)
+{
+	struct sgx_enclavecontext ctxt = { .enclavecontext = val };
+	return __sgx_esetcontext(epc_page, &ctxt);
+}
 
 #endif /* _ASM_X86_SGX_H */
