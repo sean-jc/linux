@@ -55,6 +55,18 @@ enum sgx_encls_leaf {
 };
 
 /**
+ * enum sgx_enclv_leaf - ENCLV leaf function type
+ * %EDECVIRTCHILD:	Decrement the virtual child count of an SECS page.
+ * %EINCVIRTCHILD:	Increment the virtual child count of an SECS page.
+ * %ESETCONTEXT:	Set the context of an SECS page.
+ */
+enum sgx_enclv_leafs {
+	EDECVIRTCHILD = 0x0,
+	EINCVIRTCHILD = 0x1,
+	ESETCONTEXT   = 0x2,
+};
+
+/**
  * enum sgx_return_code - The return code type for ENCLS, ENCLU and ENCLV
  * %SGX_NOT_TRACKED:		Previous ETRACK's shootdown sequence has not
  *				been completed yet.
@@ -461,5 +473,9 @@ struct sgx_rdinfo {
 	uint64_t flags;
 	uint64_t enclavecontext;
 } __packed __attribute__((aligned(32)));
+
+struct sgx_enclavecontext {
+	uint64_t enclavecontext;
+} __packed __aligned(8);
 
 #endif /* _ASM_X86_SGX_ARCH_H */
