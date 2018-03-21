@@ -25,7 +25,7 @@ enum sgx_cpuid {
 	SGX_CPUID_EPC_BANKS	= 2,
 };
 
-enum sgx_commands {
+enum sgx_encls_leafs {
 	ECREATE	= 0x0,
 	EADD	= 0x1,
 	EINIT	= 0x2,
