@@ -188,7 +188,7 @@ void __read_once_size(const volatile void *p, void *res, int size)
 	__READ_ONCE_SIZE;
 }
 
-#ifdef CONFIG_KASAN
+#if defined(CONFIG_KASAN) && defined(__SANITIZE_ADDRESS__)
 /*
  * We can't declare function 'inline' because __no_sanitize_address confilcts
  * with inlining. Attempt to inline it may cause a build failure.
