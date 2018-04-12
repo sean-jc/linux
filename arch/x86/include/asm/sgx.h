@@ -231,6 +231,50 @@ struct sgx_epc_bank {
 	struct rw_semaphore lock;
 };
 
+#define BUILD_SGX_PAGE_FLAG(ltype, utype, lname, uname, var)		   \
+static __always_inline							   \
+bool ltype##_page_##lname(struct ltype##_page *page)			   \
+	{ return test_bit(utype##_PAGE_##uname, (void *)&page->__##var); } \
+static __always_inline							   \
+void ltype##_page_set_##lname(struct ltype##_page *page)		   \
+	{ return set_bit(utype##_PAGE_##uname, (void *)&page->__##var); }  \
+static __always_inline							   \
+void ltype##_page_clear_##lname(struct ltype##_page *page)		   \
+	{ return clear_bit(utype##_PAGE_##uname, (void *)&page->__##var); }
+
+#define BUILD_SGX_PAGE_VAL(ltype, utype, lname, uname, var) 		    \
+static __always_inline							    \
+unsigned long ltype##_page_##lname(struct ltype##_page *page)		    \
+{									    \
+	return (page->__##var & utype##_PAGE_##uname##_MASK) >>		    \
+		utype##_PAGE_##uname##_SHIFT;				    \
+}									    \
+static __always_inline							    \
+void ltype##_page_set_##lname(struct ltype##_page *page, unsigned long val) \
+{									    \
+	typeof(page->__##var) nr = val;					    \
+	page->__##var &= ~utype##_PAGE_##uname##_MASK;			    \
+	page->__##var |= (nr << utype##_PAGE_##uname##_SHIFT) &		    \
+			  utype##_PAGE_##uname##_MASK;			    \
+}
+
+#define BUILD_SGX_PAGE_COUNT_VAL(ltype, utype, lname, uname, var)	\
+BUILD_SGX_PAGE_VAL(ltype, utype, lname, uname, var)			\
+static __always_inline							\
+unsigned long ltype##_page_inc_##lname(struct ltype##_page *page)	\
+{									\
+	typeof(page->__##var) nr = ltype##_page_##lname(page);		\
+	ltype##_page_set_##lname(page, nr + 1);				\
+	return (unsigned long)nr;					\
+}									\
+static __always_inline							\
+unsigned long ltype##_page_dec_##lname(struct ltype##_page *page)	\
+{									\
+	typeof(page->__##var) nr = ltype##_page_##lname(page);		\
+	ltype##_page_set_##lname(page, nr - 1);				\
+	return (unsigned long)nr;					\
+}
+
 extern bool sgx_enabled;
 extern bool sgx_lc_enabled;
 extern atomic_t sgx_nr_free_pages;
