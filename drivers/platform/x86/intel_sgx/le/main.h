@@ -18,7 +18,7 @@ extern unsigned char sgx_le_blob[];
 extern unsigned char sgx_le_blob_end[];
 extern unsigned char sgx_le_ss[];
 
-void sgx_get_token(struct sgx_launch_request *req, void *entry,
+void sgx_get_token(struct sgx_launch_request *req, void *enclave,
 		   struct sgx_einittoken *token);
 long sgx_sys_read(void *buf, unsigned long count);
 long sgx_sys_write(const void *buf, unsigned long count);

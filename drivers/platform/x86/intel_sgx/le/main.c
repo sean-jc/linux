@@ -115,12 +115,12 @@ void _start(void)
 {
 	struct sgx_launch_request req;
 	struct sgx_einittoken token;
-	void *entry;
+	void *enclave;
 
 	sgx_sys_close(SGX_LE_EXE_FD);
-	entry = start_launch_enclave();
+	enclave = start_launch_enclave();
 	sgx_sys_close(SGX_LE_DEV_FD);
-	if (!entry)
+	if (!enclave)
 		sgx_sys_exit(1);
 
 	for ( ; ; ) {
@@ -130,7 +130,7 @@ void _start(void)
 		if (read_input(&req, sizeof(req)))
 			sgx_sys_exit(1);
 
-		sgx_get_token(&req, entry, &token);
+		sgx_get_token(&req, enclave, &token);
 
 		if (write_token(&token))
 			sgx_sys_exit(1);
