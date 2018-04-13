@@ -40,12 +40,12 @@ static void *start_launch_enclave(void)
 
 	secs.base = (unsigned long)sgx_sys_mmap(SGX_LE_DEV_FD, secs.size);
 	if (secs.base == (unsigned long)MAP_FAILED)
-		goto out;
+		return ERR_PTR(-ENOMEM);
 
 	create_ioc.src = (unsigned long)&secs;
 	rc = sgx_sys_ioctl(SGX_LE_DEV_FD, SGX_IOC_ENCLAVE_CREATE, &create_ioc);
 	if (rc)
-		goto out;
+		return ERR_PTR(rc);
 
 	add_ioc.secinfo = (unsigned long)&secinfo;
 	add_ioc.mrmask = 0xFFFF;
@@ -63,18 +63,23 @@ static void *start_launch_enclave(void)
 		rc = sgx_sys_ioctl(SGX_LE_DEV_FD, SGX_IOC_ENCLAVE_ADD_PAGE,
 				   &add_ioc);
 		if (rc)
-			goto out;
+			return ERR_PTR(rc);
 	}
 
 	init_ioc.addr = secs.base;
 	init_ioc.sigstruct = (uint64_t)&sgx_le_ss;
 	rc = sgx_sys_ioctl(SGX_LE_DEV_FD, SGX_IOC_ENCLAVE_INIT, &init_ioc);
 	if (rc)
-		goto out;
+		return ERR_PTR(rc);
 
 	return (void *)secs.base;
-out:
-	return NULL;
+}
+
+void do_exit(long error_code)
+{
+	sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_SIGNAL_ERROR, (void *)error_code);
+	sgx_sys_exit(error_code);
+	__builtin_unreachable();
 }
 
 void _start(void)
@@ -82,24 +87,27 @@ void _start(void)
 	struct sgx_launch_request req;
 	struct sgx_einittoken token;
 	void *enclave;
+	long rc;
 
 	sgx_sys_close(SGX_LE_EXE_FD);
 	enclave = start_launch_enclave();
 	sgx_sys_close(SGX_LE_DEV_FD);
-	if (!enclave)
-		sgx_sys_exit(1);
+	if (IS_ERR(enclave))
+		do_exit(PTR_ERR(enclave));
 
 	for ( ; ; ) {
 		memset(&req, 0, sizeof(req));
 		memset(&token, 0, sizeof(token));
 
-		if (sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_READ_REQUEST, &req))
-			sgx_sys_exit(1);
+		rc = sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_READ_REQUEST, &req);
+		if (rc)
+			do_exit(rc);
 
 		sgx_get_token(&req, enclave, &token);
 
-		if (sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_WRITE_TOKEN, &token))
-			sgx_sys_exit(1);
+		rc = sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_WRITE_TOKEN, &token);
+		if (rc)
+			do_exit(rc);
 	}
 
 	__builtin_unreachable();
