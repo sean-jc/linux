@@ -77,40 +77,6 @@ out:
 	return NULL;
 }
 
-static int read_input(void *data, unsigned int len)
-{
-	uint8_t *ptr = (uint8_t *)data;
-	long i;
-	long ret;
-
-	for (i = 0; i < len; ) {
-		ret = sgx_sys_read(&ptr[i], len - i);
-		if (ret < 0)
-			return ret;
-
-		i += ret;
-	}
-
-	return 0;
-}
-
-static int write_token(const struct sgx_einittoken *token)
-{
-	const uint8_t *ptr = (const uint8_t *)token;
-	long i;
-	long ret;
-
-	for (i = 0; i < sizeof(*token); ) {
-		ret = sgx_sys_write(&ptr[i], sizeof(*token) - i);
-		if (ret < 0)
-			return ret;
-
-		i += ret;
-	}
-
-	return 0;
-}
-
 void _start(void)
 {
 	struct sgx_launch_request req;
@@ -127,12 +93,12 @@ void _start(void)
 		memset(&req, 0, sizeof(req));
 		memset(&token, 0, sizeof(token));
 
-		if (read_input(&req, sizeof(req)))
+		if (sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_READ_REQUEST, &req))
 			sgx_sys_exit(1);
 
 		sgx_get_token(&req, enclave, &token);
 
-		if (write_token(&token))
+		if (sgx_sys_ioctl(SGX_LE_CTX_FD, SGX_LE_WRITE_TOKEN, &token))
 			sgx_sys_exit(1);
 	}
 

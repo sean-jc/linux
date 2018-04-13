@@ -22,24 +22,6 @@ sgx_async_exit:
 	pop	%rbx
 	ret
 
-	.global sgx_sys_read
-sgx_sys_read:
-	mov	$0, %rax
-	mov	%rsi, %rdx /* buf */
-	mov	%rdi, %rsi /* count */
-	mov	$SGX_LE_PIPE_FD, %rdi
-	syscall
-	ret
-
-	.global sgx_sys_write
-sgx_sys_write:
-	mov	$1, %rax
-	mov	%rsi, %rdx /* buf */
-	mov	%rdi, %rsi /* count */
-	mov	$SGX_LE_PIPE_FD, %rdi
-	syscall
-	ret
-
 	.global sgx_sys_close
 sgx_sys_close:
 	mov	$3, %rax

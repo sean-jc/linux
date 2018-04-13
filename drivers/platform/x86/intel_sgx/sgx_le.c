@@ -26,6 +26,7 @@ struct sgx_le_ctx {
 	wait_queue_head_t wq;
 	bool kernel_read;
 	bool user_read;
+	long user_error;
 	struct file *pipe;
 	struct sgx_launch_request req;
 	struct sgx_einittoken token;
@@ -64,51 +65,62 @@ int sgx_get_key_hash(const void *modulus, void *hash)
 	return ret;
 }
 
-static ssize_t sgx_le_ctx_fops_read(struct file *filp, char __user *buf,
-				    size_t count, loff_t *off)
+static long sgx_le_signal_error(struct sgx_le_ctx *ctx, unsigned long arg)
 {
-	struct sgx_le_ctx *ctx = filp->private_data;
-	int ret;
+	ctx->user_error = arg;
+	wake_up_interruptible(&ctx->wq);
+	return 0;
+}
 
-	if (count != sizeof(ctx->req)) {
-		pr_crit("%s: invalid count %lu\n", __func__, count);
-		return -EIO;
-	}
+static long sgx_le_read_request(struct sgx_le_ctx *ctx, unsigned long arg)
+{
+	long ret;
 
 	ret = wait_event_interruptible(ctx->wq, ctx->user_read);
 	if (ret)
 		return -EINTR;
 
-	ret = copy_to_user(buf, &ctx->req, count);
+	ret = copy_to_user((void __user *)arg, &ctx->req, sizeof(ctx->req));
+	if (ret)
+		ctx->user_error = ret;
 	ctx->user_read = false;
-
-	return ret ? ret : count;
+	return ret;
 }
 
-static ssize_t sgx_le_ctx_fops_write(struct file *filp, const char __user *buf,
-				     size_t count, loff_t *off)
+static long sgx_le_write_token(struct sgx_le_ctx *ctx, unsigned long arg)
 {
-	struct sgx_le_ctx *ctx = filp->private_data;
-	int ret;
+	long ret;
 
-	if (count != sizeof(ctx->token)) {
-		pr_crit("%s: invalid count %lu\n", __func__, count);
-		return -EIO;
-	}
-
-	ret = copy_from_user(&ctx->token, buf, count);
-	if (!ret)
+	ret = copy_from_user(&ctx->token, (void __user *)arg,
+			     sizeof(ctx->token));
+	if (ret)
+		ctx->user_error = ret;
+	else
 		ctx->kernel_read = true;
 	wake_up_interruptible(&ctx->wq);
 
-	return ret ? ret : count;
+	return ret;
+}
+
+static long sgx_le_ioctl(struct file *filp, unsigned int ioctl,
+			 unsigned long arg)
+{
+	struct sgx_le_ctx *ctx = filp->private_data;
+
+	if (ioctl == SGX_LE_SIGNAL_ERROR)
+		return sgx_le_signal_error(ctx, arg);
+	else if (ioctl == SGX_LE_READ_REQUEST)
+		return sgx_le_read_request(ctx, arg);
+	else if (ioctl == SGX_LE_WRITE_TOKEN)
+		return sgx_le_write_token(ctx, arg);
+
+	return -ENOIOCTLCMD;
 }
 
 static const struct file_operations sgx_le_ctx_fops = {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
-	.read = sgx_le_ctx_fops_read,
-	.write = sgx_le_ctx_fops_write,
+	.unlocked_ioctl = sgx_le_ioctl,
 };
 
 static int sgx_le_task_init(struct subprocess_info *subinfo, struct cred *new)
@@ -143,7 +155,7 @@ static int sgx_le_task_init(struct subprocess_info *subinfo, struct cred *new)
 				      O_RDWR);
 	if (IS_ERR(tmp_filp))
 		return PTR_ERR(tmp_filp);
-	fd_install(SGX_LE_PIPE_FD, tmp_filp);
+	fd_install(SGX_LE_CTX_FD, tmp_filp);
 
 	ctx->tgid = get_pid(task_tgid(current));
 	ctx->pipe = tmp_filp;
@@ -228,6 +240,9 @@ int sgx_le_init(struct sgx_le_ctx *ctx)
 		return PTR_ERR(tfm);
 
 	ctx->tfm = tfm;
+	ctx->user_error = 0;
+	ctx->user_read = false;
+	ctx->kernel_read = false;
 	mutex_init(&ctx->hash_lock);
 	mutex_init(&ctx->launch_lock);
 	init_rwsem(&ctx->users);
@@ -255,9 +270,15 @@ static int __sgx_le_get_token(struct sgx_le_ctx *ctx,
 	ctx->user_read = true;
 	wake_up_interruptible(&ctx->wq);
 
-	ret = wait_event_interruptible(ctx->wq, ctx->kernel_read);
+	ret = wait_event_interruptible(ctx->wq, ctx->kernel_read ||
+						ctx->user_error);
 	if (ret)
 		return -EINTR;
+	if (ctx->user_error) {
+		sgx_err(encl, "%s: kernel LE died: (%ld)", __func__,
+			ctx->user_error);
+		return -EIO;
+	}
 
 	memcpy(token, &ctx->token, sizeof(*token));
 	ctx->kernel_read = false;

@@ -20,8 +20,6 @@ extern unsigned char sgx_le_ss[];
 
 void sgx_get_token(struct sgx_launch_request *req, void *enclave,
 		   struct sgx_einittoken *token);
-long sgx_sys_read(void *buf, unsigned long count);
-long sgx_sys_write(const void *buf, unsigned long count);
 long sgx_sys_close(long fd);
 long sgx_sys_mmap(long fd, unsigned long size);
 long sgx_sys_ioctl(long fd, unsigned long cmd, void *arg);

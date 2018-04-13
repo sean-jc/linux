@@ -74,6 +74,13 @@
 #define SGX_IOC_ENCLAVE_MODIFY_PAGES \
 	_IOW(SGX_MAGIC, 0x04, struct sgx_enclave_modify_pages)
 
+#define SGX_LE_SIGNAL_ERROR \
+	_IOW(SGX_MAGIC, 0x40, long)
+#define SGX_LE_READ_REQUEST \
+	_IOR(SGX_MAGIC, 0x41, struct sgx_launch_request)
+#define SGX_LE_WRITE_TOKEN \
+	_IOW(SGX_MAGIC, 0x42, struct sgx_einittoken)
+
 /* SGX leaf instruction return values */
 #define SGX_SUCCESS			0
 #define SGX_INVALID_SIG_STRUCT		1

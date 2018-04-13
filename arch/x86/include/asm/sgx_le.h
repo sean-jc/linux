@@ -12,6 +12,6 @@
 
 #define SGX_LE_EXE_FD 3
 #define SGX_LE_DEV_FD 4
-#define SGX_LE_PIPE_FD 5
+#define SGX_LE_CTX_FD 5
 
 #endif /* _ASM_X86_SGX_LE_H */
