@@ -56,12 +56,6 @@ enum sgx_encl_page_flags {
 		index = PFN_DOWN(encl_page->desc - encl->base);	\
 	index;							\
 })
-#define SGX_ENCL_PAGE_PCMD_OFFSET(encl_page, encl)		\
-({								\
-	unsigned long ret;					\
-	ret = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);	\
-	((ret & 31) * 128);					\
-})
 
 struct sgx_encl_page {
 	unsigned long desc;

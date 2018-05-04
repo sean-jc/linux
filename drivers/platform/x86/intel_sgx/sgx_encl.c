@@ -985,57 +985,21 @@ int sgx_encl_load_page(struct sgx_encl_page *encl_page,
 {
 	unsigned long addr = SGX_ENCL_PAGE_ADDR(encl_page);
 	struct sgx_encl *encl = encl_page->encl;
-	struct sgx_pageinfo pginfo;
-	unsigned long pcmd_offset;
 	unsigned long va_offset;
-	void *secs_ptr = NULL;
 	pgoff_t backing_index;
-	struct page *backing;
-	struct page *pcmd;
-	void *epc_ptr;
-	void *va_ptr;
 	int ret;
 
 	backing_index = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);
-	pcmd_offset = SGX_ENCL_PAGE_PCMD_OFFSET(encl_page, encl);
 	va_offset = SGX_ENCL_PAGE_VA_OFFSET(encl_page);
 
-	backing = sgx_get_backing(encl->backing, backing_index);
-	if (IS_ERR(backing))
-		return PTR_ERR(backing);
-
-	pcmd = sgx_get_backing(encl->pcmd, backing_index >> 5);
-	if (IS_ERR(pcmd)) {
-		sgx_put_backing(backing, false);
-		return PTR_ERR(pcmd);
-	}
-
-	if (addr)
-		secs_ptr = sgx_get_page(encl->secs.epc_page);
-
-	epc_ptr = sgx_get_page(epc_page);
-	va_ptr = sgx_get_page(encl_page->va_page->epc_page);
-	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
-	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
-	pginfo.linaddr = addr;
-	pginfo.secs = (unsigned long)secs_ptr;
-
-	ret = __eldu(&pginfo, epc_ptr, va_ptr + va_offset);
+	ret = sgx_eld(epc_page, encl_page->va_page->epc_page, va_offset,
+		addr ? encl->secs.epc_page : NULL, encl->backing, encl->pcmd,
+		backing_index, addr, __eldu);
 	if (ret) {
 		sgx_err(encl, "ELDU returned %d\n", ret);
 		ret = ENCLS_TO_ERR(ret);
 	}
 
-	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
-	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
-	sgx_put_page(va_ptr);
-	sgx_put_page(epc_ptr);
-
-	if (addr)
-		sgx_put_page(secs_ptr);
-
-	sgx_put_backing(pcmd, false);
-	sgx_put_backing(backing, false);
 	return ret;
 }
 

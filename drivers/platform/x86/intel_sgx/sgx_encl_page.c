@@ -73,55 +73,6 @@ static void sgx_encl_page_block(struct sgx_epc_page *epc_page)
 	up_read(&encl->mm->mmap_sem);
 }
 
-static int sgx_ewb(struct sgx_encl *encl, struct sgx_epc_page *epc_page,
-		   struct sgx_va_page *va_page, unsigned int va_offset)
-{
-	struct sgx_encl_page *encl_page = container_of(epc_page->impl,
-						       struct sgx_encl_page,
-						       impl);
-	unsigned long pcmd_offset = SGX_ENCL_PAGE_PCMD_OFFSET(encl_page, encl);
-	struct sgx_pageinfo pginfo;
-	pgoff_t backing_index;
-	struct page *backing;
-	struct page *pcmd;
-	void *epc;
-	void *va;
-	int ret;
-
-	backing_index = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);
-
-	backing = sgx_get_backing(encl->backing, backing_index);
-	if (IS_ERR(backing)) {
-		ret = PTR_ERR(backing);
-		return ret;
-	}
-
-	pcmd = sgx_get_backing(encl->pcmd, backing_index >> 5);
-	if (IS_ERR(pcmd)) {
-		ret = PTR_ERR(pcmd);
-		sgx_put_backing(backing, true);
-		return ret;
-	}
-
-	epc = sgx_get_page(epc_page);
-	va = sgx_get_page(va_page->epc_page);
-
-	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
-	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
-	pginfo.linaddr = 0;
-	pginfo.secs = 0;
-	ret = __ewb(&pginfo, epc, (void *)((unsigned long)va + va_offset));
-	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
-	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
-
-	sgx_put_page(va);
-	sgx_put_page(epc);
-	sgx_put_backing(pcmd, true);
-	sgx_put_backing(backing, true);
-
-	return ret;
-}
-
 /**
  * sgx_write_page - write a page to the regular memory
  *
@@ -140,24 +91,30 @@ static void sgx_write_page(struct sgx_epc_page *epc_page, bool do_free)
 	struct sgx_encl *encl = encl_page->encl;
 	struct sgx_va_page *va_page;
 	unsigned int va_offset;
+	pgoff_t index;
 	int ret;
 
 	if (encl->flags & SGX_ENCL_DEAD)
 		goto out;
+
+	index = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);
 
 	va_page = list_first_entry(&encl->va_pages, struct sgx_va_page, list);
 	va_offset = sgx_alloc_va_slot(va_page);
 	if (sgx_va_page_full(va_page))
 		list_move_tail(&va_page->list, &encl->va_pages);
 
-	ret = sgx_ewb(encl, epc_page, va_page, va_offset);
+	ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+		      encl->backing, encl->pcmd, index);
 	if (ret == SGX_NOT_TRACKED) {
 		sgx_encl_track(encl);
-		ret = sgx_ewb(encl, epc_page, va_page, va_offset);
+		ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+			      encl->backing, encl->pcmd, index);
 		if (ret == SGX_NOT_TRACKED) {
 			/* slow path, IPI needed */
 			sgx_flush_cpus(encl);
-			ret = sgx_ewb(encl, epc_page, va_page, va_offset);
+			ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+				      encl->backing, encl->pcmd, index);
 		}
 	}
 	SGX_INVD(ret, encl, "EWB returned %d\n", ret);

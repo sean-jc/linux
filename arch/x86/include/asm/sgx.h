@@ -409,4 +409,28 @@ static inline int sgx_esetcontext(struct sgx_epc_page *epc_page, uint64_t val)
 	return __sgx_esetcontext(epc_page, &ctxt);
 }
 
+int sgx_paging_fn(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
+		  unsigned long va_offset, struct sgx_epc_page *secs_page,
+		  struct file *backing_file, struct file *pcmd_file,
+		  pgoff_t index, unsigned long addr, bool write,
+		  int (*fn)(struct sgx_pageinfo *pginfo, void *epc, void *va));
+static inline
+int sgx_ewb(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
+	    unsigned long va_offset, struct file *backing_file,
+	    struct file *pcmd_file, pgoff_t index)
+{
+	return sgx_paging_fn(epc_page, va_page, va_offset, NULL,
+			     backing_file, pcmd_file, index, 0, true, __ewb);
+}
+static inline
+int sgx_eld(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
+	    unsigned long va_offset, struct sgx_epc_page *secs_page,
+	    struct file *backing_file, struct file *pcmd_file, pgoff_t index,
+	    unsigned long addr,
+	    int (*fn)(struct sgx_pageinfo *pginfo, void *epc, void *va))
+{
+	return sgx_paging_fn(epc_page, va_page, va_offset, secs_page,
+			     backing_file, pcmd_file, index, addr, false, fn);
+}
+
 #endif /* _ASM_X86_SGX_H */

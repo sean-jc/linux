@@ -295,6 +295,58 @@ void sgx_put_backing(struct page *backing_page, bool write)
 }
 EXPORT_SYMBOL(sgx_put_backing);
 
+int sgx_paging_fn(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
+		  unsigned long va_offset, struct sgx_epc_page *secs_page,
+		  struct file *backing_file, struct file *pcmd_file,
+		  pgoff_t index, unsigned long addr, bool write,
+		  int (*fn)(struct sgx_pageinfo *pginfo, void *epc, void *va))
+{
+	struct sgx_pageinfo pginfo;
+	struct page *backing, *pcmd;
+	unsigned long pcmd_offset;
+	void *secs, *epc, *va;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(struct sgx_pcmd) != 128);
+	pcmd_offset = (index & 0x1f) * 128;
+
+	backing = sgx_get_backing(backing_file, index);
+	if (IS_ERR(backing))
+		return PTR_ERR(backing);
+
+	pcmd = sgx_get_backing(pcmd_file, index >> 5);
+	if (IS_ERR(pcmd)) {
+		ret = PTR_ERR(pcmd);
+		goto out;
+	}
+
+	secs = secs_page ? sgx_get_page(secs_page) : NULL;
+	epc = sgx_get_page(epc_page);
+	va = sgx_get_page(va_page);
+
+	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
+	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
+	pginfo.linaddr = addr;
+	pginfo.secs = (unsigned long)secs;
+
+	ret = fn(&pginfo, epc, va + va_offset);
+
+	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
+	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
+
+	sgx_put_page(va);
+	sgx_put_page(epc);
+	if (secs)
+		sgx_put_page(secs);
+
+	sgx_put_backing(pcmd, !ret && write);
+out:
+	sgx_put_backing(backing, !ret && write);
+
+	return ret;
+}
+EXPORT_SYMBOL(sgx_paging_fn);
+
 /**
  * sgx_einit - EINIT an enclave with the appropriate LE pubkey hash
  * @sigstruct:		a pointer to the enclave's sigstruct
