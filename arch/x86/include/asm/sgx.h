@@ -14,7 +14,9 @@
 #include <asm/asm.h>
 #include <linux/bitops.h>
 #include <linux/err.h>
+#include <linux/list.h>
 #include <linux/rwsem.h>
+#include <linux/spinlock.h>
 #include <linux/types.h>
 
 #define SGX_CPUID 0x12
@@ -274,7 +276,9 @@ static inline int __esetcontext(void *secs, struct sgx_enclavecontext *ctxt)
 #define SGX_EPC_PFN(epc_page) PFN_DOWN((unsigned long)(epc_page->desc))
 #define SGX_EPC_ADDR(epc_page) ((unsigned long)(epc_page->desc) & PAGE_MASK)
 
+struct sgx_epc_context;
 struct sgx_epc_page;
+struct sgx_va_page;
 
 struct sgx_epc_page_ops {
 	bool (*get)(struct sgx_epc_page *epc_page);
@@ -370,6 +374,16 @@ struct page *sgx_get_backing(struct file *file, pgoff_t index);
 void sgx_put_backing(struct page *backing_page, bool write);
 int sgx_einit(struct sgx_sigstruct *sigstruct, struct sgx_einittoken *token,
 	      struct sgx_epc_page *secs_page, u64 le_pubkey_hash[4]);
+
+struct sgx_epc_context *sgx_alloc_epc_context(unsigned long size);
+void sgx_free_epc_context(struct sgx_epc_context *epc);
+struct sgx_epc_page *sgx_load_va_page(struct sgx_epc_context *epc,
+				      struct sgx_va_page *page);
+struct sgx_va_page *sgx_alloc_va_entry(struct sgx_epc_context *epc,
+				       struct sgx_epc_page **epc_page,
+				       unsigned int *offset);
+void sgx_free_va_entry(struct sgx_epc_context *epc, struct sgx_va_page *page,
+		       unsigned int offset);
 
 struct sgx_launch_request {
 	u8 mrenclave[32];
