@@ -89,6 +89,7 @@ static void sgx_write_page(struct sgx_epc_page *epc_page, bool do_free)
 						       struct sgx_encl_page,
 						       impl);
 	struct sgx_encl *encl = encl_page->encl;
+	struct sgx_epc_page *va_epc_page;
 	struct sgx_va_page *va_page;
 	unsigned int va_offset;
 	pgoff_t index;
@@ -99,21 +100,22 @@ static void sgx_write_page(struct sgx_epc_page *epc_page, bool do_free)
 
 	index = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);
 
-	va_page = list_first_entry(&encl->va_pages, struct sgx_va_page, list);
-	va_offset = sgx_alloc_va_slot(va_page);
-	if (sgx_va_page_full(va_page))
-		list_move_tail(&va_page->list, &encl->va_pages);
+	va_page = sgx_alloc_va_entry(encl->ctxt, &va_epc_page, &va_offset);
+	if (IS_ERR(va_page)) {
+		sgx_invalidate(encl, true);
+		goto out;
+	}
 
-	ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+	ret = sgx_ewb(epc_page, va_epc_page, va_offset,
 		      encl->backing, encl->pcmd, index, NULL);
 	if (ret == SGX_NOT_TRACKED) {
 		sgx_encl_track(encl);
-		ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+		ret = sgx_ewb(epc_page, va_epc_page, va_offset,
 			      encl->backing, encl->pcmd, index, NULL);
 		if (ret == SGX_NOT_TRACKED) {
 			/* slow path, IPI needed */
 			sgx_flush_cpus(encl);
-			ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
+			ret = sgx_ewb(epc_page, va_epc_page, va_offset,
 				      encl->backing, encl->pcmd, index, NULL);
 		}
 	}
@@ -177,76 +179,4 @@ void sgx_set_page_reclaimable(struct sgx_encl_page *encl_page)
 	spin_lock(&sgx_active_page_list_lock);
 	list_add_tail(&encl_page->epc_page->list, &sgx_active_page_list);
 	spin_unlock(&sgx_active_page_list_lock);
-}
-
-/**
- * sgx_alloc_page - allocate a VA page
- * @flags:	allocation flags
- *
- * Allocates an &sgx_epc_page instance and converts it to a VA page.
- *
- * Return:
- *   a &struct sgx_va_page instance,
- *   -errno otherwise
- */
-struct sgx_epc_page *sgx_alloc_va_page(unsigned int flags)
-{
-	struct sgx_epc_page *epc_page;
-	int ret;
-
-	epc_page = sgx_alloc_page(NULL, flags);
-	if (IS_ERR(epc_page))
-		return (void *)epc_page;
-
-	ret = sgx_epa(epc_page);
-	if (ret) {
-		pr_crit("EPA failed\n");
-		sgx_free_page(epc_page);
-		return ERR_PTR(ret);
-	}
-
-	return epc_page;
-}
-
-/**
- * sgx_alloc_va_slot - allocate a VA slot
- * @va_page:	a &struct sgx_va_page instance
- *
- * Allocates a slot from a &struct sgx_va_page instance.
- *
- * Return: offset of the slot inside the VA page
- */
-unsigned int sgx_alloc_va_slot(struct sgx_va_page *va_page)
-{
-	int slot = find_first_zero_bit(va_page->slots, SGX_VA_SLOT_COUNT);
-
-	if (slot < SGX_VA_SLOT_COUNT)
-		set_bit(slot, va_page->slots);
-
-	return slot << 3;
-}
-
-/**
- * sgx_free_va_slot - free a VA slot
- * @va_page:	a &struct sgx_va_page instance
- * @offset:	offset of the slot inside the VA page
- *
- * Frees a slot from a &struct sgx_va_page instance.
- */
-void sgx_free_va_slot(struct sgx_va_page *va_page, unsigned int offset)
-{
-	clear_bit(offset >> 3, va_page->slots);
-}
-
-/**
- * sgx_va_page_full - is the VA page full?
- * @va_page:	a &struct sgx_va_page instance
- *
- * Return: true if all slots have been taken
- */
-bool sgx_va_page_full(struct sgx_va_page *va_page)
-{
-	int slot = find_first_zero_bit(va_page->slots, SGX_VA_SLOT_COUNT);
-
-	return slot == SGX_VA_SLOT_COUNT;
 }

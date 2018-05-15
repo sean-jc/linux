@@ -32,12 +32,6 @@
 #define SGX_VA_SLOT_COUNT 512
 #define SGX_VA_OFFSET_MASK ((SGX_VA_SLOT_COUNT - 1) << 3)
 
-struct sgx_va_page {
-	struct sgx_epc_page *epc_page;
-	DECLARE_BITMAP(slots, SGX_VA_SLOT_COUNT);
-	struct list_head list;
-};
-
 enum sgx_encl_page_flags {
 	SGX_ENCL_PAGE_TCS	= BIT(0),
 	SGX_ENCL_PAGE_RESERVED	= BIT(1),
@@ -82,13 +76,13 @@ struct sgx_encl {
 	unsigned int secs_child_cnt;
 	struct mutex lock;
 	struct mm_struct *mm;
+	struct sgx_epc_context *ctxt;
 	struct file *backing;
 	struct file *pcmd;
 	struct kref refcount;
 	unsigned long base;
 	unsigned long size;
 	unsigned long ssaframesize;
-	struct list_head va_pages;
 	struct radix_tree_root page_tree;
 	struct list_head add_page_reqs;
 	struct work_struct add_page_work;
@@ -137,7 +131,8 @@ int sgx_encl_modify_pages(struct sgx_encl *encl, unsigned long addr,
 void sgx_encl_block(struct sgx_encl_page *encl_page);
 void sgx_encl_track(struct sgx_encl *encl);
 int sgx_encl_load_page(struct sgx_encl_page *encl_page,
-		       struct sgx_epc_page *epc_page);
+		       struct sgx_epc_page *epc_page,
+		       struct sgx_epc_page *va_epc_page);
 void sgx_encl_release(struct kref *ref);
 
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
@@ -158,10 +153,6 @@ extern const struct sgx_epc_page_ops sgx_encl_page_ops;
 void sgx_set_epc_page(struct sgx_encl_page *encl_page,
 		      struct sgx_epc_page *epc_page);
 void sgx_set_page_reclaimable(struct sgx_encl_page *encl_page);
-struct sgx_epc_page *sgx_alloc_va_page(unsigned int flags);
-unsigned int sgx_alloc_va_slot(struct sgx_va_page *va_page);
-void sgx_free_va_slot(struct sgx_va_page *va_page, unsigned int offset);
-bool sgx_va_page_full(struct sgx_va_page *va_page);
 
 extern struct sgx_le_ctx sgx_le_ctx;
 

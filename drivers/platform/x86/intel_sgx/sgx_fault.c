@@ -68,19 +68,22 @@ static struct sgx_epc_page *__sgx_load_faulted_page(
 {
 	unsigned long va_offset = SGX_ENCL_PAGE_VA_OFFSET(encl_page);
 	struct sgx_encl *encl = encl_page->encl;
-	struct sgx_epc_page *epc_page;
+	struct sgx_epc_page *epc_page, *va_epc_page;
 	int ret;
+
+	va_epc_page = sgx_load_va_page(encl->ctxt, encl_page->va_page);
+	if (IS_ERR(va_epc_page))
+		return va_epc_page;
 
 	epc_page = sgx_alloc_page(&encl_page->impl, SGX_ALLOC_ATOMIC);
 	if (IS_ERR(epc_page))
 		return epc_page;
-	ret = sgx_encl_load_page(encl_page, epc_page);
+	ret = sgx_encl_load_page(encl_page, epc_page, va_epc_page);
 	if (ret) {
 		sgx_free_page(epc_page);
 		return ERR_PTR(ret);
 	}
-	sgx_free_va_slot(encl_page->va_page, va_offset);
-	list_move(&encl_page->va_page->list, &encl->va_pages);
+	sgx_free_va_entry(encl->ctxt, encl_page->va_page, va_offset);
 	encl_page->desc &= ~SGX_VA_OFFSET_MASK;
 	sgx_set_epc_page(encl_page, epc_page);
 	return epc_page;

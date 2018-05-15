@@ -60,19 +60,6 @@ int sgx_encl_find(struct mm_struct *mm, unsigned long addr,
 	return encl ? 0 : -ENOENT;
 }
 
-static void sgx_encl_free_va_pages(struct sgx_encl *encl)
-{
-	struct sgx_va_page *va_page;
-
-	while (!list_empty(&encl->va_pages)) {
-		va_page = list_first_entry(&encl->va_pages, struct sgx_va_page,
-					   list);
-		list_del(&va_page->list);
-		sgx_free_page(va_page->epc_page);
-		kfree(va_page);
-	}
-}
-
 /**
  * sgx_invalidate - kill an active enclave
  *
@@ -107,8 +94,6 @@ void sgx_invalidate(struct sgx_encl *encl, bool flush_cpus)
 
 	if (flush_cpus)
 		sgx_flush_cpus(encl);
-
-	sgx_encl_free_va_pages(encl);
 }
 
 static int sgx_measure(struct sgx_epc_page *secs_page,
@@ -368,38 +353,6 @@ static const struct mmu_notifier_ops sgx_mmu_notifier_ops = {
 	.release	= sgx_mmu_notifier_release,
 };
 
-static int sgx_encl_grow(struct sgx_encl *encl)
-{
-	struct sgx_va_page *va_page;
-	int ret;
-
-	mutex_lock(&encl->lock);
-	if (!(encl->page_cnt % SGX_VA_SLOT_COUNT)) {
-		mutex_unlock(&encl->lock);
-
-		va_page = kzalloc(sizeof(*va_page), GFP_KERNEL);
-		if (!va_page)
-			return -ENOMEM;
-		va_page->epc_page = sgx_alloc_va_page(0);
-		if (IS_ERR(va_page->epc_page)) {
-			ret = PTR_ERR(va_page->epc_page);
-			kfree(va_page);
-			return ret;
-		}
-
-		mutex_lock(&encl->lock);
-		if (encl->page_cnt % SGX_VA_SLOT_COUNT) {
-			sgx_free_page(va_page->epc_page);
-			kfree(va_page);
-		} else {
-			list_add(&va_page->list, &encl->va_pages);
-		}
-	}
-	encl->page_cnt++;
-	mutex_unlock(&encl->lock);
-	return 0;
-}
-
 /**
  * sgx_encl_alloc - allocate memory for an enclave and set attributes
  *
@@ -415,6 +368,7 @@ static int sgx_encl_grow(struct sgx_encl *encl)
  */
 struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 {
+	struct sgx_epc_context *ctxt;
 	unsigned long ssaframesize;
 	struct sgx_encl *encl;
 	struct file *backing;
@@ -436,8 +390,16 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 		return (void *)pcmd;
 	}
 
+	ctxt = sgx_alloc_epc_context(secs->size + PAGE_SIZE);
+	if (IS_ERR(ctxt)) {
+		fput(backing);
+		fput(pcmd);
+		return (void *)ctxt;
+	}
+
 	encl = kzalloc(sizeof(*encl), GFP_KERNEL);
 	if (!encl) {
+		sgx_free_epc_context(ctxt);
 		fput(backing);
 		fput(pcmd);
 		return ERR_PTR(-ENOMEM);
@@ -448,7 +410,6 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 
 	kref_init(&encl->refcount);
 	INIT_LIST_HEAD(&encl->add_page_reqs);
-	INIT_LIST_HEAD(&encl->va_pages);
 	INIT_RADIX_TREE(&encl->page_tree, GFP_KERNEL);
 	mutex_init(&encl->lock);
 	INIT_WORK(&encl->add_page_work, sgx_add_page_worker);
@@ -459,6 +420,7 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 	encl->ssaframesize = secs->ssaframesize;
 	encl->backing = backing;
 	encl->pcmd = pcmd;
+	encl->ctxt = ctxt;
 
 	return encl;
 }
@@ -496,10 +458,6 @@ int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	encl->secs.encl = encl;
 	encl->secs.impl.ops = &sgx_encl_page_ops;
 	encl->tgid = get_pid(task_tgid(current));
-
-	ret = sgx_encl_grow(encl);
-	if (ret)
-		return ret;
 
 	secs_vaddr = sgx_get_page(secs_epc);
 
@@ -754,9 +712,7 @@ int sgx_encl_add_page(struct sgx_encl *encl, unsigned long addr, void *data,
 		if (ret)
 			return ret;
 	}
-	ret = sgx_encl_grow(encl);
-	if (ret)
-		return ret;
+
 	mutex_lock(&encl->lock);
 	if (encl->flags & (SGX_ENCL_INITIALIZED | SGX_ENCL_DEAD)) {
 		mutex_unlock(&encl->lock);
@@ -981,7 +937,8 @@ void sgx_encl_track(struct sgx_encl *encl)
  * address to zero.
  */
 int sgx_encl_load_page(struct sgx_encl_page *encl_page,
-		       struct sgx_epc_page *epc_page)
+		       struct sgx_epc_page *epc_page,
+		       struct sgx_epc_page *va_epc_page)
 {
 	unsigned long addr = SGX_ENCL_PAGE_ADDR(encl_page);
 	struct sgx_encl *encl = encl_page->encl;
@@ -992,7 +949,7 @@ int sgx_encl_load_page(struct sgx_encl_page *encl_page,
 	backing_index = SGX_ENCL_PAGE_BACKING_INDEX(encl_page, encl);
 	va_offset = SGX_ENCL_PAGE_VA_OFFSET(encl_page);
 
-	ret = sgx_eld(epc_page, encl_page->va_page->epc_page, va_offset,
+	ret = sgx_eld(epc_page, va_epc_page, va_offset,
 		addr ? encl->secs.epc_page : NULL, encl->backing, encl->pcmd,
 		backing_index, addr, __eldu);
 	if (ret) {
@@ -1029,7 +986,7 @@ void sgx_encl_release(struct kref *ref)
 		mmu_notifier_unregister_no_release(&encl->mmu_notifier,
 						   encl->mm);
 
-	sgx_encl_free_va_pages(encl);
+	sgx_free_epc_context(encl->ctxt);
 
 	if (encl->secs.desc & SGX_ENCL_PAGE_LOADED)
 		sgx_free_page(encl->secs.epc_page);
