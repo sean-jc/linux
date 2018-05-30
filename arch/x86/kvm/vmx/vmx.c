@@ -5562,6 +5562,9 @@ static inline bool encls_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
 	if (leaf >= EAUG && leaf <= EMODT)
 		return guest_cpuid_has(vcpu, X86_FEATURE_SGX2);
 
+	if (leaf >= ERDINFO && leaf <= ELDUC)
+		return enable_ept && guest_cpuid_has(vcpu, X86_FEATURE_ENCLS_C);
+
 	return false;
 }
 
@@ -7247,6 +7250,16 @@ void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 		if (guest_cpuid_has(vcpu, X86_FEATURE_SGX2))
 			bitmap &= ~GENMASK_ULL(EMODT, EAUG);
 
+		if (guest_cpuid_has(vcpu, X86_FEATURE_ENCLS_C))
+			bitmap &= ~GENMASK_ULL(ELDUC, ERDINFO);
+
+		/*
+		 * Do not allow ENCLS_C if EPT is disabled, otherwise ERDINFO
+		 * will effectively expose the HPA of the EPC.
+		 */
+		if (guest_cpuid_has(vcpu, X86_FEATURE_ENCLS_C) && enable_ept)
+			bitmap &= ~GENMASK_ULL(ELDUC, ERDINFO);
+
 		/*
 		 * Trap and execute EINIT if launch control is enabled in the
 		 * host using the guest's values for launch control MSRs, even
@@ -7256,6 +7269,13 @@ void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 		 */
 		if (boot_cpu_has(X86_FEATURE_SGX_LC))
 			bitmap |= (1 << EINIT);
+
+		/*
+		 * Do not allow ERDINFO in the guest if EPT is disabled as it
+		 * will leak HPAs to the guest when using shadow paging.
+		 */
+		if (!enable_ept)
+			bitmap |= BIT(ERDINFO);
 
 		if (!vmcs12 && nested && is_guest_mode(vcpu))
 			vmcs12 = get_vmcs12(vcpu);
