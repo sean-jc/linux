@@ -419,7 +419,7 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 	/* cpuid 12.0.eax*/
 	const u32 kvm_cpuid_12_0_eax_x86_features =
 		F(SGX1) | 0 /* Reserved */ | F(SGX2) | 0 /* Reserved */ |
-		0 /* Reserved */ | 0 /* ENCLV */ | 0 /* ENCLS_C */;
+		0 /* Reserved */ | 0 /* ENCLV */ | F(SGX_ENCLS_C);
 
 	/*
 	 * The code below assumes index == 0, which simplifies handling

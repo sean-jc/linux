@@ -9068,6 +9068,9 @@ static inline bool encls_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
 	if (leaf >= EAUG && leaf <= EMODT)
 		return guest_cpuid_has(vcpu, X86_FEATURE_SGX2);
 
+	if (leaf >= ERDINFO && leaf <= ELDUC)
+		return guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLS_C);
+
 	return false;
 }
 
@@ -10905,6 +10908,9 @@ static void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu,
 		if (guest_cpuid_has(vcpu, X86_FEATURE_SGX2))
 			bitmap &= ~GENMASK_ULL(EMODT, EAUG);
 
+		if (guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLS_C))
+			bitmap &= ~GENMASK_ULL(ELDUC, ERDINFO);
+
 		/*
 		 * If launch control is enabled in the host, EINIT must be
 		 * trapped and executed by the host to avoid races between
@@ -11065,8 +11071,12 @@ static int vmx_set_supported_cpuid(u32 func, struct kvm_cpuid_entry2 *entry,
 		 * does not support.  Pass-through MISCSELECT and the max
 		 * size fields (EBX and EDX respectively) as we do not trap
 		 * ECREATE, i.e. KVM doesn't enforce additional restrictions.
+		 * Do not expose ENCLS_C if EPT is disabled, otherwise ERDINFO
+		 * will effectively expose the HPA of the EPC.
 		 */
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
+		if (!enable_ept)
+			entry->eax &= ~bit(X86_FEATURE_SGX_ENCLS_C);
 
 		/*
 		 * Index 1: SECS.ATTRIBUTE
