@@ -521,7 +521,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 	/* cpuid 12.0.eax*/
 	const u32 kvm_cpuid_12_0_eax_sgx_features =
 		F(SGX1) | F(SGX2) | 0 /* Reserved */ | 0 /* Reserved */ |
-		0 /* Reserved */ | 0 /* ENCLV */ | 0 /* ENCLS_C */;
+		0 /* Reserved */ | 0 /* ENCLV */ | F(ENCLS_C);
 
 	/* cpuid 12.0.ebx*/
 	const u32 kvm_cpuid_12_0_ebx_sgx_features =
@@ -728,6 +728,14 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 		entry->eax &= kvm_cpuid_12_0_eax_sgx_features;
 		entry->ebx &= kvm_cpuid_12_0_ebx_sgx_features;
 		cpuid_mask(&entry->eax, CPUID_12_EAX);
+
+		/*
+		 * Don't advertise ENCLS_C if TDP is disabled, ERDINFO will
+		 * leak HPAs to the guest when shadow paging is used and so
+		 * cannot be exposed to the guest without additional support.
+		 */
+		if (!tdp_enabled)
+			entry->eax &= ~F(ENCLS_C);
 
 		if (*nent >= maxnent)
 			goto out;
