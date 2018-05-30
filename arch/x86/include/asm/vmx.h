@@ -80,6 +80,7 @@
 #define SECONDARY_EXEC_XSAVES			0x00100000
 #define SECONDARY_EXEC_TSC_SCALING              0x02000000
 #define SECONDARY_EXEC_ENABLE_ENCLV		0x10000000
+#define SECONDARY_EXEC_ENABLE_SGX_EPC_VIRT	0x20000000
 
 #define PIN_BASED_EXT_INTR_MASK                 0x00000001
 #define PIN_BASED_NMI_EXITING                   0x00000008
@@ -420,6 +421,14 @@ enum vmcs_field {
 #define TYPE_LINEAR_APIC_EVENT          (3 << 12)
 #define TYPE_PHYSICAL_APIC_EVENT        (10 << 12)
 #define TYPE_PHYSICAL_APIC_INST         (15 << 12)
+
+/*
+ * Exit Qualifications SGX Conflict
+ */
+#define SGX_TRACKING_LOCK_CONFLICT		0
+#define SGX_REFERENCE_COUNT_CONFLICT		1
+#define SGX_EPCM_LOCK_CONFLICT_EXCEPTION	2
+#define SGX_EPCM_LOCK_CONFLICT_ERROR		3
 
 /* segment AR in VMCS -- these are different from what LAR reports */
 #define VMX_SEGMENT_AR_L_MASK (1 << 13)
