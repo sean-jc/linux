@@ -82,5 +82,6 @@
 #define VMX_FEATURE_PT_USE_GPA		( 2*32+ 24) /* "" Processor Trace logs GPAs */
 #define VMX_FEATURE_TSC_SCALING		( 2*32+ 25) /* Scale hardware TSC when read in guest */
 #define VMX_FEATURE_ENCLV_EXITING	( 2*32+ 28) /* "" VM-Exit on ENCLV (leaf dependent) */
+#define VMX_FEATURE_SGX_EPC_VIRT	( 2*32+ 29) /* "epc_virt" SGX Enclave Page Cache (EPC) virtualization */
 
 #endif /* _ASM_X86_VMXFEATURES_H */
