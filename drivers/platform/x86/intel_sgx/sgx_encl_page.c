@@ -105,16 +105,16 @@ static void sgx_write_page(struct sgx_epc_page *epc_page, bool do_free)
 		list_move_tail(&va_page->list, &encl->va_pages);
 
 	ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
-		      encl->backing, encl->pcmd, index);
+		      encl->backing, encl->pcmd, index, NULL);
 	if (ret == SGX_NOT_TRACKED) {
 		sgx_encl_track(encl);
 		ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
-			      encl->backing, encl->pcmd, index);
+			      encl->backing, encl->pcmd, index, NULL);
 		if (ret == SGX_NOT_TRACKED) {
 			/* slow path, IPI needed */
 			sgx_flush_cpus(encl);
 			ret = sgx_ewb(epc_page, va_page->epc_page, va_offset,
-				      encl->backing, encl->pcmd, index);
+				      encl->backing, encl->pcmd, index, NULL);
 		}
 	}
 	SGX_INVD(ret, encl, "EWB returned %d\n", ret);

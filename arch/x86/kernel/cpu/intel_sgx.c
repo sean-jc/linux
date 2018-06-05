@@ -298,7 +298,7 @@ EXPORT_SYMBOL(sgx_put_backing);
 int sgx_paging_fn(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
 		  unsigned long va_offset, struct sgx_epc_page *secs_page,
 		  struct file *backing_file, struct file *pcmd_file,
-		  pgoff_t index, unsigned long addr, bool write,
+		  pgoff_t index, unsigned long *addr, bool write,
 		  int (*fn)(struct sgx_pageinfo *pginfo, void *epc, void *va))
 {
 	struct sgx_pageinfo pginfo;
@@ -326,10 +326,12 @@ int sgx_paging_fn(struct sgx_epc_page *epc_page, struct sgx_epc_page *va_page,
 
 	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
 	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
-	pginfo.linaddr = addr;
+	pginfo.linaddr = addr ? *addr : 0;
 	pginfo.secs = (unsigned long)secs;
 
 	ret = fn(&pginfo, epc, va + va_offset);
+	if (!ret && write && addr)
+		*addr = pginfo.linaddr;
 
 	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
 	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
