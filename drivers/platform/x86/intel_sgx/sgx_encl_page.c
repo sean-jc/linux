@@ -142,30 +142,31 @@ static void sgx_write_page(struct sgx_epc_page *epc_page, bool do_free)
 	unsigned int va_offset;
 	int ret;
 
-	if (!(encl->flags & SGX_ENCL_DEAD)) {
-		va_page = list_first_entry(&encl->va_pages, struct sgx_va_page,
-					   list);
-		va_offset = sgx_alloc_va_slot(va_page);
-		if (sgx_va_page_full(va_page))
-			list_move_tail(&va_page->list, &encl->va_pages);
+	if (encl->flags & SGX_ENCL_DEAD)
+		goto out;
 
+	va_page = list_first_entry(&encl->va_pages, struct sgx_va_page, list);
+	va_offset = sgx_alloc_va_slot(va_page);
+	if (sgx_va_page_full(va_page))
+		list_move_tail(&va_page->list, &encl->va_pages);
+
+	ret = sgx_ewb(encl, epc_page, va_page, va_offset);
+	if (ret == SGX_NOT_TRACKED) {
+		sgx_encl_track(encl);
 		ret = sgx_ewb(encl, epc_page, va_page, va_offset);
 		if (ret == SGX_NOT_TRACKED) {
-			sgx_encl_track(encl);
+			/* slow path, IPI needed */
+			sgx_flush_cpus(encl);
 			ret = sgx_ewb(encl, epc_page, va_page, va_offset);
-			if (ret == SGX_NOT_TRACKED) {
-				/* slow path, IPI needed */
-				sgx_flush_cpus(encl);
-				ret = sgx_ewb(encl, epc_page, va_page,
-					      va_offset);
-			}
 		}
-		SGX_INVD(ret, encl, "EWB returned %d\n", ret);
-
-		encl_page->desc |= va_offset;
-		encl_page->va_page = va_page;
-		encl_page->desc &= ~SGX_ENCL_PAGE_RESERVED;
 	}
+	SGX_INVD(ret, encl, "EWB returned %d\n", ret);
+
+	encl_page->desc |= va_offset;
+	encl_page->va_page = va_page;
+	encl_page->desc &= ~SGX_ENCL_PAGE_RESERVED;
+
+out:
 	encl_page->desc &= ~SGX_ENCL_PAGE_LOADED;
 	if (do_free)
 		sgx_free_page(epc_page);
