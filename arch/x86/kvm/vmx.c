@@ -55,6 +55,8 @@
 #include <asm/mshyperv.h>
 #include <asm/sgx.h>
 
+#include <uapi/asm/sgx.h>
+
 #include "trace.h"
 #include "pmu.h"
 #include "vmx_evmcs.h"
@@ -291,6 +293,7 @@ struct __packed vmcs12 {
 	u64 eptp_list_address;
 	u64 xss_exit_bitmap;
 	u64 encls_exiting_bitmap;
+	u64 enclv_exiting_bitmap;
 	u64 guest_physical_address;
 	u64 vmcs_link_pointer;
 	u64 pml_address;
@@ -800,6 +803,7 @@ static const unsigned short vmcs_field_to_offset_table[] = {
 	FIELD64(EPTP_LIST_ADDRESS, eptp_list_address),
 	FIELD64(XSS_EXIT_BITMAP, xss_exit_bitmap),
 	FIELD64(ENCLS_EXITING_BITMAP, encls_exiting_bitmap),
+	FIELD64(ENCLV_EXITING_BITMAP, enclv_exiting_bitmap),
 	FIELD64(GUEST_PHYSICAL_ADDRESS, guest_physical_address),
 	FIELD64(VMCS_LINK_POINTER, vmcs_link_pointer),
 	FIELD64(PML_ADDRESS, pml_address),
@@ -1543,6 +1547,12 @@ static inline bool cpu_has_vmx_encls_vmexit(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_ENCLS_EXITING;
+}
+
+static inline bool cpu_has_vmx_enclv_vmexit(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+		SECONDARY_EXEC_ENABLE_ENCLV;
 }
 
 /*
@@ -4346,7 +4356,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf)
 			SECONDARY_EXEC_ENABLE_PML |
 			SECONDARY_EXEC_TSC_SCALING |
 			SECONDARY_EXEC_ENABLE_VMFUNC |
-			SECONDARY_EXEC_ENCLS_EXITING;
+			SECONDARY_EXEC_ENCLS_EXITING |
+			SECONDARY_EXEC_ENABLE_ENCLV;
 		if (adjust_vmx_controls(min2, opt2,
 					MSR_IA32_VMX_PROCBASED_CTLS2,
 					&_cpu_based_2nd_exec_control) < 0)
@@ -6263,6 +6274,21 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 		else
 			vmx->nested.msrs.secondary_ctls_high &=
 				~SECONDARY_EXEC_ENCLS_EXITING;
+	}
+
+	if (cpu_has_vmx_enclv_vmexit()) {
+		bool enclv_enabled = guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLV);
+		if (!enclv_enabled)
+			exec_control &= ~SECONDARY_EXEC_ENABLE_ENCLV;
+
+		if (nested) {
+			if (enclv_enabled)
+				vmx->nested.msrs.secondary_ctls_high |=
+					SECONDARY_EXEC_ENABLE_ENCLV;
+			else
+				vmx->nested.msrs.secondary_ctls_high &=
+					~SECONDARY_EXEC_ENABLE_ENCLV;
+		}
 	}
 
 	vmx->secondary_exec_control = exec_control;
@@ -9095,6 +9121,15 @@ static int handle_encls(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_enclv(struct kvm_vcpu *vcpu)
+{
+	WARN(1, "KVM: unhandled exit on ENCLV[%u]\n",
+		(u32)kvm_register_read(vcpu, VCPU_REGS_RAX));
+	vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+	vcpu->run->hw.hardware_exit_reason = EXIT_REASON_ENCLV;
+	return 0;
+}
+
 /*
  * The exit handlers return 1 if the exit was handled fully and guest execution
  * may resume.  Otherwise they set the kvm_run parameter to indicate what needs
@@ -9152,6 +9187,7 @@ static int (*const kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_VMFUNC]                  = handle_vmfunc,
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
 	[EXIT_REASON_ENCLS]		      = handle_encls,
+	[EXIT_REASON_ENCLV]		      = handle_enclv,
 };
 
 static const int kvm_vmx_max_exit_handlers =
@@ -9507,6 +9543,9 @@ static bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 		return false;
 	case EXIT_REASON_ENCLS:
 		return nested_vmx_exit_handled_encls(vcpu, vmcs12);
+	case EXIT_REASON_ENCLV:
+		/* We never intercept ENCLV on our own behalf. */
+		return true;
 	default:
 		return true;
 	}
@@ -11943,7 +11982,8 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 				  SECONDARY_EXEC_XSAVES |
 				  SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY |
 				  SECONDARY_EXEC_APIC_REGISTER_VIRT |
-				  SECONDARY_EXEC_ENABLE_VMFUNC);
+				  SECONDARY_EXEC_ENABLE_VMFUNC |
+				  SECONDARY_EXEC_ENABLE_ENCLV);
 		if (nested_cpu_has(vmcs12,
 				   CPU_BASED_ACTIVATE_SECONDARY_CONTROLS)) {
 			vmcs12_exec_ctrl = vmcs12->secondary_vm_exec_control &
@@ -11965,6 +12005,10 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 
 		if (exec_control & SECONDARY_EXEC_ENCLS_EXITING)
 			vmx_write_encls_bitmap(vcpu, vmcs12);
+
+		if (exec_control & SECONDARY_EXEC_ENABLE_ENCLV)
+			vmcs_write64(ENCLV_EXITING_BITMAP,
+				vmcs12->enclv_exiting_bitmap);
 
 		vmcs_write32(SECONDARY_VM_EXEC_CONTROL, exec_control);
 	}
