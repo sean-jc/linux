@@ -2139,6 +2139,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 		/* SGX may be enabled/disabled by guest's firmware */
 		vmx_write_encls_bitmap(vcpu, NULL);
+		vmx_write_enclv_bitmap(vcpu, NULL);
 		break;
 	case MSR_IA32_SGXLEPUBKEYHASH0 ... MSR_IA32_SGXLEPUBKEYHASH3:
 		if (!msr_info->host_initiated &&
@@ -2424,7 +2425,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 			SECONDARY_EXEC_PT_USE_GPA |
 			SECONDARY_EXEC_PT_CONCEAL_VMX |
 			SECONDARY_EXEC_ENABLE_VMFUNC |
-			SECONDARY_EXEC_ENCLS_EXITING;
+			SECONDARY_EXEC_ENCLS_EXITING |
+			SECONDARY_EXEC_ENCLV_EXITING;
 		if (adjust_vmx_controls(min2, opt2,
 					MSR_IA32_VMX_PROCBASED_CTLS2,
 					&_cpu_based_2nd_exec_control) < 0)
@@ -4182,6 +4184,29 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 				~SECONDARY_EXEC_ENCLS_EXITING;
 	}
 
+	if (cpu_has_vmx_enclv_vmexit()) {
+		bool enclv_enabled = enable_sgx &&
+				     guest_cpuid_has(vcpu, X86_FEATURE_SGX) &&
+				     guest_cpuid_has(vcpu, X86_FEATURE_ENCLV);
+
+		/*
+		 * ENCLV #UDs if the CPU is not post-VMXON, i.e. is guaranteed
+		 * to #UD in the guest if nVMX is disabled, and ENCLV #UDs in
+		 * non-root if ENCLV_EXITING is disabled.
+		 */
+		if (!enclv_enabled || !nested)
+			exec_control &= ~SECONDARY_EXEC_ENCLV_EXITING;
+
+		if (nested) {
+			if (enclv_enabled)
+				vmx->nested.msrs.secondary_ctls_high |=
+					SECONDARY_EXEC_ENCLV_EXITING;
+			else
+				vmx->nested.msrs.secondary_ctls_high &=
+					~SECONDARY_EXEC_ENCLV_EXITING;
+		}
+	}
+
 	vmx->secondary_exec_control = exec_control;
 }
 
@@ -4283,6 +4308,7 @@ static void init_vmcs(struct vcpu_vmx *vmx)
 	}
 
 	vmx_write_encls_bitmap(&vmx->vcpu, NULL);
+	vmx_write_enclv_bitmap(&vmx->vcpu, NULL);
 
 	if (pt_mode == PT_MODE_HOST_GUEST) {
 		memset(&vmx->pt_desc, 0, sizeof(vmx->pt_desc));
@@ -5588,6 +5614,35 @@ static int handle_encls(struct kvm_vcpu *vcpu)
 	}
 	return 1;
 }
+
+static inline bool enclv_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
+{
+	if (WARN_ON_ONCE(!enable_sgx ||
+			 !guest_cpuid_has(vcpu, X86_FEATURE_ENCLV) ||
+			 !guest_cpuid_has(vcpu, X86_FEATURE_SGX)))
+		return false;
+
+	if (leaf >= EDECVIRTCHILD && leaf <= ESETCONTEXT)
+		return true;
+	return false;
+}
+
+static int handle_enclv(struct kvm_vcpu *vcpu)
+{
+	u32 leaf = (u32)vcpu->arch.regs[VCPU_REGS_RAX];
+
+	if (!enclv_leaf_enabled_in_guest(vcpu, leaf))
+		kvm_queue_exception(vcpu, UD_VECTOR);
+	else if (!sgx_enabled_in_guest_bios(vcpu))
+		kvm_inject_gp(vcpu, 0);
+	else {
+		WARN(1, "KVM: unexpected exit on ENCLS[%u]", leaf);
+		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+		vcpu->run->hw.hardware_exit_reason = EXIT_REASON_ENCLS;
+		return 0;
+	}
+	return 1;
+}
 #else /* CONFIG_INTEL_SGX_VIRTUALIZATION */
 static int handle_encls(struct kvm_vcpu *vcpu)
 {
@@ -5656,6 +5711,9 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_VMFUNC]		      = handle_vmx_instruction,
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
 	[EXIT_REASON_ENCLS]		      = handle_encls,
+#ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
+	[EXIT_REASON_ENCLV]		      = handle_enclv,
+#endif
 };
 
 static const int kvm_vmx_max_exit_handlers =
@@ -7286,6 +7344,34 @@ void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 	vmcs_write64(ENCLS_EXITING_BITMAP, bitmap);
 }
 
+void vmx_write_enclv_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
+{
+	/*
+	 * ENCLV-exiting is set if and only if SGX virtualization is enabled,
+	 * as ENCLV will #UD in VMX non-root if ENCLV-exiting is not set, i.e.
+	 * the control doubles as enable of ENCLV in VMX non-root.
+	 */
+#ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
+	u64 bitmap = -1ull;
+
+	/* Nothing to do if hardware doesn't support SGX ENCLV */
+	if (!cpu_has_vmx_enclv_vmexit())
+		return;
+
+	if (guest_cpuid_has(vcpu, X86_FEATURE_SGX) &&
+	    guest_cpuid_has(vcpu, X86_FEATURE_ENCLV) &&
+	    sgx_enabled_in_guest_bios(vcpu)) {
+		bitmap &= ~GENMASK_ULL(ESETCONTEXT, EDECVIRTCHILD);
+
+		if (!vmcs12 && nested && is_guest_mode(vcpu))
+			vmcs12 = get_vmcs12(vcpu);
+		if (vmcs12 && nested_cpu_has_enclv_exit(vmcs12))
+			bitmap |= vmcs12->encls_exiting_bitmap;
+	}
+	vmcs_write64(ENCLV_EXITING_BITMAP, bitmap);
+#endif
+}
+
 static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -7326,6 +7412,7 @@ static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 	}
 
 	vmx_write_encls_bitmap(vcpu, NULL);
+	vmx_write_enclv_bitmap(vcpu, NULL);
 	if (guest_cpuid_has(vcpu, X86_FEATURE_SGX))
 		vmx->msr_ia32_feature_control_valid_bits |= FEAT_CTL_SGX_ENABLED;
 	else

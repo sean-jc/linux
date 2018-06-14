@@ -521,7 +521,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 	/* cpuid 12.0.eax*/
 	const u32 kvm_cpuid_12_0_eax_sgx_features =
 		F(SGX1) | F(SGX2) | 0 /* Reserved */ | 0 /* Reserved */ |
-		0 /* Reserved */ | 0 /* ENCLV */ | F(ENCLS_C);
+		0 /* Reserved */ | F(ENCLV) | F(ENCLS_C);
 
 	/* cpuid 12.0.ebx*/
 	const u32 kvm_cpuid_12_0_ebx_sgx_features =
