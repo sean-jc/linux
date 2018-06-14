@@ -102,6 +102,7 @@ enum sgx_secinfo_flags {
 	SGX_SECINFO_SECS	= (SGX_PAGE_TYPE_SECS << 8),
 	SGX_SECINFO_TCS		= (SGX_PAGE_TYPE_TCS << 8),
 	SGX_SECINFO_REG		= (SGX_PAGE_TYPE_REG << 8),
+	SGX_SECINFO_VA		= (SGX_PAGE_TYPE_VA << 8),
 	SGX_SECINFO_TRIM	= (SGX_PAGE_TYPE_TRIM << 8),
 };
 
@@ -115,7 +116,7 @@ struct sgx_pcmd {
 	uint64_t enclave_id;
 	uint8_t reserved[40];
 	uint8_t mac[16];
-};
+} __attribute__((aligned(128)));
 
 #define SGX_MODULUS_SIZE 384
 
