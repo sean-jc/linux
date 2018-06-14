@@ -354,6 +354,7 @@ void pt_update_intercept_for_msr(struct vcpu_vmx *vmx);
 void vmx_update_host_rsp(struct vcpu_vmx *vmx, unsigned long host_rsp);
 int vmx_find_msr_index(struct vmx_msrs *m, u32 msr);
 void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12);
+void vmx_write_enclv_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12);
 
 #define POSTED_INTR_ON  0
 #define POSTED_INTR_SN  1

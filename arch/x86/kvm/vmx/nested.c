@@ -2244,6 +2244,9 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 		if (exec_control & SECONDARY_EXEC_ENCLS_EXITING)
 			vmx_write_encls_bitmap(&vmx->vcpu, vmcs12);
 
+		if (exec_control & SECONDARY_EXEC_ENCLV_EXITING)
+			vmx_write_enclv_bitmap(&vmx->vcpu, vmcs12);
+
 		secondary_exec_controls_set(vmx, exec_control);
 	}
 
@@ -5469,6 +5472,20 @@ static bool nested_vmx_exit_handled_encls(struct kvm_vcpu *vcpu,
 	return (vmcs12->encls_exiting_bitmap & (1ULL << encls_leaf));
 }
 
+static bool nested_vmx_exit_handled_enclv(struct kvm_vcpu *vcpu,
+					  struct vmcs12 *vmcs12)
+{
+	u32 encls_leaf;
+
+	if (!nested_cpu_has2(vmcs12, SECONDARY_EXEC_ENCLV_EXITING))
+		return false;
+
+	encls_leaf = vcpu->arch.regs[VCPU_REGS_RAX];
+	if (encls_leaf > 62)
+		encls_leaf = 63;
+	return (vmcs12->enclv_exiting_bitmap & (1ULL << encls_leaf));
+}
+
 static bool nested_vmx_exit_handled_vmcs_access(struct kvm_vcpu *vcpu,
 	struct vmcs12 *vmcs12, gpa_t bitmap)
 {
@@ -5673,6 +5690,8 @@ bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 	case EXIT_REASON_TPAUSE:
 		return nested_cpu_has2(vmcs12,
 			SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE);
+	case EXIT_REASON_ENCLV:
+		return nested_vmx_exit_handled_enclv(vcpu, vmcs12);
 	default:
 		return true;
 	}
@@ -6156,6 +6175,8 @@ void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps,
 
 	if (enable_sgx)
 		msrs->secondary_ctls_high |= SECONDARY_EXEC_ENCLS_EXITING;
+	if (enable_sgx && cpu_has_vmx_encls_vmexit())
+		msrs->secondary_ctls_high |= SECONDARY_EXEC_ENCLV_EXITING;
 
 	/* miscellaneous data */
 	rdmsr(MSR_IA32_VMX_MISC,
