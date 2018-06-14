@@ -33,6 +33,7 @@ enum sgx_encls_leafs {
 	EDGBRD	= 0x4,
 	EDGBWR	= 0x5,
 	EEXTEND	= 0x6,
+	ELDB	= 0x7,
 	ELDU	= 0x8,
 	EBLOCK	= 0x9,
 	EPA	= 0xA,
@@ -165,6 +166,11 @@ static inline int __edbgrd(unsigned long addr, unsigned long *data)
 static inline int __etrack(void *epc)
 {
 	return __encls_ret_1(ETRACK, epc);
+}
+
+static inline int __eldb(struct sgx_pageinfo *pginfo, void *epc, void *va)
+{
+	return __encls_ret_3(ELDB, pginfo, epc, va);
 }
 
 static inline int __eldu(struct sgx_pageinfo *pginfo, void *epc, void *va)
@@ -357,6 +363,27 @@ BUILD_SGX_FN(sgx_eremove, eremove)
 BUILD_SGX_FN(sgx_eblock, eblock)
 BUILD_SGX_FN(sgx_etrack, etrack)
 BUILD_SGX_FN(sgx_epa, epa)
+
+static inline int sgx_ecreate(struct sgx_pageinfo *pginfo,
+			     struct sgx_epc_page *epc_page)
+	SGX_FN(ecreate, pginfo, epc)
+
+static inline int sgx_eldb(struct sgx_pageinfo *pginfo,
+			   struct sgx_epc_page *epc_page,
+			   struct sgx_epc_page *va_page, uint16_t va_offset)
+	SGX_FN2(eldb, va, pginfo, epc, va + va_offset)
+static inline int sgx_eldu(struct sgx_pageinfo *pginfo,
+			   struct sgx_epc_page *epc_page,
+			   struct sgx_epc_page *va_page, uint16_t va_offset)
+	SGX_FN2(eldu, va, pginfo, epc, va + va_offset)
+static inline int sgx_eldbc(struct sgx_pageinfo *pginfo,
+			    struct sgx_epc_page *epc_page,
+			    struct sgx_epc_page *va_page, uint16_t va_offset)
+	SGX_FN2(eldbc, va, pginfo, epc, va + va_offset)
+static inline int sgx_elduc(struct sgx_pageinfo *pginfo,
+			    struct sgx_epc_page *epc_page,
+			    struct sgx_epc_page *va_page, uint16_t va_offset)
+	SGX_FN2(elduc, va, pginfo, epc, va + va_offset)
 
 static inline int sgx_emodpr(struct sgx_secinfo *secinfo,
 			     struct sgx_epc_page *epc_page)
