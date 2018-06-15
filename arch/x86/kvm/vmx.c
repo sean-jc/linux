@@ -1555,6 +1555,12 @@ static inline bool cpu_has_vmx_enclv_vmexit(void)
 		SECONDARY_EXEC_ENABLE_ENCLV;
 }
 
+static inline bool cpus_has_vmx_sgx_epc_virt(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+		SECONDARY_EXEC_ENABLE_SGX_EPC_VIRT;
+}
+
 /*
  * Comment's format: document - errata name - stepping - processor name.
  * Refer from
@@ -6291,6 +6297,20 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 		}
 	}
 
+	if (cpus_has_vmx_sgx_epc_virt()) {
+		if (nested) {
+			bool expose_epc_virt = sgx_allowed_in_guest(vcpu) &&
+				guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLV) &&
+				guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLS_C);
+			if (expose_epc_virt)
+				vmx->nested.msrs.secondary_ctls_high |=
+					SECONDARY_EXEC_ENABLE_SGX_EPC_VIRT;
+			else
+				vmx->nested.msrs.secondary_ctls_high &=
+					~SECONDARY_EXEC_ENABLE_SGX_EPC_VIRT;
+		}
+	}
+
 	vmx->secondary_exec_control = exec_control;
 }
 
@@ -9319,6 +9339,14 @@ static int handle_enclv(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int handle_sgx_conflict(struct kvm_vcpu *vcpu)
+{
+	WARN(1, "KVM: unhandled SGX conflict exit\n");
+	vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+	vcpu->run->hw.hardware_exit_reason = EXIT_REASON_SGX_CONFLICT;
+	return 0;
+}
+
 /*
  * The exit handlers return 1 if the exit was handled fully and guest execution
  * may resume.  Otherwise they set the kvm_run parameter to indicate what needs
@@ -9377,6 +9405,7 @@ static int (*const kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
 	[EXIT_REASON_ENCLS]		      = handle_encls,
 	[EXIT_REASON_ENCLV]		      = handle_enclv,
+	[EXIT_REASON_SGX_CONFLICT]	      = handle_sgx_conflict,
 };
 
 static const int kvm_vmx_max_exit_handlers =
@@ -9734,6 +9763,9 @@ static bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 		return nested_vmx_exit_handled_encls(vcpu, vmcs12);
 	case EXIT_REASON_ENCLV:
 		/* We never intercept ENCLV on our own behalf. */
+		return true;
+	case EXIT_REASON_SGX_CONFLICT:
+		/* We don't utilize EPC virtualization... yet */
 		return true;
 	default:
 		return true;
