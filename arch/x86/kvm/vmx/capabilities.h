@@ -242,6 +242,12 @@ static inline bool cpu_has_vmx_enclv_vmexit(void)
 		SECONDARY_EXEC_ENCLV_EXITING;
 }
 
+static inline bool cpu_has_vmx_sgx_epc_virt(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+		SECONDARY_EXEC_SGX_EPC_VIRT;
+}
+
 static inline bool vmx_rdseed_supported(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
