@@ -2426,7 +2426,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 			SECONDARY_EXEC_PT_CONCEAL_VMX |
 			SECONDARY_EXEC_ENABLE_VMFUNC |
 			SECONDARY_EXEC_ENCLS_EXITING |
-			SECONDARY_EXEC_ENCLV_EXITING;
+			SECONDARY_EXEC_ENCLV_EXITING |
+			SECONDARY_EXEC_SGX_EPC_VIRT;
 		if (adjust_vmx_controls(min2, opt2,
 					MSR_IA32_VMX_PROCBASED_CTLS2,
 					&_cpu_based_2nd_exec_control) < 0)
@@ -4067,6 +4068,12 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 	   a current VMCS12
 	*/
 	exec_control &= ~SECONDARY_EXEC_SHADOW_VMCS;
+
+	/*
+	 * KVM doesn't use EPC virtualization directly, it's only ever enabled
+	 * in vmcs02 when requested by an L1 VMM.
+	 */
+	exec_control &= ~SECONDARY_EXEC_SGX_EPC_VIRT;
 
 	if (!enable_pml)
 		exec_control &= ~SECONDARY_EXEC_ENABLE_PML;
