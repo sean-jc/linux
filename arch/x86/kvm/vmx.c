@@ -9081,6 +9081,190 @@ out:
 	return ret;
 }
 
+static int handle_encls_ecreate(struct kvm_vcpu *vcpu)
+{
+	struct sgx_secinfo __secinfo;
+	struct sgx_pageinfo __pageinfo;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct page *src_page;
+	int r, ret;
+
+	struct encls_mem_op pageinfo = {
+		.reg = VCPU_REGS_RBX,
+		.size = sizeof(__pageinfo),
+		.align = 32,
+		.p = &__pageinfo,
+	};
+	struct encls_mem_op secs = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op secinfo = {
+		.size = sizeof(__secinfo),
+		.align = 64,
+		.p = &__secinfo,
+	};
+	struct encls_mem_op srcpge = {
+		.size = 4096,
+		.align = 4096,
+	};
+
+	if (get_encls_mem_op(vcpu, &pageinfo) ||
+	    get_encls_mem_op(vcpu, &secs))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &secs) ||
+	    get_encls_mem_value(vcpu, &pageinfo))
+		return 1;
+
+	secinfo.gva = __pageinfo.secinfo;
+	if (get_encls_mem_value(vcpu, &secinfo))
+		return 1;
+
+	src_page = alloc_page(GFP_HIGHUSER);
+	if (!src_page)
+		return -ENOMEM;
+
+	srcpge.p = kmap(src_page);
+	srcpge.gva = __pageinfo.srcpge;
+	if (get_encls_mem_value(vcpu, &srcpge)) {
+		ret = 1;
+		goto out;
+	}
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &secs, &ret))
+		goto out;
+
+	__pageinfo.secinfo = (uint64_t)secinfo.p;
+	__pageinfo.srcpge = (uint64_t)srcpge.p;
+
+	r = sgx_ecreate(pageinfo.p, secs.p);
+	if (!r) {
+		sgx_esetcontext(secs.p, secs.gpa);
+		sgx_eincvirtchild(secs.p, secs.p);
+	}
+	up_read(&epc->lock);
+
+	ret = vmx_encls_postamble(vcpu, r, &secs);
+out:
+	kunmap(src_page);
+	__free_page(src_page);
+
+	return ret;
+}
+
+static int handle_encls_eld(struct kvm_vcpu *vcpu, u32 leaf)
+{
+	struct sgx_pcmd __pcmd;
+	struct sgx_pageinfo __pageinfo;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct page *src_page;
+	uint16_t va_offset;
+	u64 page_type;
+	int r, ret;
+
+	struct encls_mem_op pageinfo = {
+		.reg = VCPU_REGS_RBX,
+		.size = sizeof(__pageinfo),
+		.align = 32,
+		.p = &__pageinfo,
+	};
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op va_page = {
+		.reg = VCPU_REGS_RDX,
+		.size = 8,
+		.align = 8,
+		.write = true,
+	};
+	struct encls_mem_op secs = {
+		.size = 4096,
+		.align = 4096,
+	};
+	struct encls_mem_op pcmd = {
+		.size = sizeof(__pcmd),
+		.align = 128,
+		.p = &__pcmd,
+	};
+	struct encls_mem_op srcpge = {
+		.size = 4096,
+		.align = 4096,
+	};
+
+	if (get_encls_mem_op(vcpu, &pageinfo) ||
+	    get_encls_mem_op(vcpu, &page) ||
+	    get_encls_mem_op(vcpu, &va_page))
+		return 1;
+
+	if (get_encls_mem_value(vcpu, &pageinfo) ||
+	    get_encls_epc_gpa(vcpu, &page) ||
+	    get_encls_epc_gpa(vcpu, &va_page))
+		return 1;
+
+	pcmd.gva = __pageinfo.pcmd;
+	if (get_encls_mem_value(vcpu, &pcmd))
+		return 1;
+
+	page_type = __pcmd.secinfo.flags & SGX_SECINFO_PAGE_TYPE_MASK;
+	if (page_type != SGX_SECINFO_SECS && page_type != SGX_SECINFO_VA) {
+		secs.gva = __pageinfo.secs;
+		secs.write = true;
+		if (get_encls_epc_gpa(vcpu, &secs))
+			return 1;
+	}
+
+	src_page = alloc_page(GFP_HIGHUSER);
+	if (!src_page)
+		return -ENOMEM;
+	srcpge.p = kmap(src_page);
+	srcpge.gva = __pageinfo.srcpge;
+	if (get_encls_mem_value(vcpu, &srcpge)) {
+		ret = 1;
+		goto out;
+	}
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret) ||
+	    get_encls_epc_page(vcpu, &va_page, &ret) ||
+	    (secs.write && get_encls_epc_page(vcpu, &secs, &ret)))
+		goto out;
+
+	__pageinfo.pcmd = (uint64_t)pcmd.p;
+	__pageinfo.srcpge = (uint64_t)srcpge.p;
+	if (secs.write)
+		__pageinfo.secs = (uint64_t)sgx_get_page(secs.p);
+
+	va_offset = va_page.gva & ~PAGE_MASK;
+	if (leaf == ELDU)
+		r = sgx_eldu(pageinfo.p, page.p, va_page.p, va_offset);
+	else if (leaf == ELDB)
+		r = sgx_eldb(pageinfo.p, page.p, va_page.p, va_offset);
+	else if (leaf == ELDUC)
+		r = sgx_elduc(pageinfo.p, page.p, va_page.p, va_offset);
+	else
+		r = sgx_eldbc(pageinfo.p, page.p, va_page.p, va_offset);
+
+	if (secs.write)
+		sgx_put_page((void *)__pageinfo.secs);
+	if (!r && page_type == SGX_SECINFO_SECS)
+		sgx_esetcontext(page.p, page.gpa);
+	up_read(&epc->lock);
+
+	ret = vmx_encls_postamble(vcpu, r, &secs);
+out:
+	kunmap(src_page);
+	__free_page(src_page);
+
+	return ret;
+}
+
 #endif /* CONFIG_INTEL_SGX_CORE */
 
 static inline bool encls_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
@@ -9112,6 +9296,11 @@ static int handle_encls(struct kvm_vcpu *vcpu)
 #ifdef CONFIG_INTEL_SGX_CORE
 		if (leaf == EINIT)
 			return handle_encls_einit(vcpu);
+		else if (leaf == ECREATE)
+			return handle_encls_ecreate(vcpu);
+		else if (leaf == ELDB || leaf == ELDU ||
+			 leaf == ELDBC || leaf == ELDUC)
+			return handle_encls_eld(vcpu, leaf);
 #endif
 		WARN(1, "KVM: unexpected exit on ENCLS[%u]", leaf);
 		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -10961,6 +11150,19 @@ static void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu,
 		if (sgx_lc_enabled)
 			bitmap |= (1 << EINIT);
 
+		/*
+		 * If EPT is disabled and the guest has access to ERDINFO,
+		 * intercept ECREATE and the ELD* leafs in order to store
+		 * the GPA in SECS.enclavecontext (the CPU will store the
+		 * HPA).  This applies to both L1 and L2 VMs as L1 expects
+		 * SECS.enclavecontext to contain its HPAs, i.e. L1 GPAs.
+		 */
+		if (!enable_ept &&
+		    guest_cpuid_has(vcpu, X86_FEATURE_SGX_ENCLS_C)) {
+			bitmap |= (1 << ECREATE) | (1 << ELDB) | (1 << ELDU) |
+				  (1 << ELDBC) | (1 << ELDUC);
+		}
+
 		if (!vmcs12 && nested && is_guest_mode(vcpu))
 			vmcs12 = get_vmcs12(vcpu);
 		if (vmcs12 && nested_cpu_has_encls_exit(vmcs12))
@@ -11110,11 +11312,12 @@ static int vmx_set_supported_cpuid(u32 func, struct kvm_cpuid_entry2 *entry,
 		 * does not support.  Pass-through MISCSELECT and the max
 		 * size fields (EBX and EDX respectively) as we do not trap
 		 * ECREATE, i.e. KVM doesn't enforce additional restrictions.
-		 * Do not expose ENCLS_C if EPT is disabled, otherwise ERDINFO
-		 * will effectively expose the HPA of the EPC.
+		 * Do not expose ENCLS_C if EPT is disabled and ENCLV is not
+		 * supported, we need to use ENCLV[ESETCONTEXT] to manually
+		 * set the GPA (visible via ERDINFO) when EPT is disabled.
 		 */
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
-		if (!enable_ept)
+		if (!enable_ept && !boot_cpu_has(X86_FEATURE_SGX_ENCLV))
 			entry->eax &= ~bit(X86_FEATURE_SGX_ENCLS_C);
 
 		/*
