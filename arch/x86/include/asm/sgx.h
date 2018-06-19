@@ -48,13 +48,17 @@ enum sgx_encls_leafs {
 	ETRACKC = 0x11,
 	ELDBC   = 0x12,
 	ELDUC   = 0x13,
+
+	EDECVIRTCHILD = 0x20,
+	EINCVIRTCHILD = 0x21,
+	ESETCONTEXT   = 0x22,
 };
 
-enum sgx_enclv_leafs {
-	EDECVIRTCHILD = 0x0,
-	EINCVIRTCHILD = 0x1,
-	ESETCONTEXT   = 0x2,
-};
+// enum sgx_enclv_leafs {
+// 	EDECVIRTCHILD = 0x0,
+// 	EINCVIRTCHILD = 0x1,
+// 	ESETCONTEXT   = 0x2,
+// };
 
 #define IS_ENCLS_FAULT(r) ((r) & 0xffff0000)
 #define ENCLS_FAULT_VECTOR(r) ((r) >> 16)

@@ -1035,9 +1035,41 @@ static void ept_save_pdptrs(struct kvm_vcpu *vcpu);
 #ifdef CONFIG_INTEL_SGX_CORE
 
 struct vmx_epc_page {
+	bool valid;
+	atomic_t kids;
+	atomic_t virt_kids;
+	u16 page_type;
+	u64 enclavecontext;
+	struct vmx_epc_page *secs_page;
+
 	struct sgx_epc_page *epc_page;
 	struct sgx_epc_page_impl impl;
 };
+
+static inline void vmx_epc_page_freed(struct vmx_epc_page *page)
+{
+	if (!page->valid) {
+		// intentionally blank
+	} else if (page->page_type == SGX_PAGE_TYPE_SECS) {
+		int kids = atomic_read(&page->kids);
+		if (unlikely(kids))
+			pr_warn("KVM: SECS freed w/ %d kids", kids);
+	} else if (page->page_type != SGX_PAGE_TYPE_VA) {
+		if (!WARN_ON(!page->secs_page)) {
+			if (unlikely(atomic_dec_return(&page->secs_page->kids) < 0)) {
+				pr_warn("KVM: SECS kids went negative");
+				atomic_inc(&page->secs_page->kids);
+			}
+		}
+	}
+
+	page->valid = false;
+	atomic_set(&page->kids, 0);
+	atomic_set(&page->virt_kids, 0);
+	page->page_type = 0;
+	page->enclavecontext = UNMAPPED_GVA;
+	page->secs_page = NULL;
+}
 
 struct vmx_epc {
 	u64 base;
@@ -8954,6 +8986,15 @@ static bool get_encls_mem_op(struct kvm_vcpu *vcpu, struct encls_mem_op *op)
 	return fault;
 }
 
+static gpa_t get_encls_l2_gpa(struct kvm_vcpu *vcpu, struct encls_mem_op *op)
+{
+	struct x86_exception ex;
+	gpa_t gpa;
+	gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, op->gva, PFERR_L2_MASK, &ex);
+	WARN_ON(gpa == UNMAPPED_GVA);
+	return gpa;
+}
+
 static bool get_encls_epc_gpa(struct kvm_vcpu *vcpu, struct encls_mem_op *op)
 {
 	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
@@ -8971,7 +9012,7 @@ static bool get_encls_epc_gpa(struct kvm_vcpu *vcpu, struct encls_mem_op *op)
 }
 
 static bool get_encls_epc_page(struct kvm_vcpu *vcpu, struct encls_mem_op *op,
-			       int *ret)
+			       int *ret, struct vmx_epc_page **p)
 {
 	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
 	struct vmx_epc_page *page;
@@ -8995,6 +9036,8 @@ static bool get_encls_epc_page(struct kvm_vcpu *vcpu, struct encls_mem_op *op,
 		}
 	}
 	op->p = page->epc_page;
+	if (p)
+		*p = page;
 	return false;
 }
 
@@ -9005,6 +9048,19 @@ static bool get_encls_mem_value(struct kvm_vcpu *vcpu,
 	struct x86_exception ex;
 
 	if (kvm_read_guest_virt(ctxt, op->gva, op->p, op->size, &ex)) {
+		kvm_propagate_page_fault(vcpu, &ex);
+		return true;
+	}
+	return false;
+}
+
+static bool set_encls_mem_value(struct kvm_vcpu *vcpu,
+				const struct encls_mem_op *op)
+{
+	struct x86_emulate_ctxt *ctxt = &vcpu->arch.emulate_ctxt;
+	struct x86_exception ex;
+
+	if (kvm_write_guest_virt_system(ctxt, op->gva, op->p, op->size, &ex)) {
 		kvm_propagate_page_fault(vcpu, &ex);
 		return true;
 	}
@@ -9088,7 +9144,7 @@ static int handle_encls_einit(struct kvm_vcpu *vcpu)
 	}
 
 	down_read(&epc->lock);
-	if (get_encls_epc_page(vcpu, &secs, &ret))
+	if (get_encls_epc_page(vcpu, &secs, &ret, NULL))
 		goto out;
 
 	r = sgx_einit(sig.p, token.p, secs.p, vmx->msr_ia32_sgxlepubkeyhash);
@@ -9106,6 +9162,7 @@ static int handle_encls_ecreate(struct kvm_vcpu *vcpu)
 	struct sgx_secinfo __secinfo;
 	struct sgx_pageinfo __pageinfo;
 	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *secs_page;
 	struct page *src_page;
 	int r, ret;
 
@@ -9131,6 +9188,14 @@ static int handle_encls_ecreate(struct kvm_vcpu *vcpu)
 		.align = 4096,
 	};
 
+	/*
+	 * Don't allow ECREATE in L1
+	 */
+	if (!is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
 	if (get_encls_mem_op(vcpu, &pageinfo) ||
 	    get_encls_mem_op(vcpu, &secs))
 		return 1;
@@ -9155,16 +9220,18 @@ static int handle_encls_ecreate(struct kvm_vcpu *vcpu)
 	}
 
 	down_read(&epc->lock);
-	if (get_encls_epc_page(vcpu, &secs, &ret))
+	if (get_encls_epc_page(vcpu, &secs, &ret, &secs_page))
 		goto out;
 
 	__pageinfo.secinfo = (uint64_t)secinfo.p;
 	__pageinfo.srcpge = (uint64_t)srcpge.p;
 
 	r = sgx_ecreate(pageinfo.p, secs.p);
-	if (!r) {
-		sgx_esetcontext(secs.p, secs.gpa);
-		sgx_eincvirtchild(secs.p, secs.p);
+	if (likely(!r)) {
+		WARN_ON(secs_page->valid);
+		secs_page->valid = true;
+		secs_page->page_type = SGX_PAGE_TYPE_SECS;
+		secs_page->enclavecontext = get_encls_l2_gpa(vcpu, &secs);
 	}
 	up_read(&epc->lock);
 
@@ -9176,11 +9243,159 @@ out:
 	return ret;
 }
 
-static int handle_encls_eld(struct kvm_vcpu *vcpu, u32 leaf)
+static int handle_encls_eadd(struct kvm_vcpu *vcpu)
+{
+	struct sgx_secinfo __secinfo;
+	struct sgx_pageinfo __pageinfo;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *eadd_page, *secs_page;
+	struct page *src_page;
+	u64 page_type;
+	int r, ret;
+
+	struct encls_mem_op pageinfo = {
+		.reg = VCPU_REGS_RBX,
+		.size = sizeof(__pageinfo),
+		.align = 32,
+		.p = &__pageinfo,
+	};
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op secinfo = {
+		.size = sizeof(__secinfo),
+		.align = 64,
+		.p = &__secinfo,
+	};
+	struct encls_mem_op srcpge = {
+		.size = 4096,
+		.align = 4096,
+	};
+	struct encls_mem_op secs = {
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+
+	/*
+	 * Don't allow EADD in L1
+	 */
+	if (!is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
+	if (get_encls_mem_op(vcpu, &pageinfo) ||
+	    get_encls_mem_op(vcpu, &page))
+		return 1;
+
+	if (get_encls_mem_value(vcpu, &pageinfo) ||
+	    get_encls_epc_gpa(vcpu, &page))
+		return 1;
+
+	secinfo.gva = __pageinfo.secinfo;
+	if (get_encls_mem_value(vcpu, &secinfo))
+		return 1;
+	page_type = __secinfo.flags & SGX_SECINFO_PAGE_TYPE_MASK;
+
+	secs.gva = __pageinfo.secs;
+	if (get_encls_epc_gpa(vcpu, &secs))
+		return 1;
+
+	src_page = alloc_page(GFP_HIGHUSER);
+	if (!src_page)
+		return -ENOMEM;
+	srcpge.p = kmap(src_page);
+	srcpge.gva = __pageinfo.srcpge;
+	if (get_encls_mem_value(vcpu, &srcpge)) {
+		ret = 1;
+		goto out;
+	}
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret, &eadd_page) ||
+	    get_encls_epc_page(vcpu, &secs, &ret, &secs_page))
+		goto out;
+
+	__pageinfo.secinfo = (uint64_t)secinfo.p;
+	__pageinfo.srcpge = (uint64_t)srcpge.p;
+	__pageinfo.secs = (uint64_t)sgx_get_page(secs.p);
+
+	r = __eadd(pageinfo.p, sgx_get_page(page.p));
+	sgx_put_page((void *)__pageinfo.secs);
+
+	if (likely(!r)) {
+		WARN_ON(!secs_page->valid);
+		WARN_ON(eadd_page->valid);
+		WARN_ON(page_type == SGX_SECINFO_SECS || page_type == SGX_SECINFO_VA);
+		WARN_ON(atomic_inc_return(&secs_page->kids) < 0);
+		eadd_page->valid = true;
+		eadd_page->page_type = page_type >> 8;
+		eadd_page->secs_page = secs_page;
+	}
+
+	up_read(&epc->lock);
+
+	ret = vmx_encls_postamble(vcpu, r, &secs);
+out:
+	kunmap(src_page);
+	__free_page(src_page);
+
+	return ret;
+}
+
+static int handle_encls_eremove_epa(struct kvm_vcpu *vcpu, u32 leaf)
+{
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *epc_page;
+	int r, ret;
+
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+
+	if (get_encls_mem_op(vcpu, &page))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &page))
+		return 1;
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret, &epc_page))
+		return ret;
+
+	if (leaf == EREMOVE && is_guest_mode(vcpu) && atomic_read(&epc_page->virt_kids))
+		r = SGX_CHILD_PRESENT;
+	else if (leaf == EREMOVE)
+		r = sgx_eremove(page.p);
+	else
+		r = sgx_epa(page.p);
+	if (likely(!r)) {
+		if (leaf == EREMOVE) {
+			vmx_epc_page_freed(epc_page);
+		} else {
+			WARN_ON(epc_page->valid);
+			epc_page->valid = true;
+			epc_page->page_type = SGX_PAGE_TYPE_VA;
+		}
+	}
+	up_read(&epc->lock);
+
+	return vmx_encls_postamble(vcpu, r, &page);
+}
+
+static int handle_encls_eldu(struct kvm_vcpu *vcpu)
 {
 	struct sgx_pcmd __pcmd;
 	struct sgx_pageinfo __pageinfo;
 	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *eld_page, *secs_page;
 	struct page *src_page;
 	uint16_t va_offset;
 	u64 page_type;
@@ -9218,6 +9433,14 @@ static int handle_encls_eld(struct kvm_vcpu *vcpu, u32 leaf)
 		.align = 4096,
 	};
 
+	/*
+	 * Don't allow ELD in L2
+	 */
+	if (is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
 	if (get_encls_mem_op(vcpu, &pageinfo) ||
 	    get_encls_mem_op(vcpu, &page) ||
 	    get_encls_mem_op(vcpu, &va_page))
@@ -9251,30 +9474,35 @@ static int handle_encls_eld(struct kvm_vcpu *vcpu, u32 leaf)
 	}
 
 	down_read(&epc->lock);
-	if (get_encls_epc_page(vcpu, &page, &ret) ||
-	    get_encls_epc_page(vcpu, &va_page, &ret) ||
-	    (secs.write && get_encls_epc_page(vcpu, &secs, &ret)))
+	if (get_encls_epc_page(vcpu, &page, &ret, &eld_page) ||
+	    get_encls_epc_page(vcpu, &va_page, &ret, NULL) ||
+	    (secs.write && get_encls_epc_page(vcpu, &secs, &ret, &secs_page)))
 		goto out;
 
 	__pageinfo.pcmd = (uint64_t)pcmd.p;
 	__pageinfo.srcpge = (uint64_t)srcpge.p;
-	if (secs.write)
-		__pageinfo.secs = (uint64_t)sgx_get_page(secs.p);
+	__pageinfo.secs = secs.write ? (uint64_t)sgx_get_page(secs.p) : 0;
 
 	va_offset = va_page.gva & ~PAGE_MASK;
-	if (leaf == ELDU)
-		r = sgx_eldu(pageinfo.p, page.p, va_page.p, va_offset);
-	else if (leaf == ELDB)
-		r = sgx_eldb(pageinfo.p, page.p, va_page.p, va_offset);
-	else if (leaf == ELDUC)
-		r = sgx_elduc(pageinfo.p, page.p, va_page.p, va_offset);
-	else
-		r = sgx_eldbc(pageinfo.p, page.p, va_page.p, va_offset);
+	r = sgx_eldu(pageinfo.p, page.p, va_page.p, va_offset);
 
 	if (secs.write)
 		sgx_put_page((void *)__pageinfo.secs);
-	if (!r && page_type == SGX_SECINFO_SECS)
-		sgx_esetcontext(page.p, page.gpa);
+
+	if (likely(!r)) {
+		WARN_ON(eld_page->valid);
+
+		eld_page->valid = true;
+		eld_page->page_type = page_type >> 8;
+		if (page_type == SGX_SECINFO_SECS) {
+			eld_page->enclavecontext = secs.gpa;
+		} else if (page_type != SGX_SECINFO_VA) {
+			WARN_ON(!secs_page->valid);
+			eld_page->secs_page = secs_page;
+			WARN_ON(atomic_inc_return(&secs_page->kids) < 0);
+		}
+	}
+
 	up_read(&epc->lock);
 
 	ret = vmx_encls_postamble(vcpu, r, &secs);
@@ -9285,12 +9513,346 @@ out:
 	return ret;
 }
 
+static int handle_encls_ewb(struct kvm_vcpu *vcpu)
+{
+	struct sgx_pcmd __pcmd;
+	struct sgx_pageinfo __pageinfo;
+	struct sgx_pageinfo __p2;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *ewb_page;
+	struct page *src_page;
+	uint16_t va_offset;
+	int r, ret;
+
+	struct encls_mem_op pageinfo = {
+		.reg = VCPU_REGS_RBX,
+		.size = sizeof(__pageinfo),
+		.align = 32,
+		.p = &__pageinfo,
+	};
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op va_page = {
+		.reg = VCPU_REGS_RDX,
+		.size = 8,
+		.align = 8,
+		.write = true,
+	};
+	struct encls_mem_op secs = {
+		.size = 4096,
+		.align = 4096,
+	};
+	struct encls_mem_op pcmd = {
+		.size = sizeof(__pcmd),
+		.align = 128,
+		.p = &__pcmd,
+	};
+	struct encls_mem_op srcpge = {
+		.size = 4096,
+		.align = 4096,
+	};
+
+	/*
+	 * Don't allow EWB in L2
+	 */
+	if (is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
+	if (get_encls_mem_op(vcpu, &pageinfo) ||
+	    get_encls_mem_op(vcpu, &page) ||
+	    get_encls_mem_op(vcpu, &va_page))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &page) ||
+	    get_encls_epc_gpa(vcpu, &va_page) ||
+	    get_encls_mem_value(vcpu, &pageinfo))
+		return 1;
+
+	pcmd.gva = __pageinfo.pcmd;
+
+	if (__pageinfo.secs) {
+		secs.gva = __pageinfo.secs;
+		secs.write = true;
+		if (get_encls_epc_gpa(vcpu, &secs))
+			return 1;
+	}
+
+	src_page = alloc_page(GFP_HIGHUSER);
+	if (!src_page)
+		return -ENOMEM;
+	srcpge.p = kmap(src_page);
+	srcpge.gva = __pageinfo.srcpge;
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret, &ewb_page) ||
+	    get_encls_epc_page(vcpu, &va_page, &ret, NULL))
+		goto out;
+
+	__p2.pcmd = (uint64_t)pcmd.p;
+	__p2.srcpge = (uint64_t)srcpge.p;
+	__p2.linaddr = 0;
+	__p2.secs = secs.write ? (uint64_t)sgx_get_page(secs.p) : 0;
+	pageinfo.p = &__p2;
+
+	va_offset = va_page.gva & ~PAGE_MASK;
+	if (is_guest_mode(vcpu) && atomic_read(&ewb_page->virt_kids))
+		r = SGX_CHILD_PRESENT;
+	else
+		r = __ewb(pageinfo.p, sgx_get_page(page.p), sgx_get_page(va_page.p) + va_offset);
+	if (secs.write)
+		sgx_put_page((void *)__pageinfo.secs);
+
+	if (likely(!r)) {
+		WARN_ON(!ewb_page->valid);
+		// if (atomic_read(&ewb_page->virt_kids))
+		// 	pr_warn("KVM: EWB with non-zero virt_kids, emulation inaccurate hereafter");
+		vmx_epc_page_freed(ewb_page);
+	}
+
+	up_read(&epc->lock);
+
+	ret = vmx_encls_postamble(vcpu, r, &secs);
+	if (r)
+		goto out;
+
+	__pageinfo.linaddr = __p2.linaddr;
+	ret = 1;
+	WARN_ON(set_encls_mem_value(vcpu, &pcmd));
+	WARN_ON(set_encls_mem_value(vcpu, &pageinfo));
+	WARN_ON(set_encls_mem_value(vcpu, &srcpge));
+
+out:
+	kunmap(src_page);
+	__free_page(src_page);
+
+	return ret;
+}
+
+static int handle_encls_erdinfo(struct kvm_vcpu *vcpu)
+{
+	struct sgx_rdinfo __rdinfo;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *rd_page;
+	u64 page_type;
+	int r, ret;
+
+	struct encls_mem_op rdinfo = {
+		.reg = VCPU_REGS_RBX,
+		.size = sizeof(__rdinfo),
+		.align = 32,
+		.p = &__rdinfo,
+	};
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+
+	/*
+	 * Don't allow ERDINFO in L2
+	 */
+	if (is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
+	if (get_encls_mem_op(vcpu, &rdinfo) ||
+	    get_encls_mem_op(vcpu, &page))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &page))
+		return 1;
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret, &rd_page))
+		return ret;
+
+	memset(rdinfo.p, 0, rdinfo.size);
+	if (rd_page->valid) {
+		page_type = rd_page->page_type;
+
+		__rdinfo.status = 0;
+		__rdinfo.flags = page_type << SGX_RDINFO_PT_SHIFT;
+		if (page_type == SGX_PAGE_TYPE_SECS) {
+			__rdinfo.enclavecontext = rd_page->enclavecontext;
+			if (atomic_read(&rd_page->kids))
+				__rdinfo.status |= SGX_STATUS_CHILDPRESENT;
+			if (atomic_read(&rd_page->virt_kids))
+				__rdinfo.status |= SGX_STATUS_VIRTCHILDPRESENT;
+		} else if (page_type != SGX_PAGE_TYPE_VA) {
+			__rdinfo.enclavecontext = rd_page->secs_page->enclavecontext;
+		}
+		WARN_ON(set_encls_mem_value(vcpu, &rdinfo));
+
+		r = 0;
+	} else {
+		r = SGX_PG_INVLD;
+	}
+
+	up_read(&epc->lock);
+
+	return vmx_encls_postamble(vcpu, r, &page);
+}
+
+static int handle_encls_echild(struct kvm_vcpu *vcpu, u32 leaf)
+{
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *child_page, *secs_page, *tmp_secs;
+	u64 page_type;
+	int r, ret;
+
+	struct encls_mem_op page = {
+		.reg = VCPU_REGS_RBX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op secs = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+
+	/*
+	 * Don't allow E{INC,DEC}VIRTCHILD in L2
+	 */
+	if (is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
+	if (get_encls_mem_op(vcpu, &page) ||
+	    get_encls_mem_op(vcpu, &secs))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &page) ||
+	    get_encls_epc_gpa(vcpu, &secs))
+		return 1;
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &page, &ret, &child_page) ||
+	    get_encls_epc_page(vcpu, &secs, &ret, &secs_page))
+		return ret;
+
+	if (!child_page->valid || !secs_page->valid) {
+		vmx_inject_epc_page_fault(vcpu, NULL, &page);
+		up_read(&epc->lock);
+		return 1;
+	}
+
+	page_type = child_page->page_type;
+	if (page_type == SGX_PAGE_TYPE_VA) {
+		pr_warn("E%sVIRTCHILD on VA page", leaf == EINCVIRTCHILD ? "INC" : "DEC");
+		vmx_inject_epc_page_fault(vcpu, NULL, &page);
+		up_read(&epc->lock);
+		return 1;
+	} else  if (page_type == SGX_PAGE_TYPE_SECS) {
+		tmp_secs = child_page;
+	} else {
+		tmp_secs = child_page->secs_page;
+		if (!tmp_secs)
+			pr_warn("E%sVIRTCHILD null SECS", leaf == EINCVIRTCHILD ? "INC" : "DEC");
+	}
+
+	if (tmp_secs != secs_page) {
+		pr_warn("E%sVIRTCHILD mismatched SECS", leaf == EINCVIRTCHILD ? "INC" : "DEC");
+		kvm_inject_gp(vcpu, 0);
+	}
+
+	r = 0;
+	if (leaf == EINCVIRTCHILD) {
+		if (atomic_inc_return(&tmp_secs->virt_kids) < 0) {
+			atomic_dec(&tmp_secs->virt_kids);
+			r = SGX_INVALID_COUNTER;
+		}
+	} else {
+		if (atomic_dec_return(&tmp_secs->virt_kids) < 0) {
+			 /*
+			  * virt_kids is reset on EWB and we don't model saving
+			  * and restoring it, so ignore failure here.
+			  */
+			atomic_inc(&tmp_secs->virt_kids);
+		}
+	}
+
+	up_read(&epc->lock);
+
+	return vmx_encls_postamble(vcpu, r, &page);
+}
+
+static int handle_encls_esetcontext(struct kvm_vcpu *vcpu)
+{
+	struct sgx_enclavecontext __ctxt;
+	struct vmx_epc *epc = to_vmx_epc(vcpu->kvm);
+	struct vmx_epc_page *secs_page;
+	int r, ret;
+
+	struct encls_mem_op secs = {
+		.reg = VCPU_REGS_RCX,
+		.size = 4096,
+		.align = 4096,
+		.write = true,
+	};
+	struct encls_mem_op ctxt = {
+		.reg = VCPU_REGS_RDX,
+		.size = 8,
+		.align = 8,
+		.p = &__ctxt,
+	};
+
+	/*
+	 * Don't allow ESETCONTEXT in L2
+	 */
+	if (is_guest_mode(vcpu)) {
+		kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
+
+	if (get_encls_mem_op(vcpu, &secs) ||
+	    get_encls_mem_op(vcpu, &ctxt))
+		return 1;
+
+	if (get_encls_epc_gpa(vcpu, &secs) ||
+	    get_encls_mem_value(vcpu, &ctxt))
+		return 1;
+
+	down_read(&epc->lock);
+	if (get_encls_epc_page(vcpu, &secs, &ret, &secs_page))
+		return ret;
+
+	if (!secs_page->valid || secs_page->page_type != SGX_PAGE_TYPE_SECS) {
+		vmx_inject_epc_page_fault(vcpu, NULL, &secs);
+		up_read(&epc->lock);
+		return 1;
+	}
+
+	r = 0;
+	secs_page->enclavecontext = __ctxt.enclavecontext;
+
+	up_read(&epc->lock);
+
+	return vmx_encls_postamble(vcpu, r, &secs);
+}
+
 #endif /* CONFIG_INTEL_SGX_CORE */
 
 static inline bool encls_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
 {
 	if (!enable_sgx)
 		return false;
+
+	/* Emulated */
+	if (leaf == ERDINFO || leaf == EDECVIRTCHILD ||
+	    leaf == EINCVIRTCHILD || leaf == ESETCONTEXT)
+		return true;
 
 	if (leaf >= ECREATE && leaf <= ETRACK)
 		return guest_cpuid_has(vcpu, X86_FEATURE_SGX);
@@ -9318,9 +9880,20 @@ static int handle_encls(struct kvm_vcpu *vcpu)
 			return handle_encls_einit(vcpu);
 		else if (leaf == ECREATE)
 			return handle_encls_ecreate(vcpu);
-		else if (leaf == ELDB || leaf == ELDU ||
-			 leaf == ELDBC || leaf == ELDUC)
-			return handle_encls_eld(vcpu, leaf);
+		else if (leaf == EADD)
+			return handle_encls_eadd(vcpu);
+		else if (leaf == EREMOVE || leaf == EPA)
+			return handle_encls_eremove_epa(vcpu, leaf);
+		else if (leaf == ELDU)
+			return handle_encls_eldu(vcpu);
+		else if (leaf == EWB)
+			return handle_encls_ewb(vcpu);
+		else if (leaf == ERDINFO)
+			return handle_encls_erdinfo(vcpu);
+		else if (leaf == EDECVIRTCHILD || leaf == EINCVIRTCHILD)
+			return handle_encls_echild(vcpu, leaf);
+		else if (leaf == ESETCONTEXT)
+			return handle_encls_esetcontext(vcpu);
 #endif
 		WARN(1, "KVM: unexpected exit on ENCLS[%u]", leaf);
 		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -11194,6 +11767,14 @@ static void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu,
 			bitmap |= (1 << ECREATE) | (1 << ELDB) | (1 << ELDU) |
 				  (1 << ELDBC) | (1 << ELDUC);
 		}
+
+		/*
+		 * EPC oversubscription emulation.
+		 */
+		bitmap |= (1 << ECREATE) | (1 << EADD) | (1 << EREMOVE) |
+			  (1 << EPA) | (1 << ELDU) | (1 << EWB) |
+			  (1 << ERDINFO) | (1ULL << EDECVIRTCHILD) |
+			  (1ULL << EINCVIRTCHILD) | (1ULL << ESETCONTEXT);
 
 		if (!vmcs12 && nested && is_guest_mode(vcpu))
 			vmcs12 = get_vmcs12(vcpu);
