@@ -9842,6 +9842,25 @@ static int handle_encls_esetcontext(struct kvm_vcpu *vcpu)
 	return vmx_encls_postamble(vcpu, r, &secs);
 }
 
+static int handle_encls_etrack(struct kvm_vcpu *vcpu)
+{
+	unsigned long exit_qual;
+	unsigned long data;
+
+	if (WARN_ON(!is_guest_mode(vcpu))) {
+		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+		vcpu->run->hw.hardware_exit_reason = EXIT_REASON_ENCLS;
+		return 0;
+	}
+
+	data = kvm_register_read(vcpu, VCPU_REGS_RCX);
+
+	exit_qual = (data & 0xF) | ((data & 0xFF0) << 12);
+	nested_vmx_vmexit(vcpu, EXIT_REASON_SGX_CONFLICT, 0, exit_qual);
+	get_vmcs12(vcpu)->guest_physical_address = data & ~0xFFFull;
+	return 1;
+}
+
 #endif /* CONFIG_INTEL_SGX_CORE */
 
 static inline bool encls_leaf_enabled_in_guest(struct kvm_vcpu *vcpu, u32 leaf)
@@ -9894,6 +9913,8 @@ static int handle_encls(struct kvm_vcpu *vcpu)
 			return handle_encls_echild(vcpu, leaf);
 		else if (leaf == ESETCONTEXT)
 			return handle_encls_esetcontext(vcpu);
+		else if (leaf == ETRACK || leaf == ETRACKC)
+			return handle_encls_etrack(vcpu);
 #endif
 		WARN(1, "KVM: unexpected exit on ENCLS[%u]", leaf);
 		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -11775,6 +11796,9 @@ static void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu,
 			  (1 << EPA) | (1 << ELDU) | (1 << EWB) |
 			  (1 << ERDINFO) | (1ULL << EDECVIRTCHILD) |
 			  (1ULL << EINCVIRTCHILD) | (1ULL << ESETCONTEXT);
+
+		if (is_guest_mode(vcpu))
+			bitmap |= (1 << ETRACK) | (1 << ETRACKC);
 
 		if (!vmcs12 && nested && is_guest_mode(vcpu))
 			vmcs12 = get_vmcs12(vcpu);
