@@ -894,6 +894,13 @@ struct kvm_vcpu_stat {
 	u64 irq_injections;
 	u64 nmi_injections;
 	u64 req_event;
+
+	bool user_exit;
+	u64 vt_exits;
+	u64 user_exits;
+	u64 vt_tsc;
+	u64 user_tsc;
+	u64 last_tsc;
 };
 
 struct x86_instruction_info;

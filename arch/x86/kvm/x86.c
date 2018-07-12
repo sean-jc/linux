@@ -7241,6 +7241,7 @@ EXPORT_SYMBOL_GPL(kvm_vcpu_reload_apic_access_page);
  */
 static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 {
+	ktime_t cur;
 	int r;
 	bool req_int_win =
 		dm_request_for_irq_injection(vcpu) &&
@@ -7452,6 +7453,20 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_RELOAD;
 	}
 
+	cur = rdtsc_ordered();
+	if (!vcpu->stat.user_exit) {
+		if ((cur - vcpu->stat.last_tsc) < 1500) {
+			++vcpu->stat.vt_exits;
+			vcpu->stat.vt_tsc += (cur - vcpu->stat.last_tsc);
+		}
+	} else {
+		if ((cur - vcpu->stat.last_tsc) < 6000) {
+			++vcpu->stat.user_exits;
+			vcpu->stat.user_tsc += (cur - vcpu->stat.last_tsc);
+		}
+	}
+	vcpu->stat.last_tsc = cur;
+
 	kvm_x86_ops->run(vcpu);
 
 	/*
@@ -7515,6 +7530,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.gpa_available = false;
 	r = kvm_x86_ops->handle_exit(vcpu);
+	vcpu->stat.user_exit = !r;
 	return r;
 
 cancel_injection:
@@ -8751,8 +8767,14 @@ static void kvm_free_vcpus(struct kvm *kvm)
 		kvm_clear_async_pf_completion_queue(vcpu);
 		kvm_unload_vcpu_mmu(vcpu);
 	}
-	kvm_for_each_vcpu(i, vcpu, kvm)
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		pr_warn("KVM: ---------------------------");
+		pr_warn("KVM: VT: %llu, USER: %llu",
+			vcpu->stat.vt_exits ? vcpu->stat.vt_tsc / vcpu->stat.vt_exits : 0,
+			vcpu->stat.user_exits ? vcpu->stat.user_tsc / vcpu->stat.user_exits : 0);
+		pr_warn("KVM: ---------------------------");
 		kvm_arch_vcpu_free(vcpu);
+	}
 
 	mutex_lock(&kvm->lock);
 	for (i = 0; i < atomic_read(&kvm->online_vcpus); i++)
