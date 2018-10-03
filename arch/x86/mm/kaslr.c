@@ -23,6 +23,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/random.h>
+#include <linux/bootmem.h>
 
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
@@ -40,7 +41,7 @@
  */
 static const unsigned long vaddr_end = CPU_ENTRY_AREA_BASE;
 
-int __initdata rand_mem_physical_padding = CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING;
+static int __initdata rand_mem_physical_padding = CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING;
 /*
  * Memory regions randomized by KASLR (except modules that use a separate logic
  * earlier during boot). The list is ordered based on virtual addresses. This
@@ -68,6 +69,22 @@ static inline unsigned long get_padding(struct kaslr_memory_region *region)
 static inline bool kaslr_memory_enabled(void)
 {
 	return kaslr_enabled() && !IS_ENABLED(CONFIG_KASAN);
+}
+
+/*
+ * Check the padding size for KASLR is enough.
+ */
+void __init kaslr_check_padding(void)
+{
+	u64 max_possible_phys, max_actual_phys, threshold;
+
+	max_actual_phys = roundup(PFN_PHYS(max_pfn), 1ULL << 40);
+	max_possible_phys = roundup(PFN_PHYS(max_possible_pfn), 1ULL << 40);
+	threshold = max_actual_phys + ((u64)rand_mem_physical_padding << 40);
+
+	if (max_possible_phys > threshold)
+		pr_warn("Set 'rand_mem_physical_padding=%llu' to avoid memory hotadd failure.\n",
+			(max_possible_phys - max_actual_phys) >> 40);
 }
 
 static int __init rand_mem_physical_padding_setup(char *str)

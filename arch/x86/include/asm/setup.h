@@ -80,8 +80,6 @@ static inline unsigned long kaslr_offset(void)
 	return (unsigned long)&_text - __START_KERNEL;
 }
 
-extern int rand_mem_physical_padding;
-
 /*
  * Do NOT EVER look at the BIOS memory size location.
  * It does not work on many machines.

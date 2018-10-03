@@ -32,7 +32,6 @@
 #include <linux/numa.h>
 #include <linux/nodemask.h>
 #include <linux/topology.h>
-#include <asm/setup.h>
 
 static nodemask_t nodes_found_map = NODE_MASK_NONE;
 
@@ -433,10 +432,12 @@ acpi_table_parse_srat(enum acpi_srat_type id,
 					    handler, max_entries);
 }
 
+/* To be overridden by architectures */
+void __init __weak kaslr_check_padding(void) { }
+
 int __init acpi_numa_init(void)
 {
 	int cnt = 0;
-	u64 max_possible_phys, max_actual_phys, threshold;
 
 	if (acpi_disabled)
 		return -EINVAL;
@@ -466,17 +467,9 @@ int __init acpi_numa_init(void)
 		cnt = acpi_table_parse_srat(ACPI_SRAT_TYPE_MEMORY_AFFINITY,
 					    acpi_parse_memory_affinity, 0);
 
-		/* check the padding size for KASLR is enough. */
-		if (parsed_numa_memblks && kaslr_enabled()) {
-			max_actual_phys = roundup(PFN_PHYS(max_pfn), 1ULL << 40);
-			max_possible_phys = roundup(PFN_PHYS(max_possible_pfn), 1ULL << 40);
-			threshold = max_actual_phys + ((u64)rand_mem_physical_padding << 40);
+		if (parsed_numa_memblks)
+			kaslr_check_padding();
 
-			if (max_possible_phys > threshold) {
-				pr_warn("Set 'rand_mem_physical_padding=%llu' to avoid memory hotadd failure.\n",
-				  (max_possible_phys - max_actual_phys) >> 40);
-			}
-		}
 	}
 
 	/* SLIT: System Locality Information Table */
