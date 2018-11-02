@@ -22,7 +22,7 @@ int sgx_nr_epc_sections;
 /* A per-cpu cache for the last known values of IA32_SGXLEPUBKEYHASHx MSRs. */
 static DEFINE_PER_CPU(u64 [4], sgx_lepubkeyhash_cache);
 
-static struct sgx_epc_page *sgx_section_get_page(
+static struct sgx_epc_page *sgx_section_try_take_page(
 	struct sgx_epc_section *section)
 {
 	struct sgx_epc_page *page;
@@ -30,23 +30,14 @@ static struct sgx_epc_page *sgx_section_get_page(
 	if (!section->free_cnt)
 		return NULL;
 
-	page = list_first_entry(&section->page_list,
-				struct sgx_epc_page, list);
+	page = list_first_entry(&section->page_list, struct sgx_epc_page,
+				list);
 	list_del_init(&page->list);
 	section->free_cnt--;
 	return page;
 }
 
-/**
- * sgx_alloc_page - Allocate an EPC page
- *
- * Try to grab a page from the free EPC page list.
- *
- * Return:
- *   a pointer to a &struct sgx_epc_page instance,
- *   -errno on error
- */
-struct sgx_epc_page *sgx_alloc_page(void)
+static struct sgx_epc_page *sgx_try_alloc_page(void *owner)
 {
 	struct sgx_epc_section *section;
 	struct sgx_epc_page *page;
@@ -55,14 +46,61 @@ struct sgx_epc_page *sgx_alloc_page(void)
 	for (i = 0; i < sgx_nr_epc_sections; i++) {
 		section = &sgx_epc_sections[i];
 		spin_lock(&section->lock);
-		page = sgx_section_get_page(section);
+		page = sgx_section_try_take_page(section);
 		spin_unlock(&section->lock);
 
-		if (page)
+		if (page) {
+			page->owner = owner;
 			return page;
+		}
 	}
 
-	return ERR_PTR(-ENOMEM);
+	return NULL;
+}
+
+/**
+ * sgx_alloc_page - Allocate an EPC page
+ * @owner:	the owner of the EPC page
+ * @reclaim:	reclaim pages if necessary
+ *
+ * Try to grab a page from the free EPC page list. If there is a free page
+ * available, it is returned to the caller. The @reclaim parameter hints
+ * the EPC memory manager to swap pages when required.
+ *
+ * Return:
+ *   a pointer to a &struct sgx_epc_page instance,
+ *   -errno on error
+ */
+struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim)
+{
+	struct sgx_epc_page *entry;
+
+	for ( ; ; ) {
+		entry = sgx_try_alloc_page(owner);
+		if (entry)
+			break;
+
+		if (list_empty(&sgx_active_page_list))
+			return ERR_PTR(-ENOMEM);
+
+		if (!reclaim) {
+			entry = ERR_PTR(-EBUSY);
+			break;
+		}
+
+		if (signal_pending(current)) {
+			entry = ERR_PTR(-ERESTARTSYS);
+			break;
+		}
+
+		sgx_reclaim_pages();
+		schedule();
+	}
+
+	if (sgx_calc_free_cnt() < SGX_NR_LOW_PAGES)
+		wake_up(&ksgxswapd_waitq);
+
+	return entry;
 }
 EXPORT_SYMBOL_GPL(sgx_alloc_page);
 
@@ -70,16 +108,35 @@ EXPORT_SYMBOL_GPL(sgx_alloc_page);
  * __sgx_free_page - Free an EPC page
  * @page:	pointer a previously allocated EPC page
  *
- * EREMOVE an EPC page and insert it back to the list of free pages.
+ * EREMOVE an EPC page and insert it back to the list of free pages.  If the
+ * page is reclaimable, delete it from the active page list.
  *
  * Return:
  *   0 on success
+ *   -EBUSY if the page cannot be removed from the active list
  *   SGX error code if EREMOVE fails
  */
 int __sgx_free_page(struct sgx_epc_page *page)
 {
 	struct sgx_epc_section *section = sgx_epc_section(page);
 	int ret;
+
+	/*
+	 * Remove the page from the active list if necessary.  If the page
+	 * is actively being reclaimed, i.e. RECLAIMABLE is set but the
+	 * page isn't on the active list, return -EBUSY as we can't free
+	 * the page at this time since it is "owned" by the reclaimer.
+	 */
+	spin_lock(&sgx_active_page_list_lock);
+	if (page->desc & SGX_EPC_PAGE_RECLAIMABLE) {
+		if (list_empty(&page->list)) {
+			spin_unlock(&sgx_active_page_list_lock);
+			return -EBUSY;
+		}
+		list_del(&page->list);
+		page->desc &= ~SGX_EPC_PAGE_RECLAIMABLE;
+	}
+	spin_unlock(&sgx_active_page_list_lock);
 
 	ret = __eremove(sgx_epc_addr(page));
 	if (ret)
@@ -107,6 +164,7 @@ void sgx_free_page(struct sgx_epc_page *page)
 	int ret;
 
 	ret = __sgx_free_page(page);
+	WARN(ret < 0, "sgx: cannot free page, reclaim in-progress");
 	WARN(ret > 0, "sgx: EREMOVE returned %d (0x%x)", ret, ret);
 }
 EXPORT_SYMBOL_GPL(sgx_free_page);
