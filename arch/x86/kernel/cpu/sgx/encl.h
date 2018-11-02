@@ -70,6 +70,8 @@ struct sgx_encl {
 	struct xarray page_array;
 	struct sgx_encl_page secs;
 	cpumask_t cpumask;
+	unsigned long attributes;
+	unsigned long attributes_mask;
 };
 
 extern const struct vm_operations_struct sgx_vm_ops;
