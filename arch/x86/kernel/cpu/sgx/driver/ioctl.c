@@ -21,6 +21,51 @@ struct sgx_add_page_req {
 	struct list_head list;
 };
 
+static int sgx_encl_grow(struct sgx_encl *encl)
+{
+	struct sgx_va_page *va_page;
+	int ret;
+
+	BUILD_BUG_ON(SGX_VA_SLOT_COUNT !=
+		(SGX_ENCL_PAGE_VA_OFFSET_MASK >> 3) + 1);
+
+	mutex_lock(&encl->lock);
+	if (encl->flags & SGX_ENCL_DEAD) {
+		mutex_unlock(&encl->lock);
+		return -EFAULT;
+	}
+
+	if (!(encl->page_cnt % SGX_VA_SLOT_COUNT)) {
+		mutex_unlock(&encl->lock);
+
+		va_page = kzalloc(sizeof(*va_page), GFP_KERNEL);
+		if (!va_page)
+			return -ENOMEM;
+		va_page->epc_page = sgx_alloc_va_page();
+		if (IS_ERR(va_page->epc_page)) {
+			ret = PTR_ERR(va_page->epc_page);
+			kfree(va_page);
+			return ret;
+		}
+
+		mutex_lock(&encl->lock);
+		if (encl->flags & SGX_ENCL_DEAD) {
+			sgx_free_page(va_page->epc_page);
+			kfree(va_page);
+			mutex_unlock(&encl->lock);
+			return -EFAULT;
+		} else if (encl->page_cnt % SGX_VA_SLOT_COUNT) {
+			sgx_free_page(va_page->epc_page);
+			kfree(va_page);
+		} else {
+			list_add(&va_page->list, &encl->va_pages);
+		}
+	}
+	encl->page_cnt++;
+	mutex_unlock(&encl->lock);
+	return 0;
+}
+
 static bool sgx_process_add_page_req(struct sgx_add_page_req *req,
 				     struct sgx_epc_page *epc_page)
 {
@@ -79,6 +124,7 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req,
 	encl_page->encl = encl;
 	encl_page->epc_page = epc_page;
 	encl->secs_child_cnt++;
+	sgx_mark_page_reclaimable(encl_page->epc_page);
 
 	return true;
 }
@@ -109,7 +155,7 @@ static void sgx_add_page_worker(struct work_struct *work)
 		if (skip_rest)
 			goto next;
 
-		epc_page = sgx_alloc_page();
+		epc_page = sgx_alloc_page(req->encl_page, true);
 
 		mutex_lock(&encl->lock);
 
@@ -237,6 +283,10 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	struct file *backing;
 	long ret;
 
+	ret = sgx_encl_grow(encl);
+	if (ret)
+		return ret;
+
 	mutex_lock(&encl->lock);
 
 	if (encl->flags & SGX_ENCL_CREATED) {
@@ -267,7 +317,7 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 		goto err_out;
 	}
 
-	secs_epc = sgx_alloc_page();
+	secs_epc = sgx_alloc_page(&encl->secs, true);
 	if (IS_ERR(secs_epc)) {
 		ret = PTR_ERR(secs_epc);
 		goto err_out;
@@ -494,6 +544,10 @@ static int sgx_encl_add_page(struct sgx_encl *encl, unsigned long addr,
 		if (ret)
 			return ret;
 	}
+
+	ret = sgx_encl_grow(encl);
+	if (ret)
+		return ret;
 
 	mutex_lock(&encl->lock);
 
