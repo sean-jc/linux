@@ -64,4 +64,8 @@ extern int sgx_nr_epc_sections;
 
 int sgx_page_reclaimer_init(void);
 
+struct sgx_epc_page *sgx_alloc_page(void);
+int __sgx_free_page(struct sgx_epc_page *page);
+void sgx_free_page(struct sgx_epc_page *page);
+
 #endif /* _X86_SGX_H */
