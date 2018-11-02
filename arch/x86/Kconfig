@@ -1921,6 +1921,18 @@ config X86_INTEL_MEMORY_PROTECTION_KEYS
 
 	  If unsure, say y.
 
+config INTEL_SGX
+	bool "Intel SGX core functionality"
+	depends on X86_64 && CPU_SUP_INTEL
+	---help---
+	  Intel(R) SGX is a set of CPU instructions that can be used by
+	  applications to set aside private regions of code and data, referred
+	  to as enclaves. An enclave's private memory can only be accessed by
+	  code running within the enclave. Accesses from outside the enclave,
+	  including other enclaves, are disallowed by hardware.
+
+	  If unsure, say N.
+
 config EFI
 	bool "EFI runtime service support"
 	depends on ACPI
