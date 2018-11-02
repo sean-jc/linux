@@ -1933,6 +1933,21 @@ config INTEL_SGX
 
 	  If unsure, say N.
 
+config INTEL_SGX_DRIVER
+	tristate "Intel(R) SGX Driver"
+	default n
+	depends on X86_64 && CPU_SUP_INTEL && INTEL_SGX
+	select CRYPTO
+	select CRYPTO_SHA256
+	---help---
+	  This options enables the kernel SGX driver that allows to construct
+	  enclaves to the process memory by using a device node (by default
+	  /dev/sgx) and a set of ioctls. The driver requires that the MSRs
+	  specifying the public key hash for the launch enclave are writable so
+	  that Linux has the full control to run enclaves.
+
+	  If unsure, say N.
+
 config EFI
 	bool "EFI runtime service support"
 	depends on ACPI

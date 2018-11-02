@@ -14,6 +14,8 @@
 
 struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
 EXPORT_SYMBOL_GPL(sgx_epc_sections);
+bool sgx_enabled;
+EXPORT_SYMBOL_GPL(sgx_enabled);
 
 int sgx_nr_epc_sections;
 
@@ -293,6 +295,7 @@ static __init int sgx_init(void)
 		return ret;
 	}
 
+	sgx_enabled = true;
 	return 0;
 }
 

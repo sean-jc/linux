@@ -35,6 +35,7 @@ struct sgx_epc_section {
 #define SGX_MAX_EPC_SECTIONS	8
 
 extern struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
+extern bool sgx_enabled;
 
 /**
  * enum sgx_epc_page_desc - bits and masks for an EPC page's descriptor

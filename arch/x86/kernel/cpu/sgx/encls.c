@@ -19,3 +19,4 @@ bool encls_failed(int ret)
 
 	return encls_faulted(ret) && ENCLS_TRAPNR(ret) != epcm_trapnr;
 }
+EXPORT_SYMBOL_GPL(encls_failed);
