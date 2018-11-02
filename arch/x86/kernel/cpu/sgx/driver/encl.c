@@ -193,6 +193,7 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req,
 	encl->secs_child_cnt++;
 	sgx_set_page_loaded(encl_page, epc_page);
 	sgx_test_and_clear_young(encl_page);
+	sgx_page_reclaimable(encl_page->epc_page);
 	return true;
 }
 
@@ -222,7 +223,7 @@ static void sgx_add_page_worker(struct work_struct *work)
 		if (skip_rest)
 			goto next;
 
-		epc_page = sgx_alloc_page();
+		epc_page = sgx_alloc_page(req->encl_page, true);
 		down_read(&encl->mm->mmap_sem);
 		mutex_lock(&encl->lock);
 
@@ -478,7 +479,7 @@ int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	struct sgx_epc_page *secs_epc;
 	long ret;
 
-	secs_epc = sgx_alloc_page();
+	secs_epc = sgx_alloc_page(&encl->secs, true);
 	if (IS_ERR(secs_epc)) {
 		ret = PTR_ERR(secs_epc);
 		return ret;

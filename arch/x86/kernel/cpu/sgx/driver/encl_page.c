@@ -12,8 +12,7 @@
 
 static inline struct sgx_encl_page *to_encl_page(struct sgx_epc_page *epc_page)
 {
-	WARN_ON_ONCE(1);
-	return NULL;
+	return (struct sgx_encl_page *)epc_page->owner;
 }
 
 bool sgx_encl_page_get(struct sgx_epc_page *epc_page)
