@@ -1,1 +1,1 @@
-obj-y += encls.o
+obj-y += encls.o main.o reclaim.o
