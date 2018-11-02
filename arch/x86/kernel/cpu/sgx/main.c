@@ -8,13 +8,12 @@
 #include <linux/ratelimit.h>
 #include <linux/sched/signal.h>
 #include <linux/slab.h>
+#include "driver/driver.h"
 #include "arch.h"
 #include "encls.h"
 #include "sgx.h"
 
 struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
-EXPORT_SYMBOL_GPL(sgx_epc_sections);
-
 int sgx_nr_epc_sections;
 
 /* A per-cpu cache for the last known values of IA32_SGXLEPUBKEYHASHx MSRs. */
@@ -62,7 +61,6 @@ struct sgx_epc_page *sgx_alloc_page(void)
 
 	return ERR_PTR(-ENOMEM);
 }
-EXPORT_SYMBOL_GPL(sgx_alloc_page);
 
 /**
  * __sgx_free_page - Free an EPC page
@@ -90,7 +88,6 @@ int __sgx_free_page(struct sgx_epc_page *page)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(__sgx_free_page);
 
 /**
  * sgx_free_page - Free an EPC page and WARN on failure
@@ -107,7 +104,6 @@ void sgx_free_page(struct sgx_epc_page *page)
 	ret = __sgx_free_page(page);
 	WARN(ret > 0, "sgx: EREMOVE returned %d (0x%x)", ret, ret);
 }
-EXPORT_SYMBOL_GPL(sgx_free_page);
 
 static void sgx_update_lepubkeyhash_msrs(u64 *lepubkeyhash, bool enforce)
 {
@@ -155,7 +151,6 @@ int sgx_einit(struct sgx_sigstruct *sigstruct, struct sgx_einittoken *token,
 	preempt_enable();
 	return ret;
 }
-EXPORT_SYMBOL(sgx_einit);
 
 static __init void sgx_free_epc_section(struct sgx_epc_section *section)
 {
@@ -288,12 +283,22 @@ static __init int sgx_init(void)
 		return ret;
 
 	ret = sgx_page_reclaimer_init();
-	if (ret) {
-		sgx_page_cache_teardown();
-		return ret;
-	}
+	if (ret)
+		goto err_page_cache;
+
+	ret = sgx_drv_init();
+	if (ret)
+		goto err_kthread;
 
 	return 0;
+
+err_kthread:
+	kthread_stop(ksgxswapd_tsk);
+
+err_page_cache:
+	sgx_page_cache_teardown();
+
+	return ret;
 }
 
 arch_initcall(sgx_init);

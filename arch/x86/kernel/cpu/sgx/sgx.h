@@ -61,6 +61,7 @@ static inline void *sgx_epc_addr(struct sgx_epc_page *page)
 }
 
 extern int sgx_nr_epc_sections;
+extern struct task_struct *ksgxswapd_tsk;
 
 int sgx_page_reclaimer_init(void);
 

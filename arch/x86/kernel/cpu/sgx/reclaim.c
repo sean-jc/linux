@@ -12,7 +12,7 @@
 #include "encls.h"
 #include "sgx.h"
 
-static struct task_struct *ksgxswapd_tsk;
+struct task_struct *ksgxswapd_tsk;
 
 static void sgx_sanitize_section(struct sgx_epc_section *section)
 {
