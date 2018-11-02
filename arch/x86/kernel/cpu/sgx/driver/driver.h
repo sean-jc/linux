@@ -36,10 +36,23 @@
 #define SGX_EINIT_SLEEP_COUNT	50
 #define SGX_EINIT_SLEEP_TIME	20
 
+#define SGX_VA_SLOT_COUNT 512
+
+struct sgx_va_page {
+	struct sgx_epc_page *epc_page;
+	DECLARE_BITMAP(slots, SGX_VA_SLOT_COUNT);
+	struct list_head list;
+};
+
 /**
  * enum sgx_encl_page_desc - defines bits for an enclave page's descriptor
  * %SGX_ENCL_PAGE_TCS:			The page is a TCS page.
  * %SGX_ENCL_PAGE_LOADED:		The page is not swapped.
+ * %SGX_ENCL_PAGE_RESERVED:		The page cannot be reclaimed.
+ * %SGX_ENCL_PAGE_RECLAIMED:		The page is in the process of being
+ *					reclaimed.
+ * %SGX_ENCL_PAGE_VA_OFFSET_MASK:	Holds the offset in the Version Array
+ *					(VA) page for a swapped page.
  * %SGX_ENCL_PAGE_ADDR_MASK:		Holds the virtual address of the page.
  *
  * The page address for SECS is zero and is used by the subsystem to recognize
@@ -49,6 +62,9 @@ enum sgx_encl_page_desc {
 	SGX_ENCL_PAGE_TCS		= BIT(0),
 	SGX_ENCL_PAGE_LOADED		= BIT(1),
 	/* Bits 11:3 are available when the page is not swapped. */
+	SGX_ENCL_PAGE_RESERVED		= BIT(3),
+	SGX_ENCL_PAGE_RECLAIMED		= BIT(4),
+	SGX_ENCL_PAGE_VA_OFFSET_MASK	= GENMASK_ULL(11, 3),
 	SGX_ENCL_PAGE_ADDR_MASK		= PAGE_MASK,
 };
 
@@ -82,10 +98,12 @@ struct sgx_encl {
 	struct mutex lock;
 	struct mm_struct *mm;
 	unsigned long backing;
+	struct file *pcmd;
 	struct kref refcount;
 	unsigned long base;
 	unsigned long size;
 	unsigned long ssaframesize;
+	struct list_head va_pages;
 	struct radix_tree_root page_tree;
 	struct list_head add_page_reqs;
 	struct work_struct add_page_work;
@@ -149,6 +167,8 @@ int sgx_encl_init(struct sgx_encl *encl, struct sgx_sigstruct *sigstruct,
 		  struct sgx_einittoken *einittoken);
 void sgx_encl_block(struct sgx_encl_page *encl_page);
 void sgx_encl_track(struct sgx_encl *encl);
+int sgx_encl_load_page(struct sgx_encl_page *encl_page,
+		       struct sgx_epc_page *epc_page);
 void sgx_encl_release(struct kref *ref);
 pgoff_t sgx_encl_get_index(struct sgx_encl *encl, struct sgx_encl_page *page);
 
@@ -165,6 +185,10 @@ int sgx_test_and_clear_young(struct sgx_encl_page *page);
 void sgx_flush_cpus(struct sgx_encl *encl);
 void sgx_set_page_loaded(struct sgx_encl_page *encl_page,
 			 struct sgx_epc_page *epc_page);
+struct sgx_epc_page *sgx_alloc_va_page(void);
+unsigned int sgx_alloc_va_slot(struct sgx_va_page *va_page);
+void sgx_free_va_slot(struct sgx_va_page *va_page, unsigned int offset);
+bool sgx_va_page_full(struct sgx_va_page *va_page);
 struct page *sgx_get_backing(struct file *file, pgoff_t index);
 void sgx_put_backing(struct page *backing_page, bool write);
 

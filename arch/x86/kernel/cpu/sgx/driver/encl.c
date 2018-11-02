@@ -53,6 +53,19 @@ int sgx_encl_find(struct mm_struct *mm, unsigned long addr,
 	return encl ? 0 : -ENOENT;
 }
 
+static void sgx_free_va_pages(struct sgx_encl *encl)
+{
+	struct sgx_va_page *va_page;
+
+	while (!list_empty(&encl->va_pages)) {
+		va_page = list_first_entry(&encl->va_pages, struct sgx_va_page,
+					   list);
+		list_del(&va_page->list);
+		sgx_free_page(va_page->epc_page);
+		kfree(va_page);
+	}
+}
+
 /**
  * sgx_invalidate - kill an enclave
  * @encl:	an &sgx_encl instance
@@ -88,7 +101,12 @@ void sgx_invalidate(struct sgx_encl *encl, bool flush_cpus)
 	}
 	radix_tree_for_each_slot(slot, &encl->page_tree, &iter, 0) {
 		entry = *slot;
-		if (entry->desc & SGX_ENCL_PAGE_LOADED) {
+		/*
+		 * If the page has RECLAIMED set, the reclaimer effectively
+		 * owns the page, i.e. we need to let the reclaimer free it.
+		 */
+		if ((entry->desc & SGX_ENCL_PAGE_LOADED) &&
+		    !(entry->desc & SGX_ENCL_PAGE_RECLAIMED)) {
 			if (!__sgx_free_page(entry->epc_page)) {
 				encl->secs_child_cnt--;
 				entry->desc &= ~SGX_ENCL_PAGE_LOADED;
@@ -101,6 +119,7 @@ void sgx_invalidate(struct sgx_encl *encl, bool flush_cpus)
 		encl->secs.desc &= ~SGX_ENCL_PAGE_LOADED;
 		sgx_free_page(encl->secs.epc_page);
 	}
+	sgx_free_va_pages(encl);
 }
 
 static bool sgx_process_add_page_req(struct sgx_add_page_req *req,
@@ -305,6 +324,51 @@ static const struct mmu_notifier_ops sgx_mmu_notifier_ops = {
 	.release	= sgx_mmu_notifier_release,
 };
 
+static int sgx_encl_grow(struct sgx_encl *encl)
+{
+	struct sgx_va_page *va_page;
+	int ret;
+
+	BUILD_BUG_ON(SGX_VA_SLOT_COUNT !=
+		(SGX_ENCL_PAGE_VA_OFFSET_MASK >> 3) + 1);
+
+	mutex_lock(&encl->lock);
+	if (encl->flags & SGX_ENCL_DEAD) {
+		mutex_unlock(&encl->lock);
+		return -EFAULT;
+	}
+
+	if (!(encl->page_cnt % SGX_VA_SLOT_COUNT)) {
+		mutex_unlock(&encl->lock);
+
+		va_page = kzalloc(sizeof(*va_page), GFP_KERNEL);
+		if (!va_page)
+			return -ENOMEM;
+		va_page->epc_page = sgx_alloc_va_page();
+		if (IS_ERR(va_page->epc_page)) {
+			ret = PTR_ERR(va_page->epc_page);
+			kfree(va_page);
+			return ret;
+		}
+
+		mutex_lock(&encl->lock);
+		if (encl->flags & SGX_ENCL_DEAD) {
+			sgx_free_page(va_page->epc_page);
+			kfree(va_page);
+			mutex_unlock(&encl->lock);
+			return -EFAULT;
+		} else if (encl->page_cnt % SGX_VA_SLOT_COUNT) {
+			sgx_free_page(va_page->epc_page);
+			kfree(va_page);
+		} else {
+			list_add(&va_page->list, &encl->va_pages);
+		}
+	}
+	encl->page_cnt++;
+	mutex_unlock(&encl->lock);
+	return 0;
+}
+
 /**
  * sgx_encl_alloc - allocate memory for an enclave and set attributes
  *
@@ -323,6 +387,7 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 	unsigned long ssaframesize;
 	struct sgx_encl *encl;
 	unsigned long backing;
+	struct file *pcmd;
 	int ret;
 
 	ssaframesize = sgx_calc_ssaframesize(secs->miscselect, secs->xfrm);
@@ -336,16 +401,24 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 		goto out_err;
 	}
 
+	pcmd = shmem_file_setup("[dev/sgx]", (secs->size + PAGE_SIZE) >> 5,
+				VM_NORESERVE);
+	if (IS_ERR(pcmd)) {
+		ret = PTR_ERR(pcmd);
+		goto out_backing;
+	}
+
 	encl = kzalloc(sizeof(*encl), GFP_KERNEL);
 	if (!encl) {
 		ret = -ENOMEM;
-		goto out_backing;
+		goto out_pcmd;
 	}
 
 	encl->attributes = secs->attributes;
 	encl->xfrm = secs->xfrm;
 	kref_init(&encl->refcount);
 	INIT_LIST_HEAD(&encl->add_page_reqs);
+	INIT_LIST_HEAD(&encl->va_pages);
 	INIT_RADIX_TREE(&encl->page_tree, GFP_KERNEL);
 	mutex_init(&encl->lock);
 	INIT_WORK(&encl->add_page_work, sgx_add_page_worker);
@@ -354,8 +427,12 @@ struct sgx_encl *sgx_encl_alloc(struct sgx_secs *secs)
 	encl->size = secs->size;
 	encl->ssaframesize = secs->ssa_frame_size;
 	encl->backing = backing;
+	encl->pcmd = pcmd;
 
 	return encl;
+
+out_pcmd:
+	fput(pcmd);
 
 out_backing:
 	vm_munmap((unsigned long)backing, secs->size + PAGE_SIZE);
@@ -410,6 +487,10 @@ int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	sgx_set_page_loaded(&encl->secs, secs_epc);
 	encl->secs.encl = encl;
 	encl->tgid = get_pid(task_tgid(current));
+
+	ret = sgx_encl_grow(encl);
+	if (ret)
+		return ret;
 
 	pginfo.addr = 0;
 	pginfo.contents = (unsigned long)secs;
@@ -643,6 +724,9 @@ int sgx_encl_add_page(struct sgx_encl *encl, unsigned long addr, void *data,
 		if (ret)
 			return ret;
 	}
+	ret = sgx_encl_grow(encl);
+	if (ret)
+		return ret;
 	mutex_lock(&encl->lock);
 	if (encl->flags & (SGX_ENCL_INITIALIZED | SGX_ENCL_DEAD)) {
 		mutex_unlock(&encl->lock);
@@ -757,6 +841,50 @@ int sgx_encl_init(struct sgx_encl *encl, struct sgx_sigstruct *sigstruct,
 	return ret;
 }
 
+/**
+ * sgx_encl_block - block an enclave page
+ * @encl_page:	an enclave page
+ *
+ * Changes the state of the associated EPC page to blocked.
+ */
+void sgx_encl_block(struct sgx_encl_page *encl_page)
+{
+	unsigned long addr = SGX_ENCL_PAGE_ADDR(encl_page);
+	struct sgx_encl *encl = encl_page->encl;
+	struct vm_area_struct *vma;
+	int ret;
+
+	if (encl->flags & SGX_ENCL_DEAD)
+		return;
+
+	ret = sgx_encl_find(encl->mm, addr, &vma);
+	if (!ret && encl == vma->vm_private_data)
+		zap_vma_ptes(vma, addr, PAGE_SIZE);
+
+	ret = __eblock(sgx_epc_addr(encl_page->epc_page));
+	SGX_INVD(ret, encl, "EBLOCK returned %d (0x%x)", ret, ret);
+}
+
+/**
+ * sgx_encl_track - start tracking pages in the blocked state
+ * @encl:	an enclave
+ *
+ * Start blocking accesses for pages in the blocked state for threads that enter
+ * inside the enclave by executing the ETRACK leaf instruction. This starts a
+ * shootdown sequence for threads that entered before ETRACK.
+ *
+ * The caller must take care (with an IPI when necessary) to make sure that the
+ * previous shootdown sequence was completed before calling this function.  If
+ * this is not the case, the callee prints a critical error to the klog and
+ * kills the enclave.
+ */
+void sgx_encl_track(struct sgx_encl *encl)
+{
+	int ret = __etrack(sgx_epc_addr(encl->secs.epc_page));
+
+	SGX_INVD(ret, encl, "ETRACK returned %d (0x%x)", ret, ret);
+}
+
 static void sgx_encl_release_worker(struct work_struct *work)
 {
 	struct sgx_encl *encl = container_of(work, struct sgx_encl,
@@ -784,8 +912,13 @@ static void sgx_encl_release_worker(struct work_struct *work)
 	if (encl->tgid)
 		put_pid(encl->tgid);
 
+	sgx_free_va_pages(encl);
+
 	if (encl->secs.desc & SGX_ENCL_PAGE_LOADED)
 		sgx_free_page(encl->secs.epc_page);
+
+	if (encl->pcmd)
+		fput(encl->pcmd);
 
 	kfree(encl);
 }
