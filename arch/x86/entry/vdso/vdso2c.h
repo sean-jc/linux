@@ -97,10 +97,10 @@ static void BITSFUNC(go)(void *raw_addr, size_t raw_len,
 			GET_LE(&sym->st_name);
 
 		for (k = 0; k < NSYMS; k++) {
-			if (!strcmp(name, required_syms[k].name)) {
+			if (!strcmp(name, required_syms[k])) {
 				if (syms[k]) {
 					fail("duplicate symbol %s\n",
-					     required_syms[k].name);
+					     required_syms[k]);
 				}
 
 				/*
@@ -123,13 +123,12 @@ static void BITSFUNC(go)(void *raw_addr, size_t raw_len,
 
 		if (symval % 4096)
 			fail("%s must be a multiple of 4096\n",
-			     required_syms[i].name);
+			     required_syms[i]);
 		if (symval + 4096 < syms[sym_vvar_start])
-			fail("%s underruns vvar_start\n",
-			     required_syms[i].name);
+			fail("%s underruns vvar_start\n", required_syms[i]);
 		if (symval + 4096 > 0)
 			fail("%s is on the wrong side of the vdso text\n",
-			     required_syms[i].name);
+			     required_syms[i]);
 	}
 	if (syms[sym_vvar_start] % 4096)
 		fail("vvar_begin must be a multiple of 4096\n");
@@ -167,9 +166,9 @@ static void BITSFUNC(go)(void *raw_addr, size_t raw_len,
 			(unsigned long)GET_LE(&alt_sec->sh_size));
 	}
 	for (i = 0; i < NSYMS; i++) {
-		if (required_syms[i].export && syms[i])
+		if (syms[i])
 			fprintf(outfile, "\t.sym_%s = %" PRIi64 ",\n",
-				required_syms[i].name, (int64_t)syms[i]);
+				required_syms[i], (int64_t)syms[i]);
 	}
 	fprintf(outfile, "};\n");
 }
