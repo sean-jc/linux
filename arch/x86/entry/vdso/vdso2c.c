@@ -85,7 +85,7 @@ const int special_pages[] = {
 	sym_hvclock_page,
 };
 
-const char *required_syms[] = {
+const char *requested_syms[] = {
 	[sym_vvar_start] = "vvar_start",
 	[sym_vvar_page] = "vvar_page",
 	[sym_hpet_page] = "hpet_page",
@@ -139,7 +139,7 @@ extern void bad_put_le(void);
 	PLE(x, val, 64, PLE(x, val, 32, PLE(x, val, 16, LAST_PLE(x, val))))
 
 
-#define NSYMS ARRAY_SIZE(required_syms)
+#define NSYMS ARRAY_SIZE(requested_syms)
 
 #define BITSFUNC3(name, bits, suffix) name##bits##suffix
 #define BITSFUNC2(name, bits, suffix) BITSFUNC3(name, bits, suffix)
