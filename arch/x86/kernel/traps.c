@@ -61,6 +61,7 @@
 #include <asm/mpx.h>
 #include <asm/vm86.h>
 #include <asm/umip.h>
+#include <asm/sgx.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/x86_init.h>
@@ -222,6 +223,10 @@ do_trap_no_signal(struct task_struct *tsk, int trapnr, const char *str,
 	 */
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = trapnr;
+
+	if (user_mode(regs) &&
+	    fixup_sgx_enclu_exception(regs, trapnr, error_code, 0))
+		return 0;
 
 	return -1;
 }
@@ -563,6 +568,9 @@ do_general_protection(struct pt_regs *regs, long error_code)
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_GP;
 
+	if (fixup_sgx_enclu_exception(regs, X86_TRAP_GP, error_code, 0))
+		return;
+
 	show_signal(tsk, SIGSEGV, "", desc, regs, error_code);
 
 	force_sig(SIGSEGV, tsk);
@@ -791,6 +799,10 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 		goto exit;
 	}
 
+	if (user_mode(regs) &&
+	    fixup_sgx_enclu_exception(regs, X86_TRAP_DB, error_code, 0))
+		goto exit;
+
 	if (WARN_ON_ONCE((dr6 & DR_STEP) && !user_mode(regs))) {
 		/*
 		 * Historical junk that used to handle SYSENTER single-stepping.
@@ -852,6 +864,9 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	si_code = fpu__exception_code(fpu, trapnr);
 	/* Retry when we get spurious exceptions: */
 	if (!si_code)
+		return;
+
+	if (fixup_sgx_enclu_exception(regs, trapnr, error_code, 0))
 		return;
 
 	force_sig_fault(SIGFPE, si_code,
