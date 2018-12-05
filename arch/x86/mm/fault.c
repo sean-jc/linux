@@ -28,6 +28,7 @@
 #include <asm/mmu_context.h>		/* vma_pkey()			*/
 #include <asm/efi.h>			/* efi_recover_from_page_fault()*/
 #include <asm/desc.h>			/* store_idt(), ...		*/
+#include <asm/sgx.h>			/* fixup_sgx_enclu_exception()	*/
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>
@@ -928,6 +929,9 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		if (address >= TASK_SIZE_MAX)
 			error_code |= X86_PF_PROT;
 
+		if (fixup_sgx_enclu_exception(regs, X86_TRAP_PF, error_code, address))
+			return;
+
 		if (likely(show_unhandled_signals))
 			show_signal_msg(regs, error_code, address, tsk);
 
@@ -1043,6 +1047,9 @@ do_sigbus(struct pt_regs *regs, unsigned long error_code, unsigned long address,
 
 	/* User-space => ok to do another page fault: */
 	if (is_prefetch(regs, error_code, address))
+		return;
+
+	if (fixup_sgx_enclu_exception(regs, X86_TRAP_PF, error_code, address))
 		return;
 
 	set_signal_archinfo(address, error_code);
