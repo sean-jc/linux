@@ -309,6 +309,19 @@ static inline int __emodt(struct sgx_secinfo *secinfo, void *addr)
 	return __encls_ret_2(SGX_EMODT, secinfo, addr);
 }
 
+#ifdef CONFIG_INTEL_SGX_CORE
+extern bool fixup_sgx_enclu_exception(struct pt_regs *regs, int trapnr,
+				      unsigned long error_code,
+				      unsigned long fault_addr);
+#else
+static inline bool fixup_sgx_enclu_exception(struct pt_regs *regs, int trapnr,
+					     unsigned long error_code,
+					     unsigned long fault_addr)
+{
+	return false;
+}
+#endif
+
 struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim);
 int __sgx_free_page(struct sgx_epc_page *page);
 void sgx_free_page(struct sgx_epc_page *page);

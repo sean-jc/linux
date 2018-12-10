@@ -363,6 +363,24 @@ void sgx_page_reclaimable(struct sgx_epc_page *page)
 }
 EXPORT_SYMBOL_GPL(sgx_page_reclaimable);
 
+bool fixup_sgx_enclu_exception(struct pt_regs *regs, int trapnr,
+			       unsigned long error_code,
+			       unsigned long fault_addr)
+{
+	if (current->mm->context.enclu_address != regs->ip)
+		return false;
+
+	if (!current->mm->context.enclu_address &&
+	    !current->mm->context.enclu_exception_handler)
+		return false;
+
+	regs->ip = current->mm->context.enclu_exception_handler;
+	regs->di = trapnr;
+	regs->si = error_code;
+	regs->dx = fault_addr;
+	return true;
+}
+
 static __init void sgx_free_epc_section(struct sgx_epc_section *section)
 {
 	struct sgx_epc_page *page;
