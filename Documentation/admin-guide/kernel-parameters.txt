@@ -3562,6 +3562,24 @@
 			fully seed the kernel's CRNG. Default is controlled
 			by CONFIG_RANDOM_TRUST_CPU.
 
+	rand_mem_physical_padding=
+			[KNL] Define the padding size in terabytes
+			used for the physical memory mapping section
+			when KASLR is enabled.
+			If the padding size is not enough, you can see
+			'Set rand_mem_physical_padding=XX ...' in system
+			boot message, so set the parameter as the message suggests.
+
+			This parameter is useful for memory hot-add capable
+			systems. Such systems may have more space than
+			actual memory size to hot-add memory. If the
+			padding size is not enough and memory is hot-added,
+			the hot-adding will fail because it destroys the
+			system memory map. So, the padding size needs to be
+			adjusted in such a system.
+			The default value is the value of
+			CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING.
+
 	ras=option[,option,...]	[KNL] RAS-specific options
 
 		cec_disable	[X86]
