@@ -11,6 +11,23 @@
 #include <linux/slab.h>
 #include "driver.h"
 
+static long sgx_ioc_enclu_register(struct file *filep, unsigned int cmd,
+				   unsigned long arg)
+{
+	struct sgx_enclu_register *reg = (struct sgx_enclu_register *)arg;
+
+	if (reg->enclu == reg->handler)
+		return -EINVAL;
+
+	if (down_write_killable(&current->mm->mmap_sem))
+		return -EINTR;
+	current->mm->context.enclu_address = reg->enclu;
+	current->mm->context.enclu_exception_handler = reg->handler;
+	up_write(&current->mm->mmap_sem);
+
+	return 0;
+}
+
 static int sgx_encl_get(unsigned long addr, struct sgx_encl **encl)
 {
 	struct mm_struct *mm = current->mm;
@@ -317,6 +334,9 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	long ret;
 
 	switch (cmd) {
+	case SGX_IOC_ENCLU_REGISTER:
+		handler = sgx_ioc_enclu_register;
+		break;
 	case SGX_IOC_ENCLAVE_CREATE:
 		handler = sgx_ioc_enclave_create;
 		break;

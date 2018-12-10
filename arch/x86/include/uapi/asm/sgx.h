@@ -10,19 +10,32 @@
 
 #define SGX_MAGIC 0xA4
 
+#define SGX_IOC_ENCLU_REGISTER \
+	_IOW(SGX_MAGIC, 0x00, struct sgx_enclu_register)
 #define SGX_IOC_ENCLAVE_CREATE \
-	_IOW(SGX_MAGIC, 0x00, struct sgx_enclave_create)
+	_IOW(SGX_MAGIC, 0x01, struct sgx_enclave_create)
 #define SGX_IOC_ENCLAVE_ADD_PAGE \
-	_IOW(SGX_MAGIC, 0x01, struct sgx_enclave_add_page)
+	_IOW(SGX_MAGIC, 0x02, struct sgx_enclave_add_page)
 #define SGX_IOC_ENCLAVE_INIT \
-	_IOW(SGX_MAGIC, 0x02, struct sgx_enclave_init)
+	_IOW(SGX_MAGIC, 0x03, struct sgx_enclave_init)
 #define SGX_IOC_ENCLAVE_REMOVE_PAGES \
-	_IOW(SGX_MAGIC, 0x03, struct sgx_enclave_remove_pages)
+	_IOW(SGX_MAGIC, 0x04, struct sgx_enclave_remove_pages)
 #define SGX_IOC_ENCLAVE_MODIFY_PAGES \
-	_IOW(SGX_MAGIC, 0x04, struct sgx_enclave_modify_pages)
+	_IOW(SGX_MAGIC, 0x05, struct sgx_enclave_modify_pages)
 
 /* IOCTL return values */
 #define SGX_POWER_LOST_ENCLAVE		0x40000000
+
+/**
+ * struct sgx_enclu_register - parameter structure for the
+ *                             %SGX_IOC_ENCLU_REGISTER ioctl
+ * @enclu:	address of the userspace process' ENCLU instruction
+ * @handler:	address of the userspace process' ENCLU exception handler
+ */
+struct sgx_enclu_register  {
+	__u64	enclu;
+	__u64	handler;
+};
 
 /**
  * struct sgx_enclave_create - parameter structure for the

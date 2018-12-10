@@ -525,6 +525,12 @@ int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	}
 
 	down_read(&current->mm->mmap_sem);
+	if (!current->mm->context.enclu_address &&
+	    !current->mm->context.enclu_exception_handler) {
+		up_read(&current->mm->mmap_sem);
+		return -EFAULT;
+	}
+
 	ret = sgx_encl_find(current->mm, secs->base, &vma);
 	if (ret != -ENOENT) {
 		if (!ret)
