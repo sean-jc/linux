@@ -602,33 +602,33 @@ static void __maybe_unused detect_sgx(struct cpuinfo_x86 *c)
 
 	rdmsrl(MSR_IA32_FEATURE_CONTROL, fc);
 	if (!(fc & FEATURE_CONTROL_LOCKED)) {
-		pr_err_once("sgx: IA32_FEATURE_CONTROL MSR is not locked\n");
-		goto out_unsupported;
+		pr_err_once("sgx: The feature control MSR is not locked\n");
+		goto err_unsupported;
 	}
 
 	if (!(fc & FEATURE_CONTROL_SGX_ENABLE)) {
-		pr_err_once("sgx: not enabled in IA32_FEATURE_CONTROL MSR\n");
-		goto out_unsupported;
+		pr_err_once("sgx: SGX is not enabled in IA32_FEATURE_CONTROL MSR\n");
+		goto err_unsupported;
 	}
 
 	if (!cpu_has(c, X86_FEATURE_SGX1)) {
-		pr_err_once("sgx: SGX1 instruction set not supported\n");
-		goto out_unsupported;
+		pr_err_once("sgx: SGX1 instruction set is not supported\n");
+		goto err_unsupported;
 	}
 
 	if (!(fc & FEATURE_CONTROL_SGX_LE_WR)) {
-		pr_info_once("sgx: launch control MSRs are not writable\n");
-		goto out_msrs_rdonly;
+		pr_info_once("sgx: The launch control MSRs are not writable\n");
+		goto err_msrs_rdonly;
 	}
 
 	return;
 
-out_unsupported:
+err_unsupported:
 	setup_clear_cpu_cap(X86_FEATURE_SGX);
 	setup_clear_cpu_cap(X86_FEATURE_SGX1);
 	setup_clear_cpu_cap(X86_FEATURE_SGX2);
 
-out_msrs_rdonly:
+err_msrs_rdonly:
 	setup_clear_cpu_cap(X86_FEATURE_SGX_LC);
 }
 
