@@ -22,6 +22,11 @@ u64 sgx_attributes_reserved_mask;
 u64 sgx_xfrm_reserved_mask = ~0x3;
 u32 sgx_xsave_size_tbl[64];
 
+const struct file_operations sgx_fs_provision_fops;
+
+static struct dentry *sgx_fs;
+static struct dentry *sgx_fs_provision;
+
 #ifdef CONFIG_COMPAT
 static long sgx_compat_ioctl(struct file *filep, unsigned int cmd,
 			      unsigned long arg)
@@ -147,6 +152,40 @@ static struct sgx_dev_ctx *sgxm_dev_ctx_alloc(struct device *parent)
 	return ctx;
 }
 
+static int sgx_fs_init(struct device *dev)
+{
+	int ret;
+
+	sgx_fs = securityfs_create_dir(dev_name(dev), NULL);
+	if (IS_ERR(sgx_fs)) {
+		ret = PTR_ERR(sgx_fs);
+		goto err_sgx_fs;
+	}
+
+	sgx_fs_provision = securityfs_create_file("provision", 0600, sgx_fs,
+						  NULL, &sgx_fs_provision_fops);
+	if (IS_ERR(sgx_fs)) {
+		ret = PTR_ERR(sgx_fs_provision);
+		goto err_sgx_fs_provision;
+	}
+
+	return 0;
+
+err_sgx_fs_provision:
+	securityfs_remove(sgx_fs);
+	sgx_fs_provision = NULL;
+
+err_sgx_fs:
+	sgx_fs = NULL;
+	return ret;
+}
+
+static void sgx_fs_remove(void)
+{
+	securityfs_remove(sgx_fs_provision);
+	securityfs_remove(sgx_fs);
+}
+
 static int sgx_dev_init(struct device *parent)
 {
 	struct sgx_dev_ctx *sgx_dev;
@@ -190,6 +229,10 @@ static int sgx_dev_init(struct device *parent)
 	if (!sgx_encl_wq)
 		return -ENOMEM;
 
+	ret = sgx_fs_init(&sgx_dev->ctrl_dev);
+	if (ret)
+		goto err_fs_init;
+
 	ret = cdev_device_add(&sgx_dev->ctrl_cdev, &sgx_dev->ctrl_dev);
 	if (ret)
 		goto err_device_add;
@@ -197,6 +240,9 @@ static int sgx_dev_init(struct device *parent)
 	return 0;
 
 err_device_add:
+	sgx_fs_remove();
+
+err_fs_init:
 	destroy_workqueue(sgx_encl_wq);
 	return ret;
 }
@@ -220,6 +266,7 @@ static int sgx_drv_remove(struct platform_device *pdev)
 {
 	struct sgx_dev_ctx *ctx = dev_get_drvdata(&pdev->dev);
 
+	sgx_fs_remove();
 	cdev_device_del(&ctx->ctrl_cdev, &ctx->ctrl_dev);
 	destroy_workqueue(sgx_encl_wq);
 
