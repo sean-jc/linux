@@ -221,3 +221,27 @@ int handle_encls_ecreate(struct kvm_vcpu *vcpu)
 
 	return sgx_encls_postamble(vcpu, ret, trapnr, secs_gva);
 }
+
+int handle_encls_einit(struct kvm_vcpu *vcpu)
+{
+	unsigned long sig_hva, secs_hva, token_hva;
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	gva_t sig_gva, secs_gva, token_gva;
+	int ret, trapnr;
+
+	if (sgx_get_encls_gva(vcpu, kvm_rbx_read(vcpu), 1808, 4096, &sig_gva) ||
+	    sgx_get_encls_gva(vcpu, kvm_rcx_read(vcpu), 4096, 4096, &secs_gva) ||
+	    sgx_get_encls_gva(vcpu, kvm_rdx_read(vcpu), 304, 512, &token_gva))
+		return 1;
+
+	if (sgx_gva_to_hva(vcpu, sig_gva, false, &sig_hva) ||
+	    sgx_gva_to_hva(vcpu, secs_gva, true, &secs_hva) ||
+	    sgx_gva_to_hva(vcpu, token_gva, false, &token_hva))
+		return 1;
+
+	ret = sgx_virt_einit((void __user *)sig_hva, (void __user *)token_hva,
+			     (void __user *)secs_hva,
+			     vmx->msr_ia32_sgxlepubkeyhash, &trapnr);
+
+	return sgx_encls_postamble(vcpu, ret, trapnr, secs_hva);
+}
