@@ -1,0 +1,63 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+===
+API
+===
+
+The SGX API is best thought of as two distinct APIs: an API for managing
+enclaves and an API for running enclaves.
+
+The API for managing enclaves is centered around a set of ioctls
+that are split into two classes:
+
+ - System ioctls, which as the name suggests, operate on the SGX subsystem,
+   i.e. are not associated with an enclave.
+
+ - Enclave ioctls operate on a specific enclave, i.e. the file descriptor
+   passed to the ioctl is associated with a previously instantiated enclave.
+
+The API for running enclaves is an optional VDSO-based interfaced that allows
+userspace to service enclave exceptions without having to rely on Linux's
+existing signal handling interface, which may be cumbersome for many usecases.
+
+
+Enclave management
+==================
+
+The enclave management API enclaves revolves around file descriptors.  To
+issue system ioctls, userspace must obtain a file handle to the SGX subsystem,
+e.g. by opening “dev/sgx/enclave”.  The system ioctl SGX_IOC_ENCLAVE_CREATE can
+then be issued to create an enclave file descriptor, which in turn can be used
+to issue ioctls on the associated enclave, e.g. SGX_IOC_ENCLAVE_ADD_PAGE.
+
+SGX supports migrating the aforementioned enclave file descriptors between
+processes, e.g. via fork() or SCM_RIGHTS.  Note, duplicating an enclave file
+descriptor acquires an additional reference to the enclave, i.e. the enclave
+and its resources are not freed until the last reference to its file descriptor
+has been released.
+
+System ioctls:
+ - SGX_IOC_ENCLAVE_CREATE
+
+Enclave ioctls:
+ - SGX_IOC_ENCLAVE_ADD_PAGE
+ - SGX_IOC_ENCLAVE_SET_ATTRIBUTE
+ - SGX_IOC_ENCLAVE_INIT
+
+.. kernel-doc:: arch/x86/kernel/cpu/sgx/driver/ioctl.c
+   :functions: sgx_ioc_enclave_create
+               sgx_ioc_enclave_add_page
+               sgx_ioc_enclave_init
+
+.. kernel-doc:: arch/x86/include/uapi/asm/sgx.h
+   :nosymbols: sgx_enclave_exception
+
+Enclave execution
+=================
+
+**TODO:** Document signal handling vs. using vDSO.
+
+.. kernel-doc:: arch/x86/entry/vdso/vsgx_enter_enclave.S
+
+.. kernel-doc:: arch/x86/include/uapi/asm/sgx.h
+   :functions: sgx_enclave_exception
