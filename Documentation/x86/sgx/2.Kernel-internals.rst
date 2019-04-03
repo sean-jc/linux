@@ -1,0 +1,57 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+================
+Kernel Internals
+================
+
+
+Because SGX has an ever evolving and expanding feature set, it's possible for
+a BIOS or VMM to configure a system in such a way that not all CPUs are equal,
+e.g. where Launch Control is only enabled on a subset of CPUs.  Linux does
+*not* support such a heterogeneous system configuration, nor does it even
+attempt to play nice in the face of a misconfigured system.  With the exception
+of Launch Control's hash MSRs, which can vary per CPU, Linux assumes that all
+CPUs have a configuration that is identical to the boot CPU.
+
+
+EPC management
+==============
+
+**TODO:** Rewrite this section now that the callback infrastructure is gone.
+
+Due to the unique requirements for swapping EPC pages, and because EPC pages
+(currently) do not have associated page structures, management of the EPC is
+not handled by the standard memory subsystem.
+
+SGX directly handles swapping of EPC pages, including a kthread to initiate
+reclaim and a rudimentary LRU mechanism. The consumers of EPC pages, e.g. the
+SGX driver, are required to implement function callbacks that can be invoked
+by the kernel to age, swap, and/or forcefully reclaim a target EPC page.
+In effect, the kernel controls what happens and when, while the consumers
+(driver, KVM, etc..) do the actual work.
+
+
+Launch Control
+==============
+
+**TODO:** Refine this section to improve wording and explain lack of tokens.
+
+The current kernel implementation supports only writable MSRs. The launch is
+performed by setting the MSRs to the hash of the public key modulus of the
+enclave signer and a token with the valid bit set to zero.
+
+The LE hash MSRs must be writable.  The launch is performed by setting the
+MSRs to the hash of the public key modulus of the enclave signer and a token
+with the valid bit set to zero.
+
+
+Locking
+=======
+
+**TODO:** Document kernel lock usage and ordering.
+
+
+Restricted Attributes
+=====================
+
+**TODO:** Document why and how the PROVISION_KEY is restricted.
