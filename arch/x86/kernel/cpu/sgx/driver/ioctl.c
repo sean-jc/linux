@@ -412,7 +412,7 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 }
 
 /**
- * sgx_ioc_create_enclave - handler for %SGX_IOC_CREATE_ENCLAVE
+ * sgx_ioc_create_enclave - handler for %SGX_CREATE_ENCLAVE
  * @filep:	open file to /dev/sgx
  * @cmd:	the command value
  * @arg:	pointer to an &sgx_create_enclave instance
@@ -613,7 +613,7 @@ out:
 }
 
 /**
- * sgx_ioc_enclave_add_page - handler for %SGX_IOC_ENCLAVE_ADD_PAGE
+ * sgx_ioc_enclave_add_page - handler for %SGX_ENCLAVE_ADD_PAGE
  *
  * @filep:	open file to /dev/sgx
  * @cmd:	the command value
@@ -767,7 +767,7 @@ err_out:
 }
 
 /**
- * sgx_ioc_enclave_init - handler for %SGX_IOC_ENCLAVE_INIT
+ * sgx_ioc_enclave_init - handler for %SGX_ENCLAVE_INIT
  *
  * @filep:	open file to /dev/sgx
  * @cmd:	the command value
@@ -822,7 +822,7 @@ out:
 }
 
 /**
- * sgx_ioc_enclave_set_attribute - handler for %SGX_IOC_ENCLAVE_SET_ATTRIBUTE
+ * sgx_ioc_enclave_set_attribute - handler for %SGX_ENCLAVE_SET_ATTRIBUTE
  * @filep:	open file to /dev/sgx
  * @cmd:	the command value
  * @arg:	pointer to a struct sgx_enclave_set_attribute instance
@@ -879,16 +879,16 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	long ret;
 
 	switch (cmd) {
-	case SGX_IOC_CREATE_ENCLAVE:
+	case SGX_CREATE_ENCLAVE:
 		handler = sgx_ioc_create_enclave;
 		break;
-	case SGX_IOC_ENCLAVE_ADD_PAGE:
+	case SGX_ENCLAVE_ADD_PAGE:
 		handler = sgx_ioc_enclave_add_page;
 		break;
-	case SGX_IOC_ENCLAVE_INIT:
+	case SGX_ENCLAVE_INIT:
 		handler = sgx_ioc_enclave_init;
 		break;
-	case SGX_IOC_ENCLAVE_SET_ATTRIBUTE:
+	case SGX_ENCLAVE_SET_ATTRIBUTE:
 		handler = sgx_ioc_enclave_set_attribute;
 		break;
 	default:

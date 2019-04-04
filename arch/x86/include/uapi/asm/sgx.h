@@ -10,13 +10,13 @@
 
 #define SGX_MAGIC 0xA4
 
-#define SGX_IOC_CREATE_ENCLAVE \
+#define SGX_CREATE_ENCLAVE \
 	_IOW(SGX_MAGIC, 0x00, struct sgx_create_enclave)
-#define SGX_IOC_ENCLAVE_ADD_PAGE \
+#define SGX_ENCLAVE_ADD_PAGE \
 	_IOW(SGX_MAGIC, 0x01, struct sgx_enclave_add_page)
-#define SGX_IOC_ENCLAVE_INIT \
+#define SGX_ENCLAVE_INIT \
 	_IOW(SGX_MAGIC, 0x02, struct sgx_enclave_init)
-#define SGX_IOC_ENCLAVE_SET_ATTRIBUTE \
+#define SGX_ENCLAVE_SET_ATTRIBUTE \
 	_IOW(SGX_MAGIC, 0x03, struct sgx_enclave_set_attribute)
 
 /* IOCTL return values */
@@ -24,7 +24,7 @@
 
 /**
  * struct sgx_create_enclave - parameter structure for the
- *                             %SGX_IOC_CREATE_ENCLAVE ioctl
+ *                             %SGX_CREATE_ENCLAVE ioctl
  * @src:	address for the SECS page data
  */
 struct sgx_create_enclave  {
@@ -33,7 +33,7 @@ struct sgx_create_enclave  {
 
 /**
  * struct sgx_enclave_add_page - parameter structure for the
- *                               %SGX_IOC_ENCLAVE_ADD_PAGE ioctl
+ *                               %SGX_ENCLAVE_ADD_PAGE ioctl
  * @addr:	address within the ELRANGE
  * @src:	address for the page data
  * @secinfo:	address for the SECINFO data
@@ -49,7 +49,7 @@ struct sgx_enclave_add_page {
 
 /**
  * struct sgx_enclave_init - parameter structure for the
- *                           %SGX_IOC_ENCLAVE_INIT ioctl
+ *                           %SGX_ENCLAVE_INIT ioctl
  * @addr:	address within the ELRANGE
  * @sigstruct:	address for the SIGSTRUCT data
  */
@@ -60,7 +60,7 @@ struct sgx_enclave_init {
 
 /**
  * struct sgx_enclave_set_attribute - parameter structure for the
- *				      %SGX_IOC_ENCLAVE_INIT ioctl
+ *				      %SGX_ENCLAVE_INIT ioctl
  * @addr:		address within the ELRANGE
  * @attribute_fd:	file handle of the attribute file in the securityfs
  */

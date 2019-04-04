@@ -145,7 +145,7 @@ static bool encl_create(int dev_fd, unsigned long bin_size,
 	secs->base = (uint64_t)base;
 
 	ioc.src = (unsigned long)secs;
-	rc = ioctl(dev_fd, SGX_IOC_CREATE_ENCLAVE, &ioc);
+	rc = ioctl(dev_fd, SGX_CREATE_ENCLAVE, &ioc);
 	if (rc) {
 		fprintf(stderr, "ECREATE failed rc=%d.\n", rc);
 		munmap(base, secs->size);
@@ -170,7 +170,7 @@ static bool encl_add_page(int dev_fd, unsigned long addr, void *data,
 	ioc.addr = addr;
 	ioc.src = (uint64_t)data;
 
-	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_ADD_PAGE, &ioc);
+	rc = ioctl(dev_fd, SGX_ENCLAVE_ADD_PAGE, &ioc);
 	if (rc) {
 		fprintf(stderr, "EADD failed rc=%d.\n", rc);
 		return false;
@@ -210,7 +210,7 @@ static bool encl_load(struct sgx_secs *secs, unsigned long bin_size)
 
 	ioc.addr = secs->base;
 	ioc.sigstruct = (uint64_t)&encl_ss;
-	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_INIT, &ioc);
+	rc = ioctl(dev_fd, SGX_ENCLAVE_INIT, &ioc);
 	if (rc) {
 		printf("EINIT failed rc=%d\n", rc);
 		goto out_map;
