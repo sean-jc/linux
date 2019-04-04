@@ -123,7 +123,7 @@ static Elf64_Sym *vdso_symtab_get(struct vdso_symtab *symtab, const char *name)
 static bool encl_create(int dev_fd, unsigned long bin_size,
 			struct sgx_secs *secs)
 {
-	struct sgx_enclave_create ioc;
+	struct sgx_create_enclave ioc;
 	void *base;
 	int rc;
 
@@ -145,7 +145,7 @@ static bool encl_create(int dev_fd, unsigned long bin_size,
 	secs->base = (uint64_t)base;
 
 	ioc.src = (unsigned long)secs;
-	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_CREATE, &ioc);
+	rc = ioctl(dev_fd, SGX_IOC_CREATE_ENCLAVE, &ioc);
 	if (rc) {
 		fprintf(stderr, "ECREATE failed rc=%d.\n", rc);
 		munmap(base, secs->size);

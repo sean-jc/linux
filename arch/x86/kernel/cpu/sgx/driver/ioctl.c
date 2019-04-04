@@ -412,26 +412,26 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 }
 
 /**
- * sgx_ioc_enclave_create - handler for %SGX_IOC_ENCLAVE_CREATE
+ * sgx_ioc_create_enclave - handler for %SGX_IOC_CREATE_ENCLAVE
  * @filep:	open file to /dev/sgx
  * @cmd:	the command value
- * @arg:	pointer to an &sgx_enclave_create instance
+ * @arg:	pointer to an &sgx_create_enclave instance
  *
  * Allocate kernel data structures for a new enclave and execute ECREATE after
  * verifying the correctness of the provided SECS.
  *
  * Note, enforcement of restricted and disallowed attributes is deferred until
  * sgx_ioc_enclave_init(), only the architectural correctness of the SECS is
- * checked by sgx_ioc_enclave_create().
+ * checked by sgx_ioc_create_enclave().
  *
  * Return:
  *   0 on success,
  *   -errno otherwise
  */
-static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
+static long sgx_ioc_create_enclave(struct file *filep, unsigned int cmd,
 				   unsigned long arg)
 {
-	struct sgx_enclave_create *createp = (struct sgx_enclave_create *)arg;
+	struct sgx_create_enclave *createp = (struct sgx_create_enclave *)arg;
 	struct page *secs_page;
 	struct sgx_secs *secs;
 	struct sgx_encl *encl;
@@ -879,8 +879,8 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	long ret;
 
 	switch (cmd) {
-	case SGX_IOC_ENCLAVE_CREATE:
-		handler = sgx_ioc_enclave_create;
+	case SGX_IOC_CREATE_ENCLAVE:
+		handler = sgx_ioc_create_enclave;
 		break;
 	case SGX_IOC_ENCLAVE_ADD_PAGE:
 		handler = sgx_ioc_enclave_add_page;

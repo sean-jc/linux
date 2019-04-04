@@ -37,7 +37,7 @@ and its resources are not freed until the last reference to its file descriptor
 has been released.
 
 System ioctls:
- - SGX_IOC_ENCLAVE_CREATE
+ - SGX_IOC_CREATE_ENCLAVE
 
 Enclave ioctls:
  - SGX_IOC_ENCLAVE_ADD_PAGE
@@ -45,7 +45,7 @@ Enclave ioctls:
  - SGX_IOC_ENCLAVE_INIT
 
 .. kernel-doc:: arch/x86/kernel/cpu/sgx/driver/ioctl.c
-   :functions: sgx_ioc_enclave_create
+   :functions: sgx_ioc_create_enclave
                sgx_ioc_enclave_add_page
                sgx_ioc_enclave_init
 

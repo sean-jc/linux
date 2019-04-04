@@ -10,8 +10,8 @@
 
 #define SGX_MAGIC 0xA4
 
-#define SGX_IOC_ENCLAVE_CREATE \
-	_IOW(SGX_MAGIC, 0x00, struct sgx_enclave_create)
+#define SGX_IOC_CREATE_ENCLAVE \
+	_IOW(SGX_MAGIC, 0x00, struct sgx_create_enclave)
 #define SGX_IOC_ENCLAVE_ADD_PAGE \
 	_IOW(SGX_MAGIC, 0x01, struct sgx_enclave_add_page)
 #define SGX_IOC_ENCLAVE_INIT \
@@ -23,11 +23,11 @@
 #define SGX_POWER_LOST_ENCLAVE		0x40000000
 
 /**
- * struct sgx_enclave_create - parameter structure for the
- *                             %SGX_IOC_ENCLAVE_CREATE ioctl
+ * struct sgx_create_enclave - parameter structure for the
+ *                             %SGX_IOC_CREATE_ENCLAVE ioctl
  * @src:	address for the SECS page data
  */
-struct sgx_enclave_create  {
+struct sgx_create_enclave  {
 	__u64	src;
 };
 
