@@ -417,8 +417,12 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
  * @cmd:	the command value
  * @arg:	pointer to an &sgx_enclave_create instance
  *
- * Validates SECS attributes, allocates an EPC page for the SECS and performs
- * ECREATE.
+ * Allocate kernel data structures for a new enclave and execute ECREATE after
+ * verifying the correctness of the provided SECS.
+ *
+ * Note, enforcement of restricted and disallowed attributes is deferred until
+ * sgx_ioc_enclave_init(), only the architectural correctness of the SECS is
+ * checked by sgx_ioc_enclave_create().
  *
  * Return:
  *   0 on success,
@@ -615,8 +619,12 @@ out:
  * @cmd:	the command value
  * @arg:	pointer to an &sgx_enclave_add_page instance
  *
- * Creates a new enclave page and enqueues an EADD operation that will be
- * processed by a worker thread later on.
+ * Add a page to an uninitialized enclave (EADD), and optionally extend the
+ * enclave's measurement with the contents of the page (EEXTEND).  EADD and
+ * EEXTEND are done asynchronously via worker threads.  A successful
+ * sgx_ioc_enclave_add_page() only indicates the page has been added to the
+ * work queue, it does not guarantee adding the page to the enclave will
+ * succeed.
  *
  * Return:
  *   0 on success,
@@ -765,7 +773,9 @@ err_out:
  * @cmd:	the command value
  * @arg:	pointer to an &sgx_enclave_init instance
  *
- * Flushes the remaining enqueued EADD operations and performs EINIT.
+ * Flush any outstanding enqueued EADD operations and perform EINIT.  The
+ * Launch Enclave Public Key Hash MSRs are rewritten as necessary to match
+ * the enclave's MRSIGNER, which is caculated from the provided sigstruct.
  *
  * Return:
  *   0 on success,
@@ -817,8 +827,16 @@ out:
  * @cmd:	the command value
  * @arg:	pointer to a struct sgx_enclave_set_attribute instance
  *
- * Sets an attribute matching the attribute file that is pointed by the
- * parameter structure field attribute_fd.
+ * Mark the enclave as being allowed to access a restricted attribute bit.
+ * The requested attribute is specified via the attribute_fd field in the
+ * provided struct sgx_enclave_set_attribute.  The attribute_fd must be a
+ * handle to an SGX attribute file, e.g. “/dev/sgx/provision".
+ *
+ * Failure to explicitly request access to a restricted attribute will cause
+ * sgx_ioc_enclave_init() to fail.  Currently, the only restricted attribute
+ * is access to the PROVISION_KEY.
+ *
+ * Note, access to the EINITTOKEN_KEY is disallowed entirely.
  *
  * Return: 0 on success, -errno otherwise
  */
