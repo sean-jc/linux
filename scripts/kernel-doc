@@ -210,7 +210,7 @@ my $anon_struct_union = 0;
 
 # match expressions used to find embedded type information
 my $type_constant = '\b``([^\`]+)``\b';
-my $type_constant2 = '\%([-_\w]+)';
+my $type_constant2 = '(^|[^\`\\\])\%([-_\w]+)';
 my $type_func = '(\w+)\(\)';
 my $type_param = '\@(\w*((\.\w+)|(->\w+))*(\.\.\.)?)';
 my $type_fp_param = '\@(\w+)\(\)';  # Special RST handling for func ptr params
@@ -229,7 +229,7 @@ my $type_member_func = $type_member . '\(\)';
 # these are pretty rough
 my @highlights_man = (
                       [$type_constant, "\$1"],
-                      [$type_constant2, "\$1"],
+                      [$type_constant2, "\$1\$2"],
                       [$type_func, "\\\\fB\$1\\\\fP"],
                       [$type_enum, "\\\\fI\$1\\\\fP"],
                       [$type_struct, "\\\\fI\$1\\\\fP"],
@@ -244,7 +244,7 @@ my $blankline_man = "";
 # rst-mode
 my @highlights_rst = (
                        [$type_constant, "``\$1``"],
-                       [$type_constant2, "``\$1``"],
+                       [$type_constant2, "\$1``\$2``"],
                        # Note: need to escape () to avoid func matching later
                        [$type_member_func, "\\:c\\:type\\:`\$1\$2\$3\\\\(\\\\) <\$1>`"],
                        [$type_member, "\\:c\\:type\\:`\$1\$2\$3 <\$1>`"],
