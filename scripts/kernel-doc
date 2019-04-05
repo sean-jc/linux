@@ -66,8 +66,8 @@ Output selection (mutually exclusive):
   -function NAME	Only output documentation for the given function(s)
 			or DOC: section title(s). All other functions and DOC:
 			sections are ignored. May be specified multiple times.
-  -nofunction NAME	Do NOT output documentation for the given function(s);
-			only output documentation for the other functions and
+  -nosymbol NAME	Do NOT output documentation for the given symbol(s);
+			only output documentation for the other symbols and
 			DOC: sections. May be specified multiple times.
 
 Output selection modifiers:
@@ -409,11 +409,11 @@ while ($ARGV[0] =~ m/^--?(.*)/) {
 	$output_mode = "none";
     } elsif ($cmd eq "module") { # not needed for XML, inherits from calling document
 	$modulename = shift @ARGV;
-    } elsif ($cmd eq "function") { # to only output specific functions
+    } elsif ($cmd eq "function") { # to only output specific function
 	$output_selection = OUTPUT_INCLUDE;
 	$function = shift @ARGV;
 	$function_table{$function} = 1;
-    } elsif ($cmd eq "nofunction") { # output all except specific functions
+    } elsif ($cmd eq "nosymbol") { # output all except specific symbols
 	$output_selection = OUTPUT_EXCLUDE;
 	$function = shift @ARGV;
 	$function_table{$function} = 1;
