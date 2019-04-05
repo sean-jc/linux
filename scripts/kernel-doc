@@ -63,10 +63,10 @@ Output selection (mutually exclusive):
   -internal		Only output documentation for symbols that have NOT been
 			exported using EXPORT_SYMBOL() or EXPORT_SYMBOL_GPL()
                         in any input FILE or -export-file FILE.
-  -function NAME	Only output documentation for the given function(s)
-			or DOC: section title(s). All other functions and DOC:
+  -symbols	NAME	Only output documentation for the given symbol(s)
+			or DOC: section title(s). All other symbols and DOC:
 			sections are ignored. May be specified multiple times.
-  -nosymbol NAME	Do NOT output documentation for the given symbol(s);
+  -nosymbol	NAME	Do NOT output documentation for the given symbol(s);
 			only output documentation for the other symbols and
 			DOC: sections. May be specified multiple times.
 
@@ -409,7 +409,7 @@ while ($ARGV[0] =~ m/^--?(.*)/) {
 	$output_mode = "none";
     } elsif ($cmd eq "module") { # not needed for XML, inherits from calling document
 	$modulename = shift @ARGV;
-    } elsif ($cmd eq "function") { # to only output specific function
+    } elsif ($cmd eq "symbol") { # to only output specific symbol
 	$output_selection = OUTPUT_INCLUDE;
 	$function = shift @ARGV;
 	$function_table{$function} = 1;

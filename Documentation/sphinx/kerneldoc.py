@@ -73,12 +73,12 @@ class KernelDocDirective(Directive):
             cmd += ['-internal']
             export_file_patterns = str(self.options.get('internal')).split()
         elif 'doc' in self.options:
-            cmd += ['-function', str(self.options.get('doc'))]
+            cmd += ['-symbol', str(self.options.get('doc'))]
         elif 'functions' in self.options:
             functions = self.options.get('functions').split()
             if functions:
                 for f in functions:
-                    cmd += ['-function', f]
+                    cmd += ['-symbol', f]
             else:
                 cmd += ['-no-doc-sections']
 
