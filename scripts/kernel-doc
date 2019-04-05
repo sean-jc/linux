@@ -1026,9 +1026,10 @@ sub output_declaration {
 	(($output_selection == OUTPUT_INCLUDE ||
 	  $output_selection == OUTPUT_EXPORTED) &&
 	 defined($function_table{$name})) ||
-	(($output_selection == OUTPUT_EXCLUDE ||
-	  $output_selection == OUTPUT_INTERNAL) &&
-	 !($functype eq "function" && defined($function_table{$name}))))
+	($output_selection == OUTPUT_INTERNAL &&
+	 !($functype eq "function" && defined($function_table{$name}))) ||
+	($output_selection == OUTPUT_EXCLUDE &&
+	 !defined($function_table{$name})))
     {
 	&$func(@_);
 	$section_counter++;
