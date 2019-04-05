@@ -1,0 +1,27 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+===
+API
+===
+
+The enclave life-cycle starts by opening `/dev/sgx/enclave`. After this there is
+already a data structure inside kernel tracking the enclave that is initially
+uncreated. After this a set of ioctl's can be used to create, populate and
+initialize the enclave.
+
+You can close (if you want) the fd after you've mmap()'d. As long as the file is
+open the enclave stays alive so you might want to do that after you don't need
+it anymore. Even munmap() won't destruct the enclave if the file is open.
+Neither will closing the fd as long as you have mmap() done over the fd (even
+if it does not across the range defined in SECS).
+
+Finally, there is ioctl to authorize priviliged attributes:
+`SGX_IOC_ENCLAVE_SET_ATTRIBUTE`. Each of them is presented by a file inside
+`/dev/sgx/`. Right now there is only one such file `/dev/sgx/provision`, which
+controls the `PROVISON_KEY` attribute.
+
+.. kernel-doc:: arch/x86/kernel/cpu/sgx/driver/ioctl.c
+   :functions: sgx_ioc_enclave_create
+               sgx_ioc_enclave_add_page
+               sgx_ioc_enclave_init
+               sgx_ioc_enclave_set_attribute
