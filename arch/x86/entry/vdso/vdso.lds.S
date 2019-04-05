@@ -25,7 +25,6 @@ VERSION {
 		__vdso_getcpu;
 		time;
 		__vdso_time;
-		__vdso_sgx_enter_enclave;
 	local: *;
 	};
 }
