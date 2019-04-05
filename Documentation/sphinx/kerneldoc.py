@@ -48,6 +48,7 @@ class KernelDocDirective(Directive):
     option_spec = {
         'doc': directives.unchanged_required,
         'functions': directives.unchanged,
+        'nosymbols': directives.unchanged,
         'export': directives.unchanged,
         'internal': directives.unchanged,
     }
@@ -81,6 +82,10 @@ class KernelDocDirective(Directive):
                     cmd += ['-symbol', f]
             else:
                 cmd += ['-no-doc-sections']
+        elif 'nosymbols' in self.options:
+            symbols = self.options.get('nosymbols').split()
+            for s in symbols:
+                cmd += ['-nosymbol', s]
 
         for pattern in export_file_patterns:
             for f in glob.glob(env.config.kerneldoc_srctree + '/' + pattern):
