@@ -1,0 +1,281 @@
+commit 994a3098011781c19d6bb9c6adb15cfc777c7c23
+Author: Sean Christopherson <sean.j.christopherson@intel.com>
+Date:   Fri Jan 19 13:02:22 2018 -0800
+
+    KVM: vmx: add EPT Violation #VE emulation
+    
+    Signed-off-by: Sean Christopherson <sean.j.christopherson@intel.com>
+
+diff --git a/arch/x86/kvm/vmx.c b/arch/x86/kvm/vmx.c
+index ccc6a01eb4f4..04565987da25 100644
+--- a/arch/x86/kvm/vmx.c
++++ b/arch/x86/kvm/vmx.c
+@@ -480,7 +480,8 @@ struct __packed vmcs12 {
+ 	u64 vm_function_control;
+ 	u64 eptp_list_address;
+ 	u64 pml_address;
+-	u64 padding64[3]; /* room for future expansion */
++	u64 ve_info_address;
++	u64 padding64[2]; /* room for future expansion */
+ 	/*
+ 	 * To allow migration of L1 (complete with its L2 guests) between
+ 	 * machines of different natural widths (32 or 64 bit), we cannot have
+@@ -577,7 +578,9 @@ struct __packed vmcs12 {
+ 	u32 guest_sysenter_cs;
+ 	u32 host_ia32_sysenter_cs;
+ 	u32 vmx_preemption_timer_value;
+-	u32 padding32[7]; /* room for future expansion */
++	u32 padding32[6]; /* room for future expansion */
++	u16 padding16[1]; /* room for future expansion */
++	u16 eptp_index;
+ 	u16 virtual_processor_id;
+ 	u16 posted_intr_nv;
+ 	u16 guest_es_selector;
+@@ -863,6 +866,7 @@ struct nested_vmx {
+ 	 * Guest pages referred to in the vmcs02 with host-physical
+ 	 * pointers, so we must keep them pinned while L2 runs.
+ 	 */
++	struct page *ve_info_page;
+ 	struct page *apic_access_page;
+ 	struct page *virtual_apic_page;
+ 	struct page *pi_desc_page;
+@@ -895,6 +899,15 @@ struct nested_vmx {
+ 	struct hv_enlightened_vmcs *hv_evmcs;
+ };
+ 
++struct vmx_ve_info {
++	__u32 exit_reason;
++	__u32 busy;
++	__u64 exit_qual;
++	__u64 gla;
++	__u64 gpa;
++	__u16 eptp_index;
++} __packed;
++
+ #define POSTED_INTR_ON  0
+ #define POSTED_INTR_SN  1
+ 
+@@ -1115,6 +1128,7 @@ static int max_shadow_read_write_fields =
+ 	ARRAY_SIZE(shadow_read_write_fields);
+ 
+ static const unsigned short vmcs_field_to_offset_table[] = {
++	FIELD(EPTP_INDEX, eptp_index),
+ 	FIELD(VIRTUAL_PROCESSOR_ID, virtual_processor_id),
+ 	FIELD(POSTED_INTR_NV, posted_intr_nv),
+ 	FIELD(GUEST_ES_SELECTOR, guest_es_selector),
+@@ -1169,6 +1183,7 @@ static const unsigned short vmcs_field_to_offset_table[] = {
+ 	FIELD64(HOST_IA32_PAT, host_ia32_pat),
+ 	FIELD64(HOST_IA32_EFER, host_ia32_efer),
+ 	FIELD64(HOST_IA32_PERF_GLOBAL_CTRL, host_ia32_perf_global_ctrl),
++	FIELD64(VE_INFO_ADDRESS, ve_info_address),
+ 	FIELD(PIN_BASED_VM_EXEC_CONTROL, pin_based_vm_exec_control),
+ 	FIELD(CPU_BASED_VM_EXEC_CONTROL, cpu_based_vm_exec_control),
+ 	FIELD(EXCEPTION_BITMAP, exception_bitmap),
+@@ -1955,6 +1970,12 @@ static bool vmx_umip_emulated(void)
+ 		SECONDARY_EXEC_DESC;
+ }
+ 
++static inline bool cpu_has_ept_violation_ve(void)
++{
++	return vmcs_config.cpu_based_2nd_exec_ctrl &
++		SECONDARY_EXEC_EPT_VIOLATION_VE;
++}
++
+ static inline bool report_flexpriority(void)
+ {
+ 	return flexpriority_enabled;
+@@ -2078,6 +2099,11 @@ static inline bool nested_cpu_has_shadow_vmcs(struct vmcs12 *vmcs12)
+ 	return nested_cpu_has2(vmcs12, SECONDARY_EXEC_SHADOW_VMCS);
+ }
+ 
++static inline bool nested_cpu_has_ept_violation_ve(struct vmcs12 *vmcs12)
++{
++	return nested_cpu_has2(vmcs12, SECONDARY_EXEC_EPT_VIOLATION_VE);
++}
++
+ static inline bool is_nmi(u32 intr_info)
+ {
+ 	return (intr_info & (INTR_INFO_INTR_TYPE_MASK | INTR_INFO_VALID_MASK))
+@@ -3642,6 +3668,9 @@ static void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, bool apicv)
+ 				SECONDARY_EXEC_ENABLE_PML;
+ 			msrs->ept_caps |= VMX_EPT_AD_BIT;
+ 		}
++
++		/* EPT #VE is emulated in software, always advertisze */
++		msrs->secondary_ctls_high |= SECONDARY_EXEC_EPT_VIOLATION_VE;
+ 	}
+ 
+ 	if (cpu_has_vmx_vmfunc()) {
+@@ -6139,6 +6168,10 @@ static void nested_mark_vmcs12_pages_dirty(struct kvm_vcpu *vcpu)
+ 	 * written to by the CPU during APIC virtualization.
+ 	 */
+ 
++	if (nested_cpu_has_ept_violation_ve(vmcs12)) {
++		gfn = vmcs12->ve_info_address >> PAGE_SHIFT;
++		kvm_vcpu_mark_page_dirty(vcpu, gfn);
++	}
+ 	if (nested_cpu_has(vmcs12, CPU_BASED_TPR_SHADOW)) {
+ 		gfn = vmcs12->virtual_apic_page_addr >> PAGE_SHIFT;
+ 		kvm_vcpu_mark_page_dirty(vcpu, gfn);
+@@ -8507,6 +8540,10 @@ static void free_nested(struct kvm_vcpu *vcpu)
+ 	kfree(vmx->nested.cached_vmcs12);
+ 	kfree(vmx->nested.cached_shadow_vmcs12);
+ 	/* Unpin physical memory we referred to in the vmcs02 */
++	if (vmx->nested.ve_info_page) {
++		kvm_release_page_dirty(vmx->nested.ve_info_page);
++		vmx->nested.ve_info_page = NULL;
++	}
+ 	if (vmx->nested.apic_access_page) {
+ 		kvm_release_page_dirty(vmx->nested.apic_access_page);
+ 		vmx->nested.apic_access_page = NULL;
+@@ -9774,6 +9811,8 @@ static int nested_vmx_eptp_switching(struct kvm_vcpu *vcpu,
+ 		kvm_mmu_reload(vcpu);
+ 	}
+ 
++	vmcs12->eptp_index = index;
++
+ 	return 0;
+ }
+ 
+@@ -11144,6 +11183,24 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
+ 		vmcs_write32(PLE_WINDOW, vmx->ple_window);
+ 	}
+ 
++	if (vcpu->arch.exception.injected &&
++	    vcpu->arch.exception.nr == VE_VECTOR) {
++		struct vmx_ve_info *info;
++
++		if (WARN_ON(vmcs_read32(VM_ENTRY_INTR_INFO_FIELD) == 0))
++			goto skip_ve;
++		if (WARN_ON(!is_guest_mode(vcpu)))
++			goto skip_ve;
++		if (WARN_ON(!vmx->nested.ve_info_page))
++			goto skip_ve;
++
++		info = kmap(vmx->nested.ve_info_page);
++		if (!WARN(info->busy, "KVM: #VE busy = %x", info->busy))
++			info->busy = 0xfffffffful;
++		kunmap(vmx->nested.ve_info_page);
++	}
++
++skip_ve:
+ 	if (vmx->nested.need_vmcs12_sync) {
+ 		/*
+ 		 * hv_evmcs may end up being not mapped after migration (when
+@@ -11804,9 +11861,43 @@ static void nested_ept_inject_page_fault(struct kvm_vcpu *vcpu,
+ 		exit_qualification &= INTR_INFO_UNBLOCK_NMI;
+ 	} else if (fault->error_code & PFERR_RSVD_MASK)
+ 		exit_reason = EXIT_REASON_EPT_MISCONFIG;
+-	else
++	else {
++		struct vmx_ve_info *info;
++		bool ve_exception = false;
++
+ 		exit_reason = EXIT_REASON_EPT_VIOLATION;
+ 
++		if (WARN_ON(!is_guest_mode(vcpu)))
++			goto ept_vmexit;
++
++		if (vcpu->arch.suppress_ve ||
++		    !nested_cpu_has_ept_violation_ve(vmcs12))
++			goto ept_vmexit;
++
++		if (unlikely(!vmx->nested.ve_info_page))
++			goto ept_vmexit;
++
++		info = kmap(vmx->nested.ve_info_page);
++		if (!info->busy) {
++			info->exit_reason = exit_reason;
++			info->exit_qual = exit_qualification;
++			info->gla = vmcs12->guest_linear_address;
++			info->gpa = fault->address;
++			info->eptp_index = vmcs12->eptp_index;
++
++			ve_exception = true;
++			kvm_queue_exception(vcpu, VE_VECTOR);
++		} else {
++			pr_warn_ratelimited("KVM: rip = %016lx, busy = %x, gpa = %llx, info = %llx",
++				vmcs_readl(GUEST_RIP), info->busy, info->gpa, vmcs12->ve_info_address);
++		}
++		kunmap(vmx->nested.ve_info_page);
++
++		if (ve_exception)
++			return;
++	}
++
++ept_vmexit:
+ 	nested_vmx_vmexit(vcpu, exit_reason, 0, exit_qualification);
+ 	vmcs12->guest_physical_address = fault->address;
+ }
+@@ -11889,6 +11980,20 @@ static void nested_get_vmcs12_pages(struct kvm_vcpu *vcpu)
+ 	struct page *page;
+ 	u64 hpa;
+ 
++	if (nested_cpu_has_ept_violation_ve(vmcs12)) {
++		if (vmx->nested.ve_info_page) { /* shouldn't happen */
++			kvm_release_page_dirty(vmx->nested.ve_info_page);
++			vmx->nested.ve_info_page = NULL;
++		}
++
++		// #VE emulation is not going to be upstreamed, punt on any
++		// errors and just pretend the #VE info page was busy.
++		page = kvm_vcpu_gpa_to_page(vcpu, vmcs12->ve_info_address);
++		if (!WARN_ON(is_error_page(page))) {
++			vmx->nested.ve_info_page = page;
++		}
++	}
++
+ 	if (nested_cpu_has2(vmcs12, SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES)) {
+ 		/*
+ 		 * Translate L1 physical address to host physical
+@@ -12285,6 +12390,19 @@ static int nested_vmx_check_shadow_vmcs_controls(struct kvm_vcpu *vcpu,
+ 	return 0;
+ }
+ 
++static int nested_vmx_check_ve_info_controls(struct kvm_vcpu *vcpu,
++					     struct vmcs12 *vmcs12)
++{
++	if (!nested_cpu_has_ept_violation_ve(vmcs12))
++		return 0;
++
++	if (!nested_cpu_has_ept(vmcs12) ||
++	    !page_address_valid(vcpu, vmcs12->ve_info_address))
++		return -EINVAL;
++
++	return 0;
++}
++
+ static int nested_vmx_msr_check_common(struct kvm_vcpu *vcpu,
+ 				       struct vmx_msr_entry *e)
+ {
+@@ -12631,6 +12749,9 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
+ 		/* VMCS shadowing for L2 is emulated for now */
+ 		exec_control &= ~SECONDARY_EXEC_SHADOW_VMCS;
+ 
++		/* EPT #VE is emulated through L0 VMExit */
++		exec_control &= ~SECONDARY_EXEC_EPT_VIOLATION_VE;
++
+ 		if (exec_control & SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY)
+ 			vmcs_write16(GUEST_INTR_STATUS,
+ 				vmcs12->guest_intr_status);
+@@ -13003,6 +13124,9 @@ static int check_vmentry_prereqs(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
+ 	if (nested_vmx_check_shadow_vmcs_controls(vcpu, vmcs12))
+ 		return VMXERR_ENTRY_INVALID_CONTROL_FIELD;
+ 
++	if (nested_vmx_check_ve_info_controls(vcpu, vmcs12))
++		return VMXERR_ENTRY_INVALID_CONTROL_FIELD;
++
+ 	if (!vmx_control_verify(vmcs12->cpu_based_vm_exec_control,
+ 				vmx->nested.msrs.procbased_ctls_low,
+ 				vmx->nested.msrs.procbased_ctls_high) ||
+@@ -14194,6 +14318,10 @@ static void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 exit_reason,
+ 	vmx->host_rsp = 0;
+ 
+ 	/* Unpin physical memory we referred to in vmcs02 */
++	if (vmx->nested.ve_info_page) {
++		kvm_release_page_dirty(vmx->nested.ve_info_page);
++		vmx->nested.ve_info_page = NULL;
++	}
+ 	if (vmx->nested.apic_access_page) {
+ 		kvm_release_page_dirty(vmx->nested.apic_access_page);
+ 		vmx->nested.apic_access_page = NULL;
