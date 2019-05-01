@@ -251,7 +251,7 @@ static void vmx_switch_vmcs(struct kvm_vcpu *vcpu, struct loaded_vmcs *vmcs)
 	cpu = get_cpu();
 	prev = vmx->loaded_cpu_state;
 	vmx->loaded_vmcs = vmcs;
-	vmx_vcpu_load(vcpu, cpu);
+	__vmx_vcpu_load(vcpu, cpu);
 
 	if (likely(prev)) {
 		src = &prev->host_state;
