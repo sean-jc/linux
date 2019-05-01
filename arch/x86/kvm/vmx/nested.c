@@ -241,15 +241,31 @@ static void free_nested(struct kvm_vcpu *vcpu)
 static void vmx_switch_vmcs(struct kvm_vcpu *vcpu, struct loaded_vmcs *vmcs)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	struct vmcs_host_state *src;
+	struct loaded_vmcs *prev;
 	int cpu;
 
 	if (vmx->loaded_vmcs == vmcs)
 		return;
 
 	cpu = get_cpu();
-	vmx_vcpu_put(vcpu);
+	prev = vmx->loaded_cpu_state;
 	vmx->loaded_vmcs = vmcs;
 	vmx_vcpu_load(vcpu, cpu);
+
+	if (likely(prev)) {
+		src = &prev->host_state;
+
+		vmx_set_host_fs_gs(&vmcs->host_state, src->fs_sel, src->gs_sel,
+				   src->fs_base, src->gs_base);
+
+		vmcs->host_state.ldt_sel = src->ldt_sel;
+#ifdef CONFIG_X86_64
+		vmcs->host_state.ds_sel = src->ds_sel;
+		vmcs->host_state.es_sel = src->es_sel;
+#endif
+		vmx->loaded_cpu_state = vmcs;
+	}
 	put_cpu();
 
 	vm_entry_controls_reset_shadow(vmx);
