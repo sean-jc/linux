@@ -4526,6 +4526,23 @@ static int handle_vmwrite(struct kvm_vcpu *vcpu)
 			 * path of prepare_vmcs02.
 			 */
 			break;
+
+#define SHADOW_FIELD_RO(x) case x:
+#include "vmcs_shadow_fields.h"
+			/*
+			 * L1 can read these fields without exiting, ensure the
+			 * shadow VMCS is up-to-date.
+			 */
+			if (enable_shadow_vmcs) {
+				preempt_disable();
+				vmcs_load(vmx->vmcs01.shadow_vmcs);
+
+				__vmcs_writel(field, field_value);
+
+				vmcs_clear(vmx->vmcs01.shadow_vmcs);
+				vmcs_load(vmx->loaded_vmcs->vmcs);
+			}
+			/* fall through */
 		default:
 			vmx->nested.dirty_vmcs12 = true;
 			break;
