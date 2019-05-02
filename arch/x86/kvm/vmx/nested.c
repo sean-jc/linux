@@ -3484,9 +3484,6 @@ static void sync_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 
 	if (vmcs12->vm_exit_controls & VM_EXIT_SAVE_IA32_EFER)
 		vmcs12->guest_ia32_efer = vcpu->arch.efer;
-	vmcs12->guest_sysenter_cs = vmcs_read32(GUEST_SYSENTER_CS);
-	vmcs12->guest_sysenter_esp = vmcs_readl(GUEST_SYSENTER_ESP);
-	vmcs12->guest_sysenter_eip = vmcs_readl(GUEST_SYSENTER_EIP);
 	if (kvm_mpx_supported())
 		vmcs12->guest_bndcfgs = vmcs_read64(GUEST_BNDCFGS);
 }
