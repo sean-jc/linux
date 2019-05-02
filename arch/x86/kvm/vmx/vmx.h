@@ -123,6 +123,12 @@ struct nested_vmx {
 	 */
 	bool vmcs02_initialized;
 
+	/*
+	 * Indicates lazily loaded guest state has not yet been decached from
+	 * vmcs02.
+	 */
+	bool need_vmcs02_to_vmcs12_ext_sync;
+
 	bool change_vmcs01_virtual_apic_mode;
 
 	/*
