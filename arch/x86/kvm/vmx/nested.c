@@ -2133,8 +2133,9 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 	}
 }
 
-static void prepare_vmcs02_full(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
+static void prepare_vmcs02_full(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 {
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	struct hv_enlightened_vmcs *hv_evmcs = vmx->nested.hv_evmcs;
 
 	if (!hv_evmcs || !(hv_evmcs->hv_clean_fields &
@@ -2183,11 +2184,8 @@ static void prepare_vmcs02_full(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 		vmcs_writel(GUEST_SYSENTER_ESP, vmcs12->guest_sysenter_esp);
 		vmcs_writel(GUEST_SYSENTER_EIP, vmcs12->guest_sysenter_eip);
 
-		/*
-		 * L1 may access the L2's PDPTR, so save them to construct
-		 * vmcs12
-		 */
-		if (enable_ept) {
+		if (enable_ept && !is_long_mode(vcpu) && is_pae(vcpu) &&
+		    is_paging(vcpu)) {
 			vmcs_write64(GUEST_PDPTR0, vmcs12->guest_pdptr0);
 			vmcs_write64(GUEST_PDPTR1, vmcs12->guest_pdptr1);
 			vmcs_write64(GUEST_PDPTR2, vmcs12->guest_pdptr2);
@@ -2257,7 +2255,7 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 	struct hv_enlightened_vmcs *hv_evmcs = vmx->nested.hv_evmcs;
 
 	if (vmx->nested.dirty_vmcs12 || vmx->nested.hv_evmcs) {
-		prepare_vmcs02_full(vmx, vmcs12);
+		prepare_vmcs02_full(vcpu, vmcs12);
 		vmx->nested.dirty_vmcs12 = false;
 	}
 
@@ -3466,10 +3464,12 @@ static void sync_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 	 */
 	if (enable_ept) {
 		vmcs12->guest_cr3 = vmcs_readl(GUEST_CR3);
-		vmcs12->guest_pdptr0 = vmcs_read64(GUEST_PDPTR0);
-		vmcs12->guest_pdptr1 = vmcs_read64(GUEST_PDPTR1);
-		vmcs12->guest_pdptr2 = vmcs_read64(GUEST_PDPTR2);
-		vmcs12->guest_pdptr3 = vmcs_read64(GUEST_PDPTR3);
+		if (!is_long_mode(vcpu) && is_pae(vcpu) && is_paging(vcpu)) {
+			vmcs12->guest_pdptr0 = vmcs_read64(GUEST_PDPTR0);
+			vmcs12->guest_pdptr1 = vmcs_read64(GUEST_PDPTR1);
+			vmcs12->guest_pdptr2 = vmcs_read64(GUEST_PDPTR2);
+			vmcs12->guest_pdptr3 = vmcs_read64(GUEST_PDPTR3);
+		}
 	}
 
 	vmcs12->guest_linear_address = vmcs_readl(GUEST_LINEAR_ADDRESS);
