@@ -2590,13 +2590,20 @@ static int nested_vmx_check_host_state(struct kvm_vcpu *vcpu,
 {
 	bool ia32e;
 
+	if (is_noncanonical_address(vmcs12->host_fs_base, vcpu) ||
+	    is_noncanonical_address(vmcs12->host_gs_base, vcpu))
+		return -EINVAL;
+
 	if (!nested_host_cr0_valid(vcpu, vmcs12->host_cr0) ||
 	    !nested_host_cr4_valid(vcpu, vmcs12->host_cr4) ||
 	    !nested_cr3_valid(vcpu, vmcs12->host_cr3))
 		return -EINVAL;
 
 	if (is_noncanonical_address(vmcs12->host_ia32_sysenter_esp, vcpu) ||
-	    is_noncanonical_address(vmcs12->host_ia32_sysenter_eip, vcpu))
+	    is_noncanonical_address(vmcs12->host_ia32_sysenter_eip, vcpu) ||
+	    is_noncanonical_address(vmcs12->host_tr_base, vcpu) ||
+	    is_noncanonical_address(vmcs12->host_gdtr_base, vcpu) ||
+	    is_noncanonical_address(vmcs12->host_idtr_base, vcpu))
 		return -EINVAL;
 
 	if ((vmcs12->vm_exit_controls & VM_EXIT_LOAD_IA32_PAT) &&
