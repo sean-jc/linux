@@ -56,7 +56,6 @@ SHADOW_FIELD_RW(VMX_PREEMPTION_TIMER_VALUE, vmx_preemption_timer_value)
 
 /* Natural width */
 SHADOW_FIELD_RO(EXIT_QUALIFICATION, exit_qualification)
-SHADOW_FIELD_RO(GUEST_LINEAR_ADDRESS, guest_linear_address)
 SHADOW_FIELD_RW(GUEST_RIP, guest_rip)
 SHADOW_FIELD_RW(GUEST_RSP, guest_rsp)
 SHADOW_FIELD_RW(GUEST_CR0, guest_cr0)
