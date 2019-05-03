@@ -2604,6 +2604,9 @@ static int nested_vmx_check_host_state(struct kvm_vcpu *vcpu,
 	    !nested_host_sel_valid(vmcs12->host_gs_selector))
 		return -EINVAL;
 
+	if (!to_vmx(vcpu)->nested.dirty_vmcs12)
+		return 0;
+
 	if (!nested_host_cr0_valid(vcpu, vmcs12->host_cr0) ||
 	    !nested_host_cr4_valid(vcpu, vmcs12->host_cr4) ||
 	    !nested_cr3_valid(vcpu, vmcs12->host_cr3))
