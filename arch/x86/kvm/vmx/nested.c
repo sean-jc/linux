@@ -2431,6 +2431,9 @@ static int nested_check_vm_execution_controls(struct kvm_vcpu *vcpu,
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
+	if (!vmx->nested.dirty_vmcs12)
+		return 0;
+
 	if (!vmx_control_verify(vmcs12->pin_based_vm_exec_control,
 				vmx->nested.msrs.pinbased_ctls_low,
 				vmx->nested.msrs.pinbased_ctls_high) ||
