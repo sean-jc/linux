@@ -182,8 +182,13 @@ struct nested_vmx {
 	struct hv_enlightened_vmcs *hv_evmcs;
 };
 
+struct vt_perf {
+	u64 min, max, cum, nr;
+};
+
 struct vcpu_vmx {
 	struct kvm_vcpu       vcpu;
+	struct vt_perf	      perf;
 	u8                    fail;
 	u8		      msr_bitmap_mode;
 	u32                   exit_intr_info;

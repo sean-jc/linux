@@ -121,10 +121,13 @@ module_param_named(pml, enable_pml, bool, S_IRUGO);
 
 /* Guest_tsc -> host_tsc conversion requires 64-bit division.  */
 static int __read_mostly cpu_preemption_timer_multi;
-static bool __read_mostly enable_preemption_timer = 1;
+static bool __read_mostly enable_preemption_timer = 0;
 #ifdef CONFIG_X86_64
 module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 #endif
+
+static unsigned long __read_mostly perf_threshold = 2000;
+module_param_named(threshold, perf_threshold, ulong, 0644);
 
 #define KVM_VM_CR0_ALWAYS_OFF (X86_CR0_NW | X86_CR0_CD)
 #define KVM_VM_CR0_ALWAYS_ON_UNRESTRICTED_GUEST X86_CR0_NE
@@ -3841,8 +3844,8 @@ u32 vmx_pin_based_exec_ctrl(struct vcpu_vmx *vmx)
 	if (!enable_vnmi)
 		pin_based_exec_ctrl &= ~PIN_BASED_VIRTUAL_NMIS;
 
-	if (!enable_preemption_timer)
-		pin_based_exec_ctrl &= ~PIN_BASED_VMX_PREEMPTION_TIMER;
+	// if (!enable_preemption_timer)
+	// 	pin_based_exec_ctrl &= ~PIN_BASED_VMX_PREEMPTION_TIMER;
 
 	return pin_based_exec_ctrl;
 }
@@ -6395,6 +6398,7 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long cr3, cr4;
+	u64 start, run_time;
 
 	/* Record the guest's net vcpu time for enforced NMI injections. */
 	if (unlikely(!enable_vnmi &&
@@ -6467,9 +6471,38 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.cr2 != read_cr2())
 		write_cr2(vcpu->arch.cr2);
 
+	vmcs_write32(VMX_PREEMPTION_TIMER_VALUE, 0);
+	start = rdtsc_ordered();
+
+	vmx->fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
+				   vmx->loaded_vmcs->launched);
+	run_time = rdtsc();
+
+	if (vmcs_read32(VM_EXIT_REASON) != EXIT_REASON_PREEMPTION_TIMER)
+		goto done;
+
+	vmcs_write32(VMX_PREEMPTION_TIMER_VALUE, -1);
+
+	run_time -= start;
+	if (run_time >= perf_threshold)
+		goto rerun;
+
+	++vmx->perf.nr;
+	if (run_time > vmx->perf.max)
+		vmx->perf.max = run_time;
+	if (run_time < vmx->perf.min || vmx->perf.min == 0)
+		vmx->perf.min = run_time;
+	vmx->perf.cum += run_time;
+	if (unlikely(!(vmx->perf.nr % 1000)))
+		pr_warn("kvm: VT roundtrip = %llu, min = %llu, max = %llu\n",
+			vmx->perf.cum / vmx->perf.nr, vmx->perf.min, vmx->perf.max);
+
+rerun:
+	vmx->loaded_vmcs->launched = 1;
 	vmx->fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
 				   vmx->loaded_vmcs->launched);
 
+done:
 	vcpu->arch.cr2 = read_cr2();
 
 	/*
@@ -7500,6 +7533,9 @@ static __init int hardware_setup(void)
 
 	if (!cpu_has_virtual_nmis())
 		enable_vnmi = 0;
+
+	if (boot_cpu_has(X86_FEATURE_HYPERVISOR) && perf_threshold == 2000)
+		perf_threshold = 33000;
 
 	/*
 	 * set_apic_access_page_addr() is used to reload apic access
