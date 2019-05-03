@@ -2585,6 +2585,12 @@ static int nested_vmx_check_controls(struct kvm_vcpu *vcpu,
 	return 0;
 }
 
+static inline bool nested_host_sel_valid(u16 sel)
+{
+	/* SDM: The RPL (bits 1:0) and the TI flag (bit 2) must be 0. */
+	return !(sel & 0x7);
+}
+
 static int nested_vmx_check_host_state(struct kvm_vcpu *vcpu,
 				       struct vmcs12 *vmcs12)
 {
@@ -2594,10 +2600,22 @@ static int nested_vmx_check_host_state(struct kvm_vcpu *vcpu,
 	    is_noncanonical_address(vmcs12->host_gs_base, vcpu))
 		return -EINVAL;
 
+	if (!nested_host_sel_valid(vmcs12->host_fs_selector) ||
+	    !nested_host_sel_valid(vmcs12->host_gs_selector))
+		return -EINVAL;
+
 	if (!nested_host_cr0_valid(vcpu, vmcs12->host_cr0) ||
 	    !nested_host_cr4_valid(vcpu, vmcs12->host_cr4) ||
 	    !nested_cr3_valid(vcpu, vmcs12->host_cr3))
 		return -EINVAL;
+
+	if (!nested_host_sel_valid(vmcs12->host_cs_selector) ||
+	    !nested_host_sel_valid(vmcs12->host_ds_selector) ||
+	    !nested_host_sel_valid(vmcs12->host_es_selector) ||
+	    !nested_host_sel_valid(vmcs12->host_ss_selector) ||
+	    !nested_host_sel_valid(vmcs12->host_tr_selector))
+		return -EINVAL;
+
 
 	if (is_noncanonical_address(vmcs12->host_ia32_sysenter_esp, vcpu) ||
 	    is_noncanonical_address(vmcs12->host_ia32_sysenter_eip, vcpu) ||
