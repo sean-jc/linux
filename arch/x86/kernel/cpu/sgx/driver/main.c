@@ -79,16 +79,65 @@ static int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm)
 	return 0;
 }
 
+/*
+ * Returns the AND of VM_{READ,WRITE,EXEC} permissions across all pages
+ * covered by the specific VMA.  A non-existent (or yet to be added) enclave
+ * page is considered to have no RWX permissions, i.e. is inaccessible.
+ */
+static unsigned long sgx_allowed_rwx(struct sgx_encl *encl,
+				     struct vm_area_struct *vma)
+{
+	unsigned long allowed_rwx = VM_READ | VM_WRITE | VM_EXEC;
+	unsigned long idx, idx_start, idx_end;
+	struct sgx_encl_page *page;
+
+	idx_start = PFN_DOWN(vma->vm_start);
+	idx_end = PFN_DOWN(vma->vm_end - 1);
+
+	for (idx = idx_start; idx <= idx_end; ++idx) {
+		/*
+		 * No need to take encl->lock, vm_prot_bits is set prior to
+		 * insertion and never changes, and racing with adding pages is
+		 * a userspace bug.
+		 */
+		rcu_read_lock();
+		page = radix_tree_lookup(&encl->page_tree, idx);
+		rcu_read_unlock();
+
+		/* Do not allow R|W|X to a non-existent page. */
+		if (!page)
+			allowed_rwx = 0;
+		else
+			allowed_rwx &= page->vm_prot_bits;
+		if (!allowed_rwx)
+			break;
+	}
+
+	return allowed_rwx;
+}
+
 static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
+	unsigned long allowed_rwx;
 	int ret;
+
+	allowed_rwx = sgx_allowed_rwx(encl, vma);
+	if (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC) & ~allowed_rwx)
+		return -EACCES;
 
 	if (!sgx_encl_get_mm(encl, vma->vm_mm)) {
 		ret = sgx_encl_mm_add(encl, vma->vm_mm);
 		if (ret)
 			return ret;
 	}
+
+	if (!(allowed_rwx & VM_READ))
+		vma->vm_flags &= ~VM_MAYREAD;
+	if (!(allowed_rwx & VM_WRITE))
+		vma->vm_flags &= ~VM_MAYWRITE;
+	if (!(allowed_rwx & VM_EXEC))
+		vma->vm_flags &= ~VM_MAYEXEC;
 
 	vma->vm_ops = &sgx_vm_ops;
 	vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_IO;

@@ -2,6 +2,7 @@
 // Copyright(c) 2016-19 Intel Corporation.
 
 #include <asm/mman.h>
+#include <linux/mman.h>
 #include <linux/delay.h>
 #include <linux/file.h>
 #include <linux/hashtable.h>
@@ -235,7 +236,8 @@ static int sgx_validate_secs(const struct sgx_secs *secs,
 }
 
 static struct sgx_encl_page *sgx_encl_page_alloc(struct sgx_encl *encl,
-						 unsigned long addr)
+						 unsigned long addr,
+						 unsigned long prot)
 {
 	struct sgx_encl_page *encl_page;
 	int ret;
@@ -247,6 +249,7 @@ static struct sgx_encl_page *sgx_encl_page_alloc(struct sgx_encl *encl,
 		return ERR_PTR(-ENOMEM);
 	encl_page->desc = addr;
 	encl_page->encl = encl;
+	encl_page->vm_prot_bits = calc_vm_prot_bits(prot, 0);
 	ret = radix_tree_insert(&encl->page_tree, PFN_DOWN(encl_page->desc),
 				encl_page);
 	if (ret) {
@@ -517,7 +520,7 @@ static int __sgx_encl_add_page(struct sgx_encl *encl,
 
 static int sgx_encl_add_page(struct sgx_encl *encl, unsigned long addr,
 			     void *data, struct sgx_secinfo *secinfo,
-			     unsigned int mrmask)
+			     unsigned int mrmask, unsigned long prot)
 {
 	u64 page_type = secinfo->flags & SGX_SECINFO_PAGE_TYPE_MASK;
 	struct sgx_encl_page *encl_page;
@@ -543,7 +546,7 @@ static int sgx_encl_add_page(struct sgx_encl *encl, unsigned long addr,
 		goto out;
 	}
 
-	encl_page = sgx_encl_page_alloc(encl, addr);
+	encl_page = sgx_encl_page_alloc(encl, addr, prot);
 	if (IS_ERR(encl_page)) {
 		ret = PTR_ERR(encl_page);
 		goto out;
@@ -584,6 +587,7 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 	struct sgx_enclave_add_page addp;
 	struct sgx_secinfo secinfo;
 	struct page *data_page;
+	unsigned long prot;
 	void *data;
 	int ret;
 
@@ -605,7 +609,10 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 		goto out;
 	}
 
-	ret = sgx_encl_add_page(encl, addp.addr, data, &secinfo, addp.mrmask);
+	prot = addp.flags & (PROT_READ | PROT_WRITE | PROT_EXEC);
+
+	ret = sgx_encl_add_page(encl, addp.addr, data, &secinfo, addp.mrmask,
+				prot);
 	if (ret)
 		goto out;
 

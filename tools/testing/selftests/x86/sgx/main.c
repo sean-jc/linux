@@ -2,6 +2,7 @@
 // Copyright(c) 2016-18 Intel Corporation.
 
 #include <elf.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -17,6 +18,8 @@
 #include "defines.h"
 #include "../../../../../arch/x86/kernel/cpu/sgx/arch.h"
 #include "../../../../../arch/x86/include/uapi/asm/sgx.h"
+
+#define PAGE_SIZE  4096
 
 static const uint64_t MAGIC = 0x1122334455667788ULL;
 
@@ -135,8 +138,7 @@ static bool encl_create(int dev_fd, unsigned long bin_size,
 	for (secs->size = 4096; secs->size < bin_size; )
 		secs->size <<= 1;
 
-	base = mmap(NULL, secs->size, PROT_READ | PROT_WRITE | PROT_EXEC,
-		    MAP_SHARED, dev_fd, 0);
+	base = mmap(NULL, secs->size, PROT_NONE, MAP_SHARED, dev_fd, 0);
 	if (base == MAP_FAILED) {
 		perror("mmap");
 		return false;
@@ -147,7 +149,7 @@ static bool encl_create(int dev_fd, unsigned long bin_size,
 	ioc.src = (unsigned long)secs;
 	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_CREATE, &ioc);
 	if (rc) {
-		fprintf(stderr, "ECREATE failed rc=%d.\n", rc);
+		fprintf(stderr, "ECREATE failed rc=%d, err=%d.\n", rc, errno);
 		munmap(base, secs->size);
 		return false;
 	}
@@ -160,7 +162,13 @@ static bool encl_add_page(int dev_fd, unsigned long addr, void *data,
 {
 	struct sgx_enclave_add_page ioc;
 	struct sgx_secinfo secinfo;
+	unsigned long prot;
 	int rc;
+
+	if (flags == SGX_SECINFO_TCS)
+		prot = PROT_READ | PROT_WRITE;
+	else
+		prot = PROT_READ | PROT_WRITE | PROT_EXEC;
 
 	memset(&secinfo, 0, sizeof(secinfo));
 	secinfo.flags = flags;
@@ -169,6 +177,7 @@ static bool encl_add_page(int dev_fd, unsigned long addr, void *data,
 	ioc.mrmask = 0xFFFF;
 	ioc.addr = addr;
 	ioc.src = (uint64_t)data;
+	ioc.flags = prot;
 
 	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_ADD_PAGE, &ioc);
 	if (rc) {
@@ -184,6 +193,7 @@ static bool encl_load(struct sgx_secs *secs, unsigned long bin_size)
 	struct sgx_enclave_init ioc;
 	uint64_t offset;
 	uint64_t flags;
+	void *addr;
 	int dev_fd;
 	int rc;
 
@@ -214,6 +224,22 @@ static bool encl_load(struct sgx_secs *secs, unsigned long bin_size)
 		printf("EINIT failed rc=%d\n", rc);
 		goto out_map;
 	}
+
+	addr = mmap((void *)secs->base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		    MAP_SHARED | MAP_FIXED, dev_fd, 0);
+	if (addr == MAP_FAILED) {
+		fprintf(stderr, "mmap() failed on TCS, errno=%d.\n", errno);
+		return false;
+	}
+
+	addr = mmap((void *)(secs->base + PAGE_SIZE), bin_size - PAGE_SIZE,
+		    PROT_READ | PROT_WRITE | PROT_EXEC,
+		    MAP_SHARED | MAP_FIXED, dev_fd, 0);
+	if (addr == MAP_FAILED) {
+		fprintf(stderr, "mmap() failed, errno=%d.\n", errno);
+		return false;
+	}
+
 
 	close(dev_fd);
 	return true;
