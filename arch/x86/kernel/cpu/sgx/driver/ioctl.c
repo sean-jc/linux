@@ -593,14 +593,12 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 	struct sgx_enclave_add_page addp;
 	struct sgx_secinfo secinfo;
 	struct page *data_page;
+	unsigned long prot;
 	void *data;
 	int ret;
 
 	if (copy_from_user(&addp, arg, sizeof(addp)))
 		return -EFAULT;
-
-	if (addp.prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
-		return -EINVAL;
 
 	if (copy_from_user(&secinfo, (void __user *)addp.secinfo,
 			   sizeof(secinfo)))
@@ -612,12 +610,20 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 
 	data = kmap(data_page);
 
-	ret = sgx_encl_page_import_user(data, addp.src, addp.prot);
+	prot = _calc_vm_trans(secinfo.flags, SGX_SECINFO_R, PROT_READ)  |
+	       _calc_vm_trans(secinfo.flags, SGX_SECINFO_W, PROT_WRITE) |
+	       _calc_vm_trans(secinfo.flags, SGX_SECINFO_X, PROT_EXEC);
+
+	/* TCS pages need to be RW in the PTEs, but can be 0 in the EPCM. */
+	if ((secinfo.flags & SGX_SECINFO_PAGE_TYPE_MASK) == SGX_SECINFO_TCS)
+		prot |= PROT_READ | PROT_WRITE;
+
+	ret = sgx_encl_page_import_user(data, addp.src, prot);
 	if (ret)
 		goto out;
 
 	ret = sgx_encl_add_page(encl, addp.addr, data, &secinfo, addp.mrmask,
-				addp.prot);
+				prot);
 	if (ret)
 		goto out;
 
