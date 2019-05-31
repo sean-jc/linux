@@ -1451,6 +1451,11 @@
  * @enclave_map:
  *	@prot contains the protection that will be applied by the kernel.
  *	Return 0 if permission is granted.
+ *
+ * @enclave_load:
+ *	@vma: the source memory region of the enclave page being loaded.
+ *	@prot: the (maximal) protections of the enclave page.
+ *	Return 0 if permission is granted.
  */
 union security_list_options {
 	int (*binder_set_context_mgr)(struct task_struct *mgr);
@@ -1815,6 +1820,8 @@ union security_list_options {
 
 #ifdef CONFIG_INTEL_SGX
 	int (*enclave_map)(unsigned long prot);
+	int (*enclave_load)(struct vm_area_struct *vma, unsigned long prot,
+			    bool measured);
 #endif /* CONFIG_INTEL_SGX */
 };
 
@@ -2057,6 +2064,7 @@ struct security_hook_heads {
 #endif /* CONFIG_BPF_SYSCALL */
 #ifdef CONFIG_INTEL_SGX
 	struct hlist_head enclave_map;
+	struct hlist_head enclave_load;
 #endif /* CONFIG_INTEL_SGX */
 } __randomize_layout;
 
