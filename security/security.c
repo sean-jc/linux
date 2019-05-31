@@ -2365,4 +2365,9 @@ int security_enclave_map(unsigned long prot)
 {
 	return call_int_hook(enclave_map, 0, prot);
 }
+int security_enclave_load(struct vm_area_struct *vma, unsigned long prot,
+			  bool measured)
+{
+	return call_int_hook(enclave_load, 0, vma, prot, measured);
+}
 #endif /* CONFIG_INTEL_SGX */

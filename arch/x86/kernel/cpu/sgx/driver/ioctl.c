@@ -9,6 +9,7 @@
 #include <linux/highmem.h>
 #include <linux/ratelimit.h>
 #include <linux/sched/signal.h>
+#include <linux/security.h>
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
@@ -564,7 +565,8 @@ out:
 	return ret;
 }
 
-static int sgx_encl_page_copy(void *dst, unsigned long src, unsigned long prot)
+static int sgx_encl_page_copy(void *dst, unsigned long src, unsigned long prot,
+			      u16 mrmask)
 {
 	struct vm_area_struct *vma;
 	int ret;
@@ -572,24 +574,24 @@ static int sgx_encl_page_copy(void *dst, unsigned long src, unsigned long prot)
 	/* Hold mmap_sem across copy_from_user() to avoid a TOCTOU race. */
 	down_read(&current->mm->mmap_sem);
 
-	/* Query vma's VM_MAYEXEC as an indirect path_noexec() check. */
-	if (prot & PROT_EXEC) {
-		vma = find_vma(current->mm, src);
-		if (!vma) {
-			ret = -EFAULT;
-			goto out;
-		}
-
-		if (!(vma->vm_flags & VM_MAYEXEC)) {
-			ret = -EACCES;
-			goto out;
-		}
+	vma = find_vma(current->mm, src);
+	if (!vma) {
+		ret = -EFAULT;
+		goto out;
 	}
+
+	/* Query vma's VM_MAYEXEC as an indirect path_noexec() check. */
+	if ((prot & PROT_EXEC) && !(vma->vm_flags & VM_MAYEXEC)) {
+		ret = -EACCES;
+		goto out;
+	}
+
+	ret = security_enclave_load(vma, prot, mrmask == 0xffff);
+	if (ret)
+		goto out;
 
 	if (copy_from_user(dst, (void __user *)src, PAGE_SIZE))
 		ret = -EFAULT;
-	else
-		ret = 0;
 
 out:
 	up_read(&current->mm->mmap_sem);
@@ -639,7 +641,7 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 
 	prot = addp.flags & (PROT_READ | PROT_WRITE | PROT_EXEC);
 
-	ret = sgx_encl_page_copy(data, addp.src, prot);
+	ret = sgx_encl_page_copy(data, addp.src, prot, addp.mrmask);
 	if (ret)
 		goto out;
 
