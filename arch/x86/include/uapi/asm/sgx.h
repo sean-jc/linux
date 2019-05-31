@@ -35,14 +35,16 @@ struct sgx_enclave_create  {
  * @src:	address for the page data
  * @secinfo:	address for the SECINFO data
  * @mrmask:	bitmask for the measured 256 byte chunks
+ * @prot:	maximal PROT_{READ,WRITE,EXEC} protections for the page
  */
 struct sgx_enclave_add_page {
 	__u64	addr;
 	__u64	src;
 	__u64	secinfo;
-	__u64	mrmask;
+	__u16	mrmask;
+	__u8	prot;
+	__u8	pad;
 };
-
 
 /**
  * struct sgx_enclave_init - parameter structure for the
