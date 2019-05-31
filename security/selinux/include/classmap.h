@@ -7,7 +7,7 @@
 
 #define COMMON_FILE_PERMS COMMON_FILE_SOCK_PERMS, "unlink", "link", \
     "rename", "execute", "quotaon", "mounton", "audit_access", \
-    "open", "execmod"
+    "open", "execmod", "sgx_execute"
 
 #define COMMON_SOCK_PERMS COMMON_FILE_SOCK_PERMS, "bind", "connect", \
     "listen", "accept", "getopt", "setopt", "shutdown", "recvfrom",  \
@@ -52,7 +52,8 @@ struct security_class_mapping secclass_map[] = {
 	    "setsockcreate", "getrlimit", NULL } },
 	{ "process2",
 	  { "nnp_transition", "nosuid_transition",
-	    "sgx_mapwx", NULL } },
+	    "sgx_mapwx", "sgx_execdirty", "sgx_execanon", "sgx_execunmr",
+	    NULL } },
 	{ "system",
 	  { "ipc_info", "syslog_read", "syslog_mod",
 	    "syslog_console", "module_request", "module_load", NULL } },

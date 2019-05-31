@@ -6727,6 +6727,12 @@ static void selinux_bpf_prog_free(struct bpf_prog_aux *aux)
 #endif
 
 #ifdef CONFIG_INTEL_SGX
+static inline int sgx_has_perm(u32 sid, u32 requested)
+{
+	return avc_has_perm(&selinux_state, sid, sid,
+			    SECCLASS_PROCESS2, requested, NULL);
+}
+
 static int selinux_enclave_map(unsigned long prot)
 {
 	const struct cred *cred = current_cred();
@@ -6736,10 +6742,52 @@ static int selinux_enclave_map(unsigned long prot)
 	WARN_ON_ONCE(!default_noexec);
 
 	if ((prot & PROT_EXEC) && (prot & PROT_WRITE))
-		return avc_has_perm(&selinux_state, sid, sid,
-				    SECCLASS_PROCESS2, PROCESS2__SGX_MAPWX,
-				    NULL);
+		return sgx_has_perm(sid, PROCESS2__SGX_MAPWX);
+
 	return 0;
+}
+
+static int selinux_enclave_load(struct vm_area_struct *vma, unsigned long prot,
+				bool measured)
+{
+	const struct cred *cred = current_cred();
+	u32 sid = cred_sid(cred);
+	int ret;
+
+	/* SGX is supported only in 64-bit kernels. */
+	WARN_ON_ONCE(!default_noexec);
+
+	/* Only executable enclave pages are restricted in any way. */
+	if (!(prot & PROT_EXEC))
+		return 0;
+
+	/*
+	 * WX at load time only requires EXECDIRTY, e.g. to allow W->X.  Actual
+	 * WX mappings require MAPWX (see selinux_enclave_map()).
+	 */
+	if (prot & PROT_WRITE) {
+		ret = sgx_has_perm(sid, PROCESS2__SGX_EXECDIRTY);
+		if (ret)
+			goto out;
+	}
+	if (!measured) {
+		ret = sgx_has_perm(sid, PROCESS2__SGX_EXECUNMR);
+		if (ret)
+			goto out;
+	}
+
+	if (!vma->vm_file || IS_PRIVATE(file_inode(vma->vm_file)) ||
+	    vma->anon_vma)
+		/*
+		 * Loading enclave code from an anonymous mapping or from a
+		 * modified private file mapping.
+		 */
+		ret = sgx_has_perm(sid, PROCESS2__SGX_EXECANON);
+	else
+		/* Loading from a shared or unmodified private file mapping. */
+		ret = file_has_perm(cred, vma->vm_file, FILE__SGX_EXECUTE);
+out:
+	return ret;
 }
 #endif
 
@@ -6988,6 +7036,7 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 
 #ifdef CONFIG_INTEL_SGX
 	LSM_HOOK_INIT(enclave_map, selinux_enclave_map),
+	LSM_HOOK_INIT(enclave_load, selinux_enclave_load),
 #endif
 };
 
