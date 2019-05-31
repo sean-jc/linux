@@ -6726,6 +6726,55 @@ static void selinux_bpf_prog_free(struct bpf_prog_aux *aux)
 }
 #endif
 
+#ifdef CONFIG_INTEL_SGX
+static inline int enclave_has_perm(u32 sid, u32 requested)
+{
+	return avc_has_perm(&selinux_state, sid, sid,
+			    SECCLASS_PROCESS2, requested, NULL);
+}
+
+static int selinux_enclave_map(unsigned long prot)
+{
+	const struct cred *cred = current_cred();
+	u32 sid = cred_sid(cred);
+
+	if ((prot & PROT_EXEC) && (prot & PROT_WRITE))
+		return enclave_has_perm(sid, PROCESS2__ENCLAVE_EXECMEM);
+
+	return 0;
+}
+
+static int selinux_enclave_load(struct vm_area_struct *vma, unsigned long prot)
+{
+	const struct cred *cred = current_cred();
+	u32 sid = cred_sid(cred);
+	int ret;
+
+	/* Only executable enclave pages are restricted in any way. */
+	if (!(prot & PROT_EXEC))
+		return 0;
+
+	if (!vma->vm_file || IS_PRIVATE(file_inode(vma->vm_file))) {
+		ret = enclave_has_perm(sid, PROCESS2__ENCLAVE_EXECMEM);
+	} else {
+		ret = file_has_perm(cred, vma->vm_file, FILE__ENCLAVE_EXECUTE);
+		if (ret)
+			goto out;
+
+		/*
+		 * Load code from a modified private mapping or from a file
+		 * with the ability to do W->X within the enclave.
+		 */
+		if (vma->anon_vma || (prot & PROT_WRITE))
+			ret = file_has_perm(cred, vma->vm_file,
+					    FILE__ENCLAVE_EXECMOD);
+	}
+
+out:
+	return ret;
+}
+#endif
+
 struct lsm_blob_sizes selinux_blob_sizes __lsm_ro_after_init = {
 	.lbs_cred = sizeof(struct task_security_struct),
 	.lbs_file = sizeof(struct file_security_struct),
@@ -6967,6 +7016,11 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(bpf_prog_alloc_security, selinux_bpf_prog_alloc),
 	LSM_HOOK_INIT(bpf_map_free_security, selinux_bpf_map_free),
 	LSM_HOOK_INIT(bpf_prog_free_security, selinux_bpf_prog_free),
+#endif
+
+#ifdef CONFIG_INTEL_SGX
+	LSM_HOOK_INIT(enclave_map, selinux_enclave_map),
+	LSM_HOOK_INIT(enclave_load, selinux_enclave_load),
 #endif
 };
 
