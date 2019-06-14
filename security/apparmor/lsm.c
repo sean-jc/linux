@@ -517,6 +517,17 @@ static int apparmor_file_mprotect(struct vm_area_struct *vma,
 			   !(vma->vm_flags & VM_SHARED) ? MAP_PRIVATE : 0);
 }
 
+#ifdef CONFIG_INTEL_SGX
+static int apparmor_enclave_load(struct vm_area_struct *vma, unsigned long prot,
+				bool measured)
+{
+	if (!(prot & PROT_EXEC))
+		return 0;
+
+	return common_file_perm(OP_ENCL_LOAD, vma->vm_file, AA_EXEC_MMAP);
+}
+#endif
+
 static int apparmor_sb_mount(const char *dev_name, const struct path *path,
 			     const char *type, unsigned long flags, void *data)
 {
@@ -1243,6 +1254,9 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(secid_to_secctx, apparmor_secid_to_secctx),
 	LSM_HOOK_INIT(secctx_to_secid, apparmor_secctx_to_secid),
 	LSM_HOOK_INIT(release_secctx, apparmor_release_secctx),
+#ifdef CONFIG_INTEL_SGX
+	LSM_HOOK_INIT(enclave_load, apparmor_enclave_load),
+#endif
 };
 
 /*
