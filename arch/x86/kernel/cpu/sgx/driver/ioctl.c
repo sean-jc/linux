@@ -276,7 +276,6 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 {
 	unsigned long encl_size = secs->size + PAGE_SIZE;
 	struct sgx_epc_page *secs_epc;
-	struct sgx_encl_mm *encl_mm;
 	unsigned long ssaframesize;
 	struct sgx_pageinfo pginfo;
 	struct sgx_secinfo secinfo;
@@ -310,12 +309,6 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 	encl->backing = backing;
 
 	INIT_WORK(&encl->work, sgx_add_page_worker);
-
-	encl_mm = sgx_encl_mm_add(encl, current->mm);
-	if (IS_ERR(encl_mm)) {
-		ret = PTR_ERR(encl_mm);
-		goto err_out;
-	}
 
 	secs_epc = sgx_alloc_page(&encl->secs, true);
 	if (IS_ERR(secs_epc)) {
@@ -367,13 +360,6 @@ err_out:
 	if (encl->backing) {
 		fput(encl->backing);
 		encl->backing = NULL;
-	}
-
-	if (!list_empty(&encl->mm_list)) {
-		encl_mm = list_first_entry(&encl->mm_list, struct sgx_encl_mm,
-					   list);
-		list_del(&encl_mm->list);
-		kfree(encl_mm);
 	}
 
 	mutex_unlock(&encl->lock);

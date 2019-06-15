@@ -120,9 +120,9 @@ pgoff_t sgx_encl_get_index(struct sgx_encl *encl, struct sgx_encl_page *page);
 struct page *sgx_encl_get_backing_page(struct sgx_encl *encl, pgoff_t index);
 struct sgx_encl_mm *sgx_encl_next_mm(struct sgx_encl *encl,
 				     struct sgx_encl_mm *encl_mm, int *iter);
-struct sgx_encl_mm *sgx_encl_mm_add(struct sgx_encl *encl,
-				    struct mm_struct *mm);
 void sgx_encl_mm_release(struct kref *ref);
+struct sgx_encl_mm *sgx_encl_get_mm(struct sgx_encl *encl,
+				    struct mm_struct *mm);
 int sgx_encl_test_and_clear_young(struct mm_struct *mm,
 				  struct sgx_encl_page *page);
 struct sgx_encl_page *sgx_encl_reserve_page(struct sgx_encl *encl,

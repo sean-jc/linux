@@ -132,26 +132,6 @@ static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 	return entry;
 }
 
-struct sgx_encl_mm *sgx_encl_mm_add(struct sgx_encl *encl,
-				    struct mm_struct *mm)
-{
-	struct sgx_encl_mm *encl_mm;
-
-	encl_mm = kzalloc(sizeof(*encl_mm), GFP_KERNEL);
-	if (!encl_mm)
-		return ERR_PTR(-ENOMEM);
-
-	encl_mm->encl = encl;
-	encl_mm->mm = mm;
-	kref_init(&encl_mm->refcount);
-
-	spin_lock(&encl->mm_lock);
-	list_add(&encl_mm->list, &encl->mm_list);
-	spin_unlock(&encl->mm_lock);
-
-	return encl_mm;
-}
-
 void sgx_encl_mm_release(struct kref *ref)
 {
 	struct sgx_encl_mm *encl_mm =
@@ -164,8 +144,8 @@ void sgx_encl_mm_release(struct kref *ref)
 	kfree(encl_mm);
 }
 
-static struct sgx_encl_mm *sgx_encl_get_mm(struct sgx_encl *encl,
-					   struct mm_struct *mm)
+struct sgx_encl_mm *sgx_encl_get_mm(struct sgx_encl *encl,
+				    struct mm_struct *mm)
 {
 	struct sgx_encl_mm *encl_mm = NULL;
 	struct sgx_encl_mm *prev_mm = NULL;
@@ -190,10 +170,10 @@ static struct sgx_encl_mm *sgx_encl_get_mm(struct sgx_encl *encl,
 	return NULL;
 }
 
+
 static void sgx_vma_open(struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = vma->vm_private_data;
-	struct sgx_encl_mm *encl_mm;
 
 	if (!encl)
 		return;
@@ -201,12 +181,8 @@ static void sgx_vma_open(struct vm_area_struct *vma)
 	if (encl->flags & SGX_ENCL_DEAD)
 		goto error;
 
-	encl_mm = sgx_encl_get_mm(encl, vma->vm_mm);
-	if (!encl_mm) {
-		encl_mm = sgx_encl_mm_add(encl, vma->vm_mm);
-		if (IS_ERR(encl_mm))
-			goto error;
-	}
+	if (WARN_ON_ONCE(!sgx_encl_get_mm(encl, vma->vm_mm)))
+		goto error;
 
 	kref_get(&encl->refcount);
 	return;
@@ -224,7 +200,7 @@ static void sgx_vma_close(struct vm_area_struct *vma)
 		return;
 
 	encl_mm = sgx_encl_get_mm(encl, vma->vm_mm);
-	if (encl_mm) {
+	if (!WARN_ON_ONCE(!encl_mm)) {
 		kref_put(&encl_mm->refcount, sgx_encl_mm_release);
 
 		/* Release kref for the VMA. */
@@ -468,7 +444,7 @@ void sgx_encl_release(struct kref *ref)
 	if (encl->backing)
 		fput(encl->backing);
 
-	WARN(!list_empty(&encl->mm_list), "sgx: mm_list non-empty");
+	WARN_ONCE(!list_empty(&encl->mm_list), "sgx: mm_list non-empty");
 
 	kfree(encl);
 }

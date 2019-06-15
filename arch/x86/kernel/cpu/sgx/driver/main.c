@@ -60,9 +60,35 @@ static long sgx_compat_ioctl(struct file *filep, unsigned int cmd,
 }
 #endif
 
+static int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm)
+{
+	struct sgx_encl_mm *encl_mm;
+
+	encl_mm = kzalloc(sizeof(*encl_mm), GFP_KERNEL);
+	if (!encl_mm)
+		return -ENOMEM;
+
+	encl_mm->encl = encl;
+	encl_mm->mm = mm;
+	kref_init(&encl_mm->refcount);
+
+	spin_lock(&encl->mm_lock);
+	list_add(&encl_mm->list, &encl->mm_list);
+	spin_unlock(&encl->mm_lock);
+
+	return 0;
+}
+
 static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
+	int ret;
+
+	if (!sgx_encl_get_mm(encl, vma->vm_mm)) {
+		ret = sgx_encl_mm_add(encl, vma->vm_mm);
+		if (ret)
+			return ret;
+	}
 
 	vma->vm_ops = &sgx_vm_ops;
 	vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_IO;
