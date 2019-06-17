@@ -3,6 +3,7 @@
 
 #include <linux/mm.h>
 #include <linux/mman.h>
+#include <linux/security.h>
 #include <linux/shmem_fs.h>
 #include <linux/suspend.h>
 #include <linux/sched/mm.h>
@@ -361,7 +362,7 @@ out:
 int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 		     unsigned long end, unsigned long vm_prot_bits)
 {
-	unsigned long idx, idx_start, idx_end;
+	unsigned long idx, idx_start, idx_end, prot;
 	struct sgx_encl_page *page;
 
 	if (!vm_prot_bits)
@@ -379,7 +380,10 @@ int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 			return -EACCES;
 	}
 
-	return 0;
+	prot = _calc_vm_trans(vm_prot_bits, VM_READ, PROT_READ)   |
+	       _calc_vm_trans(vm_prot_bits, VM_WRITE, PROT_WRITE) |
+	       _calc_vm_trans(vm_prot_bits, VM_EXEC, PROT_EXEC);
+	return security_enclave_map(prot);
 }
 
 static int sgx_vma_mprotect(struct vm_area_struct *vma, unsigned long start,

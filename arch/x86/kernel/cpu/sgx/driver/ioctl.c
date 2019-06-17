@@ -9,6 +9,7 @@
 #include <linux/highmem.h>
 #include <linux/ratelimit.h>
 #include <linux/sched/signal.h>
+#include <linux/security.h>
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
@@ -548,19 +549,21 @@ static int sgx_encl_page_import_user(void *dst, unsigned long src,
 
 	down_read(&current->mm->mmap_sem);
 
-	/* Query vma's VM_MAYEXEC as an indirect path_noexec() check. */
-	if (prot & PROT_EXEC) {
-		vma = find_vma(current->mm, src);
-		if (!vma) {
-			ret = -EFAULT;
-			goto out;
-		}
-
-		if (!(vma->vm_flags & VM_MAYEXEC)) {
-			ret = -EACCES;
-			goto out;
-		}
+	vma = find_vma(current->mm, src);
+	if (!vma) {
+		ret = -EFAULT;
+		goto out;
 	}
+
+	/* Query vma's VM_MAYEXEC as an indirect path_noexec() check. */
+	if ((prot & PROT_EXEC) && !(vma->vm_flags & VM_MAYEXEC)) {
+		ret = -EACCES;
+		goto out;
+	}
+
+	ret = security_enclave_load(vma, prot);
+	if (ret)
+		goto out;
 
 	if (copy_from_user(dst, (void __user *)src, PAGE_SIZE))
 		ret = -EFAULT;

@@ -1829,5 +1829,22 @@ static inline void security_bpf_prog_free(struct bpf_prog_aux *aux)
 #endif /* CONFIG_SECURITY */
 #endif /* CONFIG_BPF_SYSCALL */
 
+#ifdef CONFIG_INTEL_SGX
+#ifdef CONFIG_SECURITY
+int security_enclave_map(unsigned long prot);
+int security_enclave_load(struct vm_area_struct *vma, unsigned long prot);
+#else
+static inline int security_enclave_map(unsigned long prot)
+{
+	return 0;
+}
+static inline int security_enclave_load(struct vm_area_struct *vma,
+					unsigned long prot)
+{
+	return 0;
+}
+#endif /* CONFIG_SECURITY */
+#endif /* CONFIG_INTEL_SGX */
+
 #endif /* ! __LINUX_SECURITY_H */
 
