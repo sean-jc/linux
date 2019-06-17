@@ -1819,7 +1819,7 @@ union security_list_options {
 #endif /* CONFIG_BPF_SYSCALL */
 
 #ifdef CONFIG_INTEL_SGX
-	int (*enclave_map)(unsigned long prot);
+	int (*enclave_map)(unsigned long prot, bool eaug);
 	int (*enclave_load)(struct vm_area_struct *vma, unsigned long prot,
 			    bool measured);
 #endif /* CONFIG_INTEL_SGX */

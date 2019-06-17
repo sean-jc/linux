@@ -389,10 +389,41 @@ out:
 }
 
 #ifdef CONFIG_SECURITY
+static bool is_eaug_range(struct sgx_encl *encl, unsigned long start,
+			  unsigned long end)
+{
+	unsigned long idx, idx_start, idx_end;
+	struct sgx_encl_page *page;
+
+	/* Enclave is dead or inaccessible. */
+	if (!encl)
+		return false;
+
+	idx_start = PFN_DOWN(start);
+	idx_end = PFN_DOWN(end - 1);
+
+	for (idx = idx_start; idx <= idx_end; ++idx) {
+		/*
+		 * No need to take encl->lock, vm_prot_bits is set prior to
+		 * insertion and never changes, and racing with adding pages is
+		 * a userspace bug.
+		 */
+		rcu_read_lock();
+		page = radix_tree_lookup(&encl->page_tree, idx);
+		rcu_read_unlock();
+
+		/* Non-existent page can only be PROT_NONE, bail early. */
+		if (!page || page->vm_prot_bits & SGX_VM_EAUG)
+			return true;
+	}
+
+	return false;
+}
 static int sgx_vma_mprotect(struct vm_area_struct *vma, unsigned long start,
 			    unsigned long end, unsigned long prot)
 {
-	return security_enclave_map(prot);
+	return security_enclave_map(prot,
+		is_eaug_range(vma->vm_private_data, start, end));
 }
 #endif
 

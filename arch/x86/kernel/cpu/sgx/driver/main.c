@@ -99,7 +99,8 @@ static long sgx_compat_ioctl(struct file *filep, unsigned int cmd,
  * page is considered to have no RWX permissions, i.e. is inaccessible.
  */
 static unsigned long sgx_allowed_rwx(struct sgx_encl *encl,
-				     struct vm_area_struct *vma)
+				     struct vm_area_struct *vma,
+				     bool *eaug)
 {
 	unsigned long allowed_rwx = VM_READ | VM_WRITE | VM_EXEC;
 	unsigned long idx, idx_start, idx_end;
@@ -123,6 +124,8 @@ static unsigned long sgx_allowed_rwx(struct sgx_encl *encl,
 			allowed_rwx = 0;
 		else
 			allowed_rwx &= page->vm_prot_bits;
+		if (page->vm_prot_bits & SGX_VM_EAUG)
+			*eaug = true;
 		if (!allowed_rwx)
 			break;
 	}
@@ -134,16 +137,17 @@ static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
 	unsigned long allowed_rwx, prot;
+	bool eaug = false;
 	int ret;
 
-	allowed_rwx = sgx_allowed_rwx(encl, vma);
+	allowed_rwx = sgx_allowed_rwx(encl, vma, &eaug);
 	if (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC) & ~allowed_rwx)
 		return -EACCES;
 
 	prot = _calc_vm_trans(vma->vm_flags, VM_READ, PROT_READ) |
 	       _calc_vm_trans(vma->vm_flags, VM_WRITE, PROT_WRITE) |
 	       _calc_vm_trans(vma->vm_flags, VM_EXEC, PROT_EXEC);
-	ret = security_enclave_map(prot);
+	ret = security_enclave_map(prot, eaug);
 	if (ret)
 		return ret;
 

@@ -41,6 +41,8 @@ enum sgx_encl_page_desc {
 #define SGX_ENCL_PAGE_VA_OFFSET(encl_page) \
 	((encl_page)->desc & SGX_ENCL_PAGE_VA_OFFSET_MASK)
 
+#define SGX_VM_EAUG	BIT(3)
+
 struct sgx_encl_page {
 	unsigned long desc;
 	unsigned long vm_prot_bits;

@@ -6733,7 +6733,7 @@ static inline int sgx_has_perm(u32 sid, u32 requested)
 			    SECCLASS_PROCESS2, requested, NULL);
 }
 
-static int selinux_enclave_map(unsigned long prot)
+static int selinux_enclave_map(unsigned long prot, bool eaug)
 {
 	const struct cred *cred = current_cred();
 	u32 sid = cred_sid(cred);
@@ -6743,6 +6743,8 @@ static int selinux_enclave_map(unsigned long prot)
 
 	if ((prot & PROT_EXEC) && (prot & PROT_WRITE))
 		return sgx_has_perm(sid, PROCESS2__SGX_MAPWX);
+	else if (eaug && (prot & PROT_EXEC))
+		return sgx_has_perm(sid, PROCESS2__SGX_EXECDIRTY);
 
 	return 0;
 }
