@@ -2,6 +2,7 @@
 // Copyright(c) 2016-18 Intel Corporation.
 
 #include <linux/mm.h>
+#include <linux/security.h>
 #include <linux/shmem_fs.h>
 #include <linux/suspend.h>
 #include <linux/sched/mm.h>
@@ -387,9 +388,20 @@ out:
 	return ret < 0 ? ret : i;
 }
 
+#ifdef CONFIG_SECURITY
+static int sgx_vma_mprotect(struct vm_area_struct *vma, unsigned long start,
+			    unsigned long end, unsigned long prot)
+{
+	return security_enclave_map(prot);
+}
+#endif
+
 const struct vm_operations_struct sgx_vm_ops = {
 	.fault = sgx_vma_fault,
 	.access = sgx_vma_access,
+#ifdef CONFIG_SECURITY
+	.may_mprotect = sgx_vma_mprotect,
+#endif
 };
 
 /**

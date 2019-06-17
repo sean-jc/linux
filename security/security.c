@@ -2359,3 +2359,10 @@ void security_bpf_prog_free(struct bpf_prog_aux *aux)
 	call_void_hook(bpf_prog_free_security, aux);
 }
 #endif /* CONFIG_BPF_SYSCALL */
+
+#ifdef CONFIG_INTEL_SGX
+int security_enclave_map(unsigned long prot)
+{
+	return call_int_hook(enclave_map, 0, prot);
+}
+#endif /* CONFIG_INTEL_SGX */
