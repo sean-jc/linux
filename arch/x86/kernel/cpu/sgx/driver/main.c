@@ -119,12 +119,19 @@ static unsigned long sgx_allowed_rwx(struct sgx_encl *encl,
 static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
-	unsigned long allowed_rwx;
+	unsigned long allowed_rwx, prot;
 	int ret;
 
 	allowed_rwx = sgx_allowed_rwx(encl, vma);
 	if (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC) & ~allowed_rwx)
 		return -EACCES;
+
+	prot = _calc_vm_trans(vma->vm_flags, VM_READ, PROT_READ) |
+	       _calc_vm_trans(vma->vm_flags, VM_WRITE, PROT_WRITE) |
+	       _calc_vm_trans(vma->vm_flags, VM_EXEC, PROT_EXEC);
+	ret = security_enclave_map(prot);
+	if (ret)
+		return ret;
 
 	if (!sgx_encl_get_mm(encl, vma->vm_mm)) {
 		ret = sgx_encl_mm_add(encl, vma->vm_mm);
