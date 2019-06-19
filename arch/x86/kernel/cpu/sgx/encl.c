@@ -132,103 +132,125 @@ static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 	return entry;
 }
 
-struct sgx_encl_mm *sgx_encl_mm_add(struct sgx_encl *encl,
-				    struct mm_struct *mm)
+static void sgx_encl_mm_release_wq(struct work_struct *work)
 {
-	struct sgx_encl_mm *encl_mm;
+	struct sgx_encl_mm *encl_mm =
+		container_of(work, struct sgx_encl_mm, release_work);
 
-	encl_mm = kzalloc(sizeof(*encl_mm), GFP_KERNEL);
-	if (!encl_mm)
-		return ERR_PTR(-ENOMEM);
+	sgx_encl_mm_release(encl_mm);
+}
 
-	encl_mm->encl = encl;
-	encl_mm->mm = mm;
-	kref_init(&encl_mm->refcount);
+/*
+ * Being a call_srcu() callback, this needs to be short, and sgx_encl_release()
+ * is anything but short.  Do the final freeing in yet another async callback.
+ */
+static void sgx_encl_mm_release_delayed(struct rcu_head *rcu)
+{
+	struct sgx_encl_mm *encl_mm =
+		container_of(rcu, struct sgx_encl_mm, rcu);
 
-	spin_lock(&encl->mm_lock);
-	list_add(&encl_mm->list, &encl->mm_list);
-	spin_unlock(&encl->mm_lock);
+	INIT_WORK(&encl_mm->release_work, sgx_encl_mm_release_wq);
+	schedule_work(&encl_mm->release_work);
+}
+
+static void sgx_mmu_notifier_release(struct mmu_notifier *mn,
+				     struct mm_struct *mm)
+{
+	struct sgx_encl_mm *encl_mm =
+		container_of(mn, struct sgx_encl_mm, mmu_notifier);
+	struct sgx_encl_mm *tmp = NULL;
+
+	/*
+	 * The enclave itself can remove encl_mm.  Note, objects can't be moved
+	 * off an RCU protected list, but deletion is ok.
+	 */
+	spin_lock(&encl_mm->encl->mm_lock);
+	list_for_each_entry(tmp, &encl_mm->encl->mm_list, list) {
+		if (tmp == encl_mm) {
+			list_del_rcu(&encl_mm->list);
+			break;
+		}
+	}
+	spin_unlock(&encl_mm->encl->mm_lock);
+
+	if (tmp == encl_mm) {
+		synchronize_srcu(&encl_mm->encl->srcu);
+
+		/*
+		 * Delay freeing encl_mm until after mmu_notifier releases any
+		 * SRCU locks.  synchronize_srcu() must be called from process
+		 * context, i.e. we can't throw mmu_notifier_unregister() in a
+		 * work queue and be done with it.
+		 */
+		mmu_notifier_unregister_no_release(mn, mm);
+		mmu_notifier_call_srcu(&encl_mm->rcu,
+				       &sgx_encl_mm_release_delayed);
+	}
+}
+
+static const struct mmu_notifier_ops sgx_mmu_notifier_ops = {
+	.release		= sgx_mmu_notifier_release,
+};
+
+static struct sgx_encl_mm *sgx_encl_find_mm(struct sgx_encl *encl,
+					    struct mm_struct *mm)
+{
+	struct sgx_encl_mm *encl_mm = NULL;
+	struct sgx_encl_mm *tmp;
+	int idx;
+
+	idx = srcu_read_lock(&encl->srcu);
+
+	list_for_each_entry_rcu(tmp, &encl->mm_list, list) {
+		if (tmp->mm == mm) {
+			encl_mm = tmp;
+			break;
+		}
+	}
+
+	srcu_read_unlock(&encl->srcu, idx);
 
 	return encl_mm;
 }
 
-void sgx_encl_mm_release(struct kref *ref)
+int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm)
 {
-	struct sgx_encl_mm *encl_mm =
-		container_of(ref, struct sgx_encl_mm, refcount);
-
-	spin_lock(&encl_mm->encl->mm_lock);
-	list_del(&encl_mm->list);
-	spin_unlock(&encl_mm->encl->mm_lock);
-
-	kfree(encl_mm);
-}
-
-static struct sgx_encl_mm *sgx_encl_get_mm(struct sgx_encl *encl,
-					   struct mm_struct *mm)
-{
-	struct sgx_encl_mm *encl_mm = NULL;
-	struct sgx_encl_mm *prev_mm = NULL;
-	int iter;
-
-	while (true) {
-		encl_mm = sgx_encl_next_mm(encl, prev_mm, &iter);
-		if (prev_mm)
-			kref_put(&prev_mm->refcount, sgx_encl_mm_release);
-		prev_mm = encl_mm;
-
-		if (iter == SGX_ENCL_MM_ITER_DONE)
-			break;
-
-		if (iter == SGX_ENCL_MM_ITER_RESTART)
-			continue;
-
-		if (mm == encl_mm->mm)
-			return encl_mm;
-	}
-
-	return NULL;
-}
-
-static void sgx_vma_open(struct vm_area_struct *vma)
-{
-	struct sgx_encl *encl = vma->vm_private_data;
 	struct sgx_encl_mm *encl_mm;
+	int ret;
 
-	if (!encl)
-		return;
+	lockdep_assert_held_exclusive(&mm->mmap_sem);
 
-	if (encl->flags & SGX_ENCL_DEAD)
-		goto error;
+	/*
+	 * mm_structs are kept on mm_list until the mm or the enclave dies,
+	 * i.e. once an mm is off the list, it's gone for good, therefore it's
+	 * impossible to get a false positive on @mm due to a stale mm_list.
+	 */
+	if (sgx_encl_find_mm(encl, mm))
+		return 0;
 
-	encl_mm = sgx_encl_get_mm(encl, vma->vm_mm);
-	if (!encl_mm) {
-		encl_mm = sgx_encl_mm_add(encl, vma->vm_mm);
-		if (IS_ERR(encl_mm))
-			goto error;
+	encl_mm = kzalloc(sizeof(*encl_mm), GFP_KERNEL);
+	if (!encl_mm)
+		return -ENOMEM;
+
+	encl_mm->encl = encl;
+	encl_mm->mm = mm;
+	encl_mm->mmu_notifier.ops = &sgx_mmu_notifier_ops;
+
+	ret = __mmu_notifier_register(&encl_mm->mmu_notifier, mm);
+	if (ret) {
+		kfree(encl_mm);
+		return ret;
 	}
 
-	return;
+	kref_get(&encl->refcount);
 
-error:
-	vma->vm_private_data = NULL;
-}
+	spin_lock(&encl->mm_lock);
+	list_add_rcu(&encl_mm->list, &encl->mm_list);
+	spin_unlock(&encl->mm_lock);
 
-static void sgx_vma_close(struct vm_area_struct *vma)
-{
-	struct sgx_encl *encl = vma->vm_private_data;
-	struct sgx_encl_mm *encl_mm;
+	synchronize_srcu(&encl->srcu);
 
-	if (!encl)
-		return;
-
-	encl_mm = sgx_encl_get_mm(encl, vma->vm_mm);
-	if (encl_mm) {
-		kref_put(&encl_mm->refcount, sgx_encl_mm_release);
-
-		/* Release kref for the VMA. */
-		kref_put(&encl_mm->refcount, sgx_encl_mm_release);
-	}
+	return 0;
 }
 
 static unsigned int sgx_vma_fault(struct vm_fault *vmf)
@@ -366,8 +388,6 @@ out:
 }
 
 const struct vm_operations_struct sgx_vm_ops = {
-	.close = sgx_vma_close,
-	.open = sgx_vma_open,
 	.fault = sgx_vma_fault,
 	.access = sgx_vma_access,
 };
@@ -465,7 +485,7 @@ void sgx_encl_release(struct kref *ref)
 	if (encl->backing)
 		fput(encl->backing);
 
-	WARN(!list_empty(&encl->mm_list), "sgx: mm_list non-empty");
+	WARN_ONCE(!list_empty(&encl->mm_list), "sgx: mm_list non-empty");
 
 	kfree(encl);
 }
@@ -501,46 +521,6 @@ struct page *sgx_encl_get_backing_page(struct sgx_encl *encl, pgoff_t index)
 	gfp_t gfpmask = mapping_gfp_mask(mapping);
 
 	return shmem_read_mapping_page_gfp(mapping, index, gfpmask);
-}
-
-/**
- * sgx_encl_next_mm() - Iterate to the next mm
- * @encl:	an enclave
- * @mm:		an mm list entry
- * @iter:	iterator status
- *
- * Return: the enclave mm or NULL
- */
-struct sgx_encl_mm *sgx_encl_next_mm(struct sgx_encl *encl,
-				     struct sgx_encl_mm *encl_mm, int *iter)
-{
-	struct list_head *entry;
-
-	WARN(!encl, "%s: encl is NULL", __func__);
-	WARN(!iter, "%s: iter is NULL", __func__);
-
-	spin_lock(&encl->mm_lock);
-
-	entry = encl_mm ? encl_mm->list.next : encl->mm_list.next;
-	WARN(!entry, "%s: entry is NULL", __func__);
-
-	if (entry == &encl->mm_list) {
-		spin_unlock(&encl->mm_lock);
-		*iter = SGX_ENCL_MM_ITER_DONE;
-		return NULL;
-	}
-
-	encl_mm = list_entry(entry, struct sgx_encl_mm, list);
-
-	if (!kref_get_unless_zero(&encl_mm->refcount)) {
-		spin_unlock(&encl->mm_lock);
-		*iter = SGX_ENCL_MM_ITER_RESTART;
-		return NULL;
-	}
-
-	spin_unlock(&encl->mm_lock);
-	*iter = SGX_ENCL_MM_ITER_NEXT;
-	return encl_mm;
 }
 
 static int sgx_encl_test_and_clear_young_cb(pte_t *ptep, pgtable_t token,

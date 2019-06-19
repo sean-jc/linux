@@ -25,6 +25,7 @@ u32 sgx_xsave_size_tbl[64];
 static int sgx_open(struct inode *inode, struct file *file)
 {
 	struct sgx_encl *encl;
+	int ret;
 
 	encl = kzalloc(sizeof(*encl), GFP_KERNEL);
 	if (!encl)
@@ -38,6 +39,12 @@ static int sgx_open(struct inode *inode, struct file *file)
 	INIT_LIST_HEAD(&encl->mm_list);
 	spin_lock_init(&encl->mm_lock);
 
+	ret = init_srcu_struct(&encl->srcu);
+	if (ret) {
+		kfree(encl);
+		return ret;
+	}
+
 	file->private_data = encl;
 
 	return 0;
@@ -46,6 +53,32 @@ static int sgx_open(struct inode *inode, struct file *file)
 static int sgx_release(struct inode *inode, struct file *file)
 {
 	struct sgx_encl *encl = file->private_data;
+	struct sgx_encl_mm *encl_mm;
+
+	/*
+	 * Objects can't be *moved* off an RCU protected list (deletion is ok),
+	 * nor can the object be freed until after synchronize_srcu().
+	 */
+restart:
+	spin_lock(&encl->mm_lock);
+	if (list_empty(&encl->mm_list)) {
+		encl_mm = NULL;
+	} else {
+		encl_mm = list_first_entry(&encl->mm_list, struct sgx_encl_mm,
+					   list);
+		list_del_rcu(&encl_mm->list);
+	}
+	spin_unlock(&encl->mm_lock);
+
+	if (encl_mm) {
+		synchronize_srcu(&encl->srcu);
+
+		mmu_notifier_unregister(&encl_mm->mmu_notifier, encl_mm->mm);
+
+		sgx_encl_mm_release(encl_mm);
+
+		goto restart;
+	}
 
 	kref_put(&encl->refcount, sgx_encl_release);
 
@@ -63,6 +96,11 @@ static long sgx_compat_ioctl(struct file *filep, unsigned int cmd,
 static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
+	int ret;
+
+	ret = sgx_encl_mm_add(encl, vma->vm_mm);
+	if (ret)
+		return ret;
 
 	vma->vm_ops = &sgx_vm_ops;
 	vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_IO;

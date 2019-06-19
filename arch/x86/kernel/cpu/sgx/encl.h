@@ -9,9 +9,11 @@
 #include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/mm_types.h>
+#include <linux/mmu_notifier.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
 #include <linux/radix-tree.h>
+#include <linux/srcu.h>
 #include <linux/workqueue.h>
 
 /**
@@ -57,8 +59,10 @@ enum sgx_encl_flags {
 struct sgx_encl_mm {
 	struct sgx_encl *encl;
 	struct mm_struct *mm;
-	struct kref refcount;
 	struct list_head list;
+	struct mmu_notifier mmu_notifier;
+	struct work_struct release_work;
+	struct rcu_head rcu;
 };
 
 struct sgx_encl {
@@ -72,6 +76,7 @@ struct sgx_encl {
 	spinlock_t mm_lock;
 	struct file *backing;
 	struct kref refcount;
+	struct srcu_struct srcu;
 	unsigned long base;
 	unsigned long size;
 	unsigned long ssaframesize;
@@ -118,11 +123,13 @@ void sgx_encl_destroy(struct sgx_encl *encl);
 void sgx_encl_release(struct kref *ref);
 pgoff_t sgx_encl_get_index(struct sgx_encl *encl, struct sgx_encl_page *page);
 struct page *sgx_encl_get_backing_page(struct sgx_encl *encl, pgoff_t index);
-struct sgx_encl_mm *sgx_encl_next_mm(struct sgx_encl *encl,
-				     struct sgx_encl_mm *encl_mm, int *iter);
-struct sgx_encl_mm *sgx_encl_mm_add(struct sgx_encl *encl,
-				    struct mm_struct *mm);
-void sgx_encl_mm_release(struct kref *ref);
+int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm);
+static inline void sgx_encl_mm_release(struct sgx_encl_mm *encl_mm)
+{
+	kref_put(&encl_mm->encl->refcount, sgx_encl_release);
+
+	kfree(encl_mm);
+}
 int sgx_encl_test_and_clear_young(struct mm_struct *mm,
 				  struct sgx_encl_page *page);
 struct sgx_encl_page *sgx_encl_reserve_page(struct sgx_encl *encl,

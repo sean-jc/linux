@@ -1918,6 +1918,8 @@ config X86_INTEL_MEMORY_PROTECTION_KEYS
 config INTEL_SGX
 	bool "Intel SGX core functionality"
 	depends on X86_64 && CPU_SUP_INTEL
+	select MMU_NOTIFIER
+	select SRCU
 	---help---
 	  Intel(R) SGX is a set of CPU instructions that can be used by
 	  applications to set aside private regions of code and data, referred

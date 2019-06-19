@@ -140,23 +140,13 @@ static bool sgx_reclaimer_evict(struct sgx_epc_page *epc_page)
 {
 	struct sgx_encl_page *page = epc_page->owner;
 	struct sgx_encl *encl = page->encl;
-	struct sgx_encl_mm *encl_mm = NULL;
-	struct sgx_encl_mm *prev_mm = NULL;
+	struct sgx_encl_mm *encl_mm;
 	bool ret = true;
-	int iter;
+	int idx;
 
-	while (true) {
-		encl_mm = sgx_encl_next_mm(encl, prev_mm, &iter);
-		if (prev_mm)
-			kref_put(&prev_mm->refcount, sgx_encl_mm_release);
-		prev_mm = encl_mm;
+	idx = srcu_read_lock(&encl->srcu);
 
-		if (iter == SGX_ENCL_MM_ITER_DONE)
-			break;
-
-		if (iter == SGX_ENCL_MM_ITER_RESTART)
-			continue;
-
+	list_for_each_entry_rcu(encl_mm, &encl->mm_list, list) {
 		if (!mmget_not_zero(encl_mm->mm))
 			continue;
 
@@ -164,13 +154,13 @@ static bool sgx_reclaimer_evict(struct sgx_epc_page *epc_page)
 		ret = !sgx_encl_test_and_clear_young(encl_mm->mm, page);
 		up_read(&encl_mm->mm->mmap_sem);
 
-		mmput(encl_mm->mm);
+		mmput_async(encl_mm->mm);
 
-		if (!ret || (encl->flags & SGX_ENCL_DEAD)) {
-			kref_put(&encl_mm->refcount, sgx_encl_mm_release);
+		if (!ret || (encl->flags & SGX_ENCL_DEAD))
 			break;
-		}
 	}
+
+	srcu_read_unlock(&encl->srcu, idx);
 
 	/*
 	 * Do not reclaim this page if it has been recently accessed by any
@@ -195,24 +185,13 @@ static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 	struct sgx_encl_page *page = epc_page->owner;
 	unsigned long addr = SGX_ENCL_PAGE_ADDR(page);
 	struct sgx_encl *encl = page->encl;
-	struct sgx_encl_mm *encl_mm = NULL;
-	struct sgx_encl_mm *prev_mm = NULL;
+	struct sgx_encl_mm *encl_mm;
 	struct vm_area_struct *vma;
-	int iter;
-	int ret;
+	int idx, ret;
 
-	while (true) {
-		encl_mm = sgx_encl_next_mm(encl, prev_mm, &iter);
-		if (prev_mm)
-			kref_put(&prev_mm->refcount, sgx_encl_mm_release);
-		prev_mm = encl_mm;
+	idx = srcu_read_lock(&encl->srcu);
 
-		if (iter == SGX_ENCL_MM_ITER_DONE)
-			break;
-
-		if (iter == SGX_ENCL_MM_ITER_RESTART)
-			continue;
-
+	list_for_each_entry_rcu(encl_mm, &encl->mm_list, list) {
 		if (!mmget_not_zero(encl_mm->mm))
 			continue;
 
@@ -224,8 +203,10 @@ static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 
 		up_read(&encl_mm->mm->mmap_sem);
 
-		mmput(encl_mm->mm);
+		mmput_async(encl_mm->mm);
 	}
+
+	srcu_read_unlock(&encl->srcu, idx);
 
 	mutex_lock(&encl->lock);
 
@@ -289,31 +270,23 @@ static void sgx_ipi_cb(void *info)
 static const cpumask_t *sgx_encl_ewb_cpumask(struct sgx_encl *encl)
 {
 	cpumask_t *cpumask = &encl->cpumask;
-	struct sgx_encl_mm *encl_mm = NULL;
-	struct sgx_encl_mm *prev_mm = NULL;
-	int iter;
+	struct sgx_encl_mm *encl_mm;
+	int idx;
 
 	cpumask_clear(cpumask);
 
-	while (true) {
-		encl_mm = sgx_encl_next_mm(encl, prev_mm, &iter);
-		if (prev_mm)
-			kref_put(&prev_mm->refcount, sgx_encl_mm_release);
-		prev_mm = encl_mm;
+	idx = srcu_read_lock(&encl->srcu);
 
-		if (iter == SGX_ENCL_MM_ITER_DONE)
-			break;
-
-		if (iter == SGX_ENCL_MM_ITER_RESTART)
-			continue;
-
+	list_for_each_entry_rcu(encl_mm, &encl->mm_list, list) {
 		if (!mmget_not_zero(encl_mm->mm))
 			continue;
 
 		cpumask_or(cpumask, cpumask, mm_cpumask(encl_mm->mm));
 
-		mmput(encl_mm->mm);
+		mmput_async(encl_mm->mm);
 	}
+
+	srcu_read_unlock(&encl->srcu, idx);
 
 	return cpumask;
 }
