@@ -164,13 +164,7 @@ static bool encl_add_page(int dev_fd, unsigned long addr, void *data,
 {
 	struct sgx_enclave_add_page ioc;
 	struct sgx_secinfo secinfo;
-	unsigned long prot;
 	int rc;
-
-	if (flags == SGX_SECINFO_TCS)
-		prot = PROT_READ | PROT_WRITE;
-	else
-		prot = PROT_READ | PROT_WRITE | PROT_EXEC;
 
 	memset(&secinfo, 0, sizeof(secinfo));
 	secinfo.flags = flags;
@@ -179,7 +173,7 @@ static bool encl_add_page(int dev_fd, unsigned long addr, void *data,
 	ioc.mrmask = 0xFFFF;
 	ioc.addr = addr;
 	ioc.src = (uint64_t)data;
-	ioc.prot = prot;
+	memset(ioc.reserved, 0, sizeof(ioc.reserved));
 
 	rc = ioctl(dev_fd, SGX_IOC_ENCLAVE_ADD_PAGE, &ioc);
 	if (rc) {
