@@ -518,7 +518,8 @@ static int apparmor_file_mprotect(struct vm_area_struct *vma,
 }
 
 #ifdef CONFIG_INTEL_SGX
-static int apparmor_enclave_load(struct vm_area_struct *vma, unsigned long prot)
+static int apparmor_enclave_load(struct vm_area_struct *vma, unsigned long prot,
+				 bool measured)
 {
 	if (!(prot & PROT_EXEC))
 		return 0;

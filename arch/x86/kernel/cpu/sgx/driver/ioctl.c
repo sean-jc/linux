@@ -542,7 +542,7 @@ out:
 }
 
 static int sgx_encl_page_import_user(void *dst, unsigned long src,
-				     unsigned long prot)
+				     unsigned long prot, u16 mrmask)
 {
 	struct vm_area_struct *vma;
 	int ret = 0;
@@ -561,7 +561,7 @@ static int sgx_encl_page_import_user(void *dst, unsigned long src,
 		goto out;
 	}
 
-	ret = security_enclave_load(vma, prot);
+	ret = security_enclave_load(vma, prot, mrmask == 0xffff);
 	if (ret)
 		goto out;
 
@@ -621,7 +621,7 @@ static long sgx_ioc_enclave_add_page(struct file *filep, void __user *arg)
 	if ((secinfo.flags & SGX_SECINFO_PAGE_TYPE_MASK) == SGX_SECINFO_TCS)
 		prot |= PROT_READ | PROT_WRITE;
 
-	ret = sgx_encl_page_import_user(data, addp.src, prot);
+	ret = sgx_encl_page_import_user(data, addp.src, prot, addp.mrmask);
 	if (ret)
 		goto out;
 

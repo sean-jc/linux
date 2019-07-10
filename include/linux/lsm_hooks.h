@@ -1820,7 +1820,8 @@ union security_list_options {
 
 #ifdef CONFIG_INTEL_SGX
 	int (*enclave_map)(unsigned long prot);
-	int (*enclave_load)(struct vm_area_struct *vma, unsigned long prot);
+	int (*enclave_load)(struct vm_area_struct *vma, unsigned long prot,
+			    bool measured);
 #endif /* CONFIG_INTEL_SGX */
 };
 

@@ -6744,7 +6744,8 @@ static int selinux_enclave_map(unsigned long prot)
 	return 0;
 }
 
-static int selinux_enclave_load(struct vm_area_struct *vma, unsigned long prot)
+static int selinux_enclave_load(struct vm_area_struct *vma, unsigned long prot,
+				bool measured)
 {
 	const struct cred *cred = current_cred();
 	u32 sid = cred_sid(cred);
@@ -6765,9 +6766,16 @@ static int selinux_enclave_load(struct vm_area_struct *vma, unsigned long prot)
 		 * Load code from a modified private mapping or from a file
 		 * with the ability to do W->X within the enclave.
 		 */
-		if (vma->anon_vma || (prot & PROT_WRITE))
+		if (vma->anon_vma || (prot & PROT_WRITE)) {
 			ret = file_has_perm(cred, vma->vm_file,
 					    FILE__ENCLAVE_EXECMOD);
+			if (ret)
+				goto out;
+		}
+
+		if (!measured)
+			ret = file_has_perm(cred, vma->vm_file,
+					    FILE__ENCLAVE_EXECUNMR);
 	}
 
 out:
