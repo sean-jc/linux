@@ -84,63 +84,21 @@ static int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm)
 	return 0;
 }
 
-/**
- * sgx_calc_vma_prot() - Calculate VMA prot bits
- * @encl:	an enclave
- * @vma:	a VMA inside the enclave
- *
- * Iterate through the enclave page addresses contained to the VMA and calculate
- * a bitmask of permissions that all pages have in common. Page addresses that
- * do not have an associated enclave page are interpreted to zero permissions.
- */
-static unsigned long sgx_encl_calc_vma_prot(struct sgx_encl *encl,
-					    struct vm_area_struct *vma)
-{
-	unsigned long vm_prot_bits = VM_READ | VM_WRITE | VM_EXEC;
-	unsigned long idx, idx_start, idx_end;
-	struct sgx_encl_page *page;
-
-	idx_start = PFN_DOWN(vma->vm_start);
-	idx_end = PFN_DOWN(vma->vm_end - 1);
-
-	for (idx = idx_start; idx <= idx_end; ++idx) {
-		mutex_lock(&encl->lock);
-		page = radix_tree_lookup(&encl->page_tree, idx);
-		mutex_unlock(&encl->lock);
-
-		if (!page)
-			return 0;
-
-		vm_prot_bits &= page->vm_prot_bits;
-		if (!vm_prot_bits)
-			return 0;
-	}
-
-	return vm_prot_bits;
-}
-
 static int sgx_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = file->private_data;
-	unsigned long vm_prot_bits;
 	int ret;
 
-	vm_prot_bits = sgx_encl_calc_vma_prot(encl, vma);
-	if (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC) & ~vm_prot_bits)
-		return -EACCES;
+	ret = sgx_encl_may_map(encl, vma->vm_start, vma->vm_end,
+			       vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC));
+	if (ret)
+		return ret;
 
 	if (!sgx_encl_get_mm(encl, vma->vm_mm)) {
 		ret = sgx_encl_mm_add(encl, vma->vm_mm);
 		if (ret)
 			return ret;
 	}
-
-	if (!(vm_prot_bits & VM_READ))
-		vma->vm_flags &= ~VM_MAYREAD;
-	if (!(vm_prot_bits & VM_WRITE))
-		vma->vm_flags &= ~VM_MAYWRITE;
-	if (!(vm_prot_bits & VM_EXEC))
-		vma->vm_flags &= ~VM_MAYEXEC;
 
 	vma->vm_ops = &sgx_vm_ops;
 	vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_IO;

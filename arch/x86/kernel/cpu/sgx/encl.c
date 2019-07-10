@@ -2,6 +2,7 @@
 // Copyright(c) 2016-18 Intel Corporation.
 
 #include <linux/mm.h>
+#include <linux/mman.h>
 #include <linux/shmem_fs.h>
 #include <linux/suspend.h>
 #include <linux/sched/mm.h>
@@ -341,11 +342,59 @@ out:
 	return ret < 0 ? ret : i;
 }
 
+/**
+ * sgx_encl_may_map() - Check if a requested VMA mapping is allowed
+ * @encl:	an enclave
+ * @start:	lower bound of the address range, inclusive
+ * @end:	upper bound of the address range, exclusive
+ * @prot:	requested protections of the address range
+ *
+ * Iterate through the enclave pages contained within [@start, @end) to verify
+ * the permissions requested by @prot do not exceed that of any associated
+ * enclave page.  Page addresses that do not have an associated enclave page
+ * are interpreted to zero permissions.
+ *
+ * Return:
+ *   0 on success,
+ *   -EACCESS if VMA permissions exceed enclave page permissions
+ */
+int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
+		     unsigned long end, unsigned long vm_prot_bits)
+{
+	unsigned long idx, idx_start, idx_end;
+	struct sgx_encl_page *page;
+
+	if (!vm_prot_bits)
+		return 0;
+
+	idx_start = PFN_DOWN(start);
+	idx_end = PFN_DOWN(end - 1);
+
+	for (idx = idx_start; idx <= idx_end; ++idx) {
+		mutex_lock(&encl->lock);
+		page = radix_tree_lookup(&encl->page_tree, idx);
+		mutex_unlock(&encl->lock);
+
+		if (!page || (~page->vm_prot_bits & vm_prot_bits))
+			return -EACCES;
+	}
+
+	return 0;
+}
+
+static int sgx_vma_mprotect(struct vm_area_struct *vma, unsigned long start,
+			    unsigned long end, unsigned long prot)
+{
+	return sgx_encl_may_map(vma->vm_private_data, start, end,
+				calc_vm_prot_bits(prot, 0));
+}
+
 const struct vm_operations_struct sgx_vm_ops = {
 	.close = sgx_vma_close,
 	.open = sgx_vma_open,
 	.fault = sgx_vma_fault,
 	.access = sgx_vma_access,
+	.may_mprotect = sgx_vma_mprotect,
 };
 
 /**
