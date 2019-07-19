@@ -801,7 +801,7 @@ static long sgx_ioc_enclave_set_attribute(struct file *filep, void __user *arg)
 		return -EFAULT;
 
 	attribute_file = fget(params.attribute_fd);
-	if (!attribute_file->f_op)
+	if (!attribute_file)
 		return -EINVAL;
 
 	if (attribute_file->f_op != &sgx_provision_fops) {
