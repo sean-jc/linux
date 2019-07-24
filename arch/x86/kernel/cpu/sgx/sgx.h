@@ -10,6 +10,8 @@
 #include <asm/asm.h>
 #include <uapi/asm/sgx_errno.h>
 
+#include "arch.h"
+
 struct sgx_epc_page {
 	unsigned long desc;
 	struct sgx_encl_page *owner;
