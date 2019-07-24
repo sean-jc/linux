@@ -16,8 +16,6 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include "defines.h"
-#include "../../../../../arch/x86/kernel/cpu/sgx/arch.h"
-#include "../../../../../arch/x86/include/uapi/asm/sgx.h"
 #include "sgx_call.h"
 
 #define PAGE_SIZE  4096
