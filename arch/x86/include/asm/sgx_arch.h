@@ -15,6 +15,39 @@
 #define SGX_CPUID_FIRST_VARIABLE_SUB_LEAF	2
 
 /**
+ * enum sgx_encls_leaf - ENCLS leaf function type
+ * %ECREATE:	Create an uninitialized enclave.
+ * %EADD:	Add a page to an uninitialized enclave.
+ * %EINIT:	Change enclave to initialized state.
+ * %EREMOVE:	Remove a page from an enclave.
+ * %EDBGRD:	Read a word from an enclave.
+ * %EDBGWR:	Write a word to an enclave.
+ * %EEXTEND:	Measure 256 bytes of an added page.
+ * %ELDU:	Load a reclaimed page in unblocked state.
+ * %EBLOCK:	Change page state to blocked, which means that hardware threads
+ *		cannot access it and create new TLB entries to it.
+ * %EPA:	Create a Version Array (VA) page used to store the version
+ *		numbers for 512 reclaimed EPC pages.
+ * %EWB:	Reclaim a page to the regular memory.
+ * %ETRACK:	Start a new shoot down sequence. Used to together with EBLOCK to
+ *		make sure that a page is safe to swap.
+ */
+enum sgx_encls_leaf {
+	ECREATE	= 0x00,
+	EADD	= 0x01,
+	EINIT	= 0x02,
+	EREMOVE	= 0x03,
+	EDGBRD	= 0x04,
+	EDGBWR	= 0x05,
+	EEXTEND	= 0x06,
+	ELDU	= 0x08,
+	EBLOCK	= 0x09,
+	EPA	= 0x0A,
+	EWB	= 0x0B,
+	ETRACK	= 0x0C,
+};
+
+/**
  * enum sgx_return_code - The return code type for ENCLS, ENCLU and ENCLV
  * %SGX_NOT_TRACKED:		Previous ETRACK's shootdown sequence has not
  *				been completed yet.
