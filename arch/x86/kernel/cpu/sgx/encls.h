@@ -40,6 +40,18 @@
 	} while (0);							  \
 }
 
+/*
+ * encls_faulted() - Check if an ENCLS leaf faulted given an error code
+ * @ret		the return value of an ENCLS leaf function call
+ *
+ * Return:
+ *	%true if @ret indicates a fault, %false otherwise
+ */
+static inline bool encls_faulted(int ret)
+{
+	return ret & ENCLS_FAULT_FLAG;
+}
+
 /**
  * encls_failed() - Check if an ENCLS leaf function failed
  * @ret:	the return value of an ENCLS leaf function call
@@ -52,7 +64,7 @@ static inline bool encls_failed(int ret)
 {
 	int epcm_trapnr =
 		boot_cpu_has(X86_FEATURE_SGX2) ? X86_TRAP_PF : X86_TRAP_GP;
-	bool fault = ret & ENCLS_FAULT_FLAG;
+	bool fault = encls_faulted(ret);
 
 	return (fault && ENCLS_TRAPNR(ret) != epcm_trapnr) || (!fault && ret);
 }
