@@ -74,12 +74,21 @@ enum sgx_enclv_leafs {
  * %SGX_CHILD_PRESENT		Enclave has child pages present in the EPC.
  * %SGX_INVALID_EINITTOKEN:	EINITTOKEN is invalid and enclave signer's
  *				public key does not match IA32_SGXLEPUBKEYHASH.
+ * %SGX_INVALID_COUNTER		Returned by ENCLV[E{DEC,INC}VIRTCHILD if the
+ *				counter overflows or underflows.
+ * %SGX_PG_NONEPC		Returned by ENCLS[ERDINFO] if the target page
+ *				is not an EPC page.
+ * %SGX_TRACK_NOT_REQUIRED	Returned by ENCLS[ETRACKC] if the EPC page does
+ *				not require tracking, e.g. VA pages.
  * %SGX_UNMASKED_EVENT:		An unmasked event, e.g. INTR, was received
  */
 enum sgx_return_code {
 	SGX_NOT_TRACKED			= 11,
 	SGX_CHILD_PRESENT		= 13,
 	SGX_INVALID_EINITTOKEN		= 16,
+	SGX_INVALID_COUNTER		= 25,
+	SGX_PG_NONEPC			= 26,
+	SGX_TRACK_NOT_REQUIRED		= 27,
 	SGX_UNMASKED_EVENT		= 128,
 };
 
