@@ -40,6 +40,7 @@ enum sgx_encls_leaf {
 	EDGBRD	= 0x04,
 	EDGBWR	= 0x05,
 	EEXTEND	= 0x06,
+	ELDB	= 0x07,
 	ELDU	= 0x08,
 	EBLOCK	= 0x09,
 	EPA	= 0x0A,

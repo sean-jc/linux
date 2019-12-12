@@ -209,6 +209,12 @@ static inline int __eldu(struct sgx_pageinfo *pginfo, void *addr,
 	return __encls_ret_3(ELDU, pginfo, addr, va);
 }
 
+static inline int __eldb(struct sgx_pageinfo *pginfo, void *addr,
+			 void *va)
+{
+	return __encls_ret_3(ELDB, pginfo, addr, va);
+}
+
 static inline int __eblock(void *addr)
 {
 	return __encls_ret_1(EBLOCK, addr);
