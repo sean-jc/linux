@@ -70,11 +70,11 @@ static inline bool encls_failed(int ret)
 }
 
 /**
- * __encls_ret_N - encode an ENCLS leaf that returns an error code in EAX
+ * __enclx_ret_N - encode an ENCLx leaf that returns an error code in EAX
  * @rax:	leaf number
  * @inputs:	asm inputs for the leaf
  *
- * Emit assembly for an ENCLS leaf that returns an error code, e.g. EREMOVE.
+ * Emit assembly for an ENCLx leaf that returns an error code, e.g. EREMOVE.
  * And because SGX isn't complex enough as it is, leafs that return an error
  * code also modify flags.
  *
@@ -82,11 +82,11 @@ static inline bool encls_failed(int ret)
  *	0 on success,
  *	SGX error code on failure
  */
-#define __encls_ret_N(rax, inputs...)				\
+#define __enclx_ret_N(insn, rax, inputs...)			\
 	({							\
 	int ret;						\
 	asm volatile(						\
-	"1: .byte 0x0f, 0x01, 0xcf;\n\t"			\
+	"1: " insn ";\n\t"					\
 	"2:\n"							\
 	".section .fixup,\"ax\"\n"				\
 	"3: orl $"__stringify(ENCLx_FAULT_FLAG)",%%eax\n"	\
@@ -98,6 +98,9 @@ static inline bool encls_failed(int ret)
 	: "memory", "cc");					\
 	ret;							\
 	})
+
+#define __encls_ret_N(rax, inputs...)	\
+	__enclx_ret_N(".byte 0x0f, 0x01, 0xcf", rax, inputs)
 
 #define __encls_ret_1(rax, rcx)		\
 	({				\
@@ -115,12 +118,12 @@ static inline bool encls_failed(int ret)
 	})
 
 /**
- * __encls_N - encode an ENCLS leaf that doesn't return an error code
+ * __enclx_N - encode an ENCLS leaf that doesn't return an error code
  * @rax:	leaf number
  * @rbx_out:	optional output variable
  * @inputs:	asm inputs for the leaf
  *
- * Emit assembly for an ENCLS leaf that does not return an error code,
+ * Emit assembly for an ENCLx leaf that does not return an error code,
  * e.g. ECREATE.  Leaves without error codes either succeed or fault.
  * @rbx_out is an optional parameter for use by EDGBRD, which returns
  * the the requested value in RBX.
@@ -129,11 +132,11 @@ static inline bool encls_failed(int ret)
  *   0 on success,
  *   trapnr with ENCLx_FAULT_FLAG set on fault
  */
-#define __encls_N(rax, rbx_out, inputs...)			\
+#define __enclx_N(insn, rax, rbx_out, inputs...)		\
 	({							\
 	int ret;						\
 	asm volatile(						\
-	"1: .byte 0x0f, 0x01, 0xcf;\n\t"			\
+	"1: " insn ";\n\t"					\
 	"   xor %%eax,%%eax;\n"					\
 	"2:\n"							\
 	".section .fixup,\"ax\"\n"				\
@@ -146,6 +149,9 @@ static inline bool encls_failed(int ret)
 	: "memory");						\
 	ret;							\
 	})
+
+#define __encls_N(rax, rbx_out, inputs...)			\
+	__enclx_N(".byte 0x0f, 0x01, 0xcf", rax, rbx_out, inputs)
 
 #define __encls_2(rax, rbx, rcx)				\
 	({							\
