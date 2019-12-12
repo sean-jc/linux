@@ -9,7 +9,7 @@
 #include <linux/sched/mm.h>
 #include <asm/sgx_arch.h>
 #include "encl.h"
-#include "encls.h"
+#include "enclx.h"
 #include "sgx.h"
 
 static int __sgx_encl_eldu(struct sgx_encl_page *encl_page,
@@ -46,7 +46,7 @@ static int __sgx_encl_eldu(struct sgx_encl_page *encl_page,
 		     sgx_epc_addr(encl_page->va_page->epc_page) + va_offset);
 	if (ret) {
 		if (encls_failed(ret))
-			ENCLS_WARN(ret, "ELDU");
+			ENCLx_WARN(ret, "ELDU");
 
 		ret = -EFAULT;
 	}

@@ -15,7 +15,7 @@
 #include <linux/suspend.h>
 #include "driver.h"
 #include "encl.h"
-#include "encls.h"
+#include "enclx.h"
 
 static struct sgx_va_page *sgx_encl_grow(struct sgx_encl *encl)
 {
@@ -353,7 +353,7 @@ static int __sgx_encl_extend(struct sgx_encl *encl,
 				sgx_epc_addr(epc_page) + (i * 0x100));
 		if (ret) {
 			if (encls_failed(ret))
-				ENCLS_WARN(ret, "EEXTEND");
+				ENCLx_WARN(ret, "EEXTEND");
 			return -EIO;
 		}
 	}
@@ -643,9 +643,9 @@ static int sgx_encl_init(struct sgx_encl *encl, struct sgx_sigstruct *sigstruct,
 		}
 	}
 
-	if (ret & ENCLS_FAULT_FLAG) {
+	if (ret & ENCLx_FAULT_FLAG) {
 		if (encls_failed(ret))
-			ENCLS_WARN(ret, "EINIT");
+			ENCLx_WARN(ret, "EINIT");
 
 		sgx_encl_destroy(encl);
 		ret = -EFAULT;

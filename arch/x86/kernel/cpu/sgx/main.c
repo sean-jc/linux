@@ -14,7 +14,7 @@
 #include <asm/sgx_arch.h>
 
 #include "driver.h"
-#include "encls.h"
+#include "enclx.h"
 #include "virt.h"
 
 /* A per-cpu cache for the last known values of IA32_SGXLEPUBKEYHASHx MSRs. */

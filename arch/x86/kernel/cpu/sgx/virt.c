@@ -8,7 +8,7 @@
 #include <asm/sgx.h>
 #include <uapi/asm/sgx.h>
 
-#include "encls.h"
+#include "enclx.h"
 #include "sgx.h"
 #include "virt.h"
 
@@ -296,8 +296,8 @@ int sgx_virt_ecreate(struct sgx_pageinfo *pageinfo, void __user *secs,
 	ret = __ecreate(pageinfo, (void *)secs);
 	__uaccess_end();
 
-	if (encls_faulted(ret)) {
-		*trapnr = ENCLS_TRAPNR(ret);
+	if (enclx_faulted(ret)) {
+		*trapnr = ENCLx_TRAPNR(ret);
 		return -EFAULT;
 	}
 	return ret;
@@ -333,8 +333,8 @@ int sgx_virt_einit(void __user *sigstruct, void __user *token,
 		preempt_enable();
 	}
 
-	if (encls_faulted(ret)) {
-		*trapnr = ENCLS_TRAPNR(ret);
+	if (enclx_faulted(ret)) {
+		*trapnr = ENCLx_TRAPNR(ret);
 		return -EFAULT;
 	}
 	return ret;

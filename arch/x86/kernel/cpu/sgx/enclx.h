@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause) */
-#ifndef _X86_ENCLS_H
-#define _X86_ENCLS_H
+#ifndef _X86_ENCLx_H
+#define _X86_ENCLx_H
 
 #include <linux/bitops.h>
 #include <linux/err.h>
@@ -12,28 +12,28 @@
 #include "sgx.h"
 
 /**
- * ENCLS_FAULT_FLAG - flag signifying an ENCLS return code is a trapnr
+ * ENCLx_FAULT_FLAG - flag signifying an ENCL{S,V} return code is a trapnr
  *
- * ENCLS has its own (positive value) error codes and also generates
- * ENCLS specific #GP and #PF faults.  And the ENCLS values get munged
- * with system error codes as everything percolates back up the stack.
- * Unfortunately (for us), we need to precisely identify each unique
- * error code, e.g. the action taken if EWB fails varies based on the
- * type of fault and on the exact SGX error code, i.e. we can't simply
- * convert all faults to -EFAULT.
+ * ENCLx have their own (positive value) error codes and also generates ENCLx
+ * specific #GP and #PF faults.  And the ENCLx values get munged with system
+ * error codes as everything percolates back up the stack.
  *
- * To make all three error types coexist, we set bit 30 to identify an
- * ENCLS fault.  Bit 31 (technically bits N:31) is used to differentiate
- * between positive (faults and SGX error codes) and negative (system
- * error codes) values.
+ * Unfortunately (for us), we need to be able to precisely identify each unique
+ * error code, e.g. the action taken if EWB fails varies based on the type of
+ * fault and on the exact SGX error code, i.e. we can't simply convert all
+ * faults to -EFAULT.
+ *
+ * To let all three error types coexist, set bit 30 to identify an ENCLx fault.
+ * Bit 31 (technically bits N:31) is used to differentiate between positive
+ * (faults and SGX error codes) and negative (system error codes) values.
  */
-#define ENCLS_FAULT_FLAG 0x40000000
+#define ENCLx_FAULT_FLAG 0x40000000
 
 /* Retrieve the encoded trapnr from the specified return code. */
-#define ENCLS_TRAPNR(r) ((r) & ~ENCLS_FAULT_FLAG)
+#define ENCLx_TRAPNR(r) ((r) & ~ENCLx_FAULT_FLAG)
 
-/* Issue a WARN() about an ENCLS leaf. */
-#define ENCLS_WARN(r, name) {						  \
+/* Issue a WARN() about an ENCLx leaf. */
+#define ENCLx_WARN(r, name) {						  \
 	do {								  \
 		int _r = (r);						  \
 		WARN(_r, "%s returned %d (0x%x)\n", (name), _r, _r); \
@@ -41,15 +41,15 @@
 }
 
 /*
- * encls_faulted() - Check if an ENCLS leaf faulted given an error code
- * @ret		the return value of an ENCLS leaf function call
+ * enclx_faulted() - Check if an ENCLx leaf faulted given an error code
+ * @ret		the return value of an ENCLx leaf function call
  *
  * Return:
  *	%true if @ret indicates a fault, %false otherwise
  */
-static inline bool encls_faulted(int ret)
+static inline bool enclx_faulted(int ret)
 {
-	return ret & ENCLS_FAULT_FLAG;
+	return ret & ENCLx_FAULT_FLAG;
 }
 
 /**
@@ -64,9 +64,9 @@ static inline bool encls_failed(int ret)
 {
 	int epcm_trapnr =
 		boot_cpu_has(X86_FEATURE_SGX2) ? X86_TRAP_PF : X86_TRAP_GP;
-	bool fault = encls_faulted(ret);
+	bool fault = enclx_faulted(ret);
 
-	return (fault && ENCLS_TRAPNR(ret) != epcm_trapnr) || (!fault && ret);
+	return (fault && ENCLx_TRAPNR(ret) != epcm_trapnr) || (!fault && ret);
 }
 
 /**
@@ -89,7 +89,7 @@ static inline bool encls_failed(int ret)
 	"1: .byte 0x0f, 0x01, 0xcf;\n\t"			\
 	"2:\n"							\
 	".section .fixup,\"ax\"\n"				\
-	"3: orl $"__stringify(ENCLS_FAULT_FLAG)",%%eax\n"	\
+	"3: orl $"__stringify(ENCLx_FAULT_FLAG)",%%eax\n"	\
 	"   jmp 2b\n"						\
 	".previous\n"						\
 	_ASM_EXTABLE_FAULT(1b, 3b)				\
@@ -127,7 +127,7 @@ static inline bool encls_failed(int ret)
  *
  * Return:
  *   0 on success,
- *   trapnr with ENCLS_FAULT_FLAG set on fault
+ *   trapnr with ENCLx_FAULT_FLAG set on fault
  */
 #define __encls_N(rax, rbx_out, inputs...)			\
 	({							\
@@ -137,7 +137,7 @@ static inline bool encls_failed(int ret)
 	"   xor %%eax,%%eax;\n"					\
 	"2:\n"							\
 	".section .fixup,\"ax\"\n"				\
-	"3: orl $"__stringify(ENCLS_FAULT_FLAG)",%%eax\n"	\
+	"3: orl $"__stringify(ENCLx_FAULT_FLAG)",%%eax\n"	\
 	"   jmp 2b\n"						\
 	".previous\n"						\
 	_ASM_EXTABLE_FAULT(1b, 3b)				\
@@ -253,4 +253,4 @@ static inline int __eldbc(struct sgx_pageinfo *pginfo, void *addr, void *va)
 	return __encls_ret_3(ELDBC, pginfo, addr, va);
 }
 
-#endif /* _X86_ENCLS_H */
+#endif /* _X86_ENCLx_H */

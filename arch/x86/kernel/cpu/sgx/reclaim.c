@@ -10,7 +10,7 @@
 #include <linux/sched/mm.h>
 #include <linux/sched/signal.h>
 #include "encl.h"
-#include "encls.h"
+#include "enclx.h"
 #include "driver.h"
 
 struct task_struct *ksgxswapd_tsk;
@@ -217,7 +217,7 @@ static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 	if (!(atomic_read(&encl->flags) & SGX_ENCL_DEAD)) {
 		ret = __eblock(sgx_epc_addr(epc_page));
 		if (encls_failed(ret))
-			ENCLS_WARN(ret, "EBLOCK");
+			ENCLx_WARN(ret, "EBLOCK");
 	}
 
 	mutex_unlock(&encl->lock);
@@ -297,7 +297,7 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 		ret = __etrack(sgx_epc_addr(encl->secs.epc_page));
 		if (ret) {
 			if (encls_failed(ret))
-				ENCLS_WARN(ret, "ETRACK");
+				ENCLx_WARN(ret, "ETRACK");
 		}
 
 		ret = __sgx_encl_ewb(epc_page, va_slot, backing);
@@ -317,7 +317,7 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 
 	if (ret) {
 		if (encls_failed(ret))
-			ENCLS_WARN(ret, "EWB");
+			ENCLx_WARN(ret, "EWB");
 
 		sgx_free_va_slot(va_page, va_offset);
 	} else {
