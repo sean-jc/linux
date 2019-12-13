@@ -6,6 +6,7 @@ ifndef OBJCOPY
 OBJCOPY := $(CROSS_COMPILE)objcopy
 endif
 
+INCLUDES := -I$(top_srcdir)/tools/include
 HOST_CFLAGS := -Wall -Werror -g $(INCLUDES) -fPIC -z noexecstack
 ENCL_CFLAGS := -Wall -Werror -static -nostdlib -nostartfiles -fPIC \
 	       -fno-stack-protector -mrdrnd $(INCLUDES)
@@ -33,7 +34,7 @@ $(OUTPUT)/encl.ss: $(OUTPUT)/encl.bin
 	$(OUTPUT)/sgxsign signing_key.pem $(OUTPUT)/encl.bin $(OUTPUT)/encl.ss
 
 $(OUTPUT)/sgxsign: sgxsign.c
-	$(CC) -o $@ $< -lcrypto
+	$(CC) $(INCLUDES) -o $@ $< -lcrypto
 
 EXTRA_CLEAN := \
 	$(OUTPUT)/encl.bin \
