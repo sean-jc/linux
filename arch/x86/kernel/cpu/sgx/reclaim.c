@@ -108,14 +108,18 @@ bool __init sgx_page_reclaimer_init(void)
 /**
  * sgx_mark_page_reclaimable() - Mark a page as reclaimable
  * @page:	EPC page
+ * @flag:	Reclaimable flag indicating owner
  *
  * Mark a page as reclaimable and add it to the active page list. Pages
  * are automatically removed from the active list when freed.
  */
-void sgx_mark_page_reclaimable(struct sgx_epc_page *page)
+void sgx_mark_page_reclaimable(struct sgx_epc_page *page, unsigned long flag)
 {
+	if (WARN_ON_ONCE(!(flag & SGX_EPC_PAGE_RECLAIMABLE)))
+		return;
+
 	spin_lock(&sgx_active_page_list_lock);
-	page->desc |= SGX_EPC_PAGE_RECLAIMABLE;
+	page->desc |= flag;
 	list_add_tail(&page->list, &sgx_active_page_list);
 	spin_unlock(&sgx_active_page_list_lock);
 }
@@ -124,7 +128,7 @@ void sgx_mark_page_reclaimable(struct sgx_epc_page *page)
  * sgx_unmark_page_reclaimable() - Remove a page from the reclaim list
  * @page:	EPC page
  *
- * Clear the reclaimable flag and remove the page from the active page list.
+ * Clear all reclaimable flags and remove the page from the active page list.
  *
  * Return:
  *   0 on success,
@@ -133,10 +137,10 @@ void sgx_mark_page_reclaimable(struct sgx_epc_page *page)
 int sgx_unmark_page_reclaimable(struct sgx_epc_page *page)
 {
 	/*
-	 * Remove the page from the active list if necessary.  If the page
-	 * is actively being reclaimed, i.e. RECLAIMABLE is set but the
-	 * page isn't on the active list, return -EBUSY as we can't free
-	 * the page at this time since it is "owned" by the reclaimer.
+	 * Remove the page from the active list if necessary.  If the page is
+	 * actively being reclaimed, i.e. a RECLAIMABLE flag is set but the
+	 * page isn't on the active list, return -EBUSY as we can't free the
+	 * page at this time since it is "owned" by the reclaimer.
 	 */
 	spin_lock(&sgx_active_page_list_lock);
 	if (page->desc & SGX_EPC_PAGE_RECLAIMABLE) {
@@ -152,7 +156,7 @@ int sgx_unmark_page_reclaimable(struct sgx_epc_page *page)
 	return 0;
 }
 
-static bool sgx_reclaimer_age(struct sgx_epc_page *epc_page)
+static bool sgx_encl_reclaimer_age(struct sgx_epc_page *epc_page)
 {
 	struct sgx_encl_page *page = epc_page->owner;
 	struct sgx_encl *encl = page->encl;
@@ -184,7 +188,15 @@ static bool sgx_reclaimer_age(struct sgx_epc_page *epc_page)
 	return true;
 }
 
-static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
+static bool sgx_reclaimer_age(struct sgx_epc_page *epc_page)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return false;
+
+	return sgx_encl_reclaimer_age(epc_page);
+}
+
+static void sgx_encl_reclaimer_block(struct sgx_epc_page *epc_page)
 {
 	struct sgx_encl_page *page = epc_page->owner;
 	unsigned long addr = SGX_ENCL_PAGE_ADDR(page);
@@ -221,6 +233,14 @@ static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 	}
 
 	mutex_unlock(&encl->lock);
+}
+
+static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return;
+
+	sgx_encl_reclaimer_block(epc_page);
 }
 
 static int __sgx_encl_ewb(struct sgx_epc_page *epc_page, void *va_slot,
@@ -326,8 +346,8 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 	}
 }
 
-static void sgx_reclaimer_write(struct sgx_epc_page *epc_page,
-				struct sgx_backing *backing)
+static void sgx_encl_reclaimer_write(struct sgx_epc_page *epc_page,
+				     struct sgx_backing *backing)
 {
 	struct sgx_encl_page *encl_page = epc_page->owner;
 	struct sgx_encl *encl = encl_page->encl;
@@ -369,6 +389,91 @@ out:
 	mutex_unlock(&encl->lock);
 }
 
+static void sgx_reclaimer_write(struct sgx_epc_page *epc_page,
+				struct sgx_backing *backing)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return;
+
+	sgx_encl_reclaimer_write(epc_page, backing);
+}
+
+static inline bool sgx_encl_reclaimer_get_ref(struct sgx_epc_page *epc_page)
+{
+	struct sgx_encl_page *encl_page = epc_page->owner;
+
+	return kref_get_unless_zero(&encl_page->encl->refcount);
+}
+
+static bool sgx_reclaimer_get_ref(struct sgx_epc_page *epc_page)
+{
+
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return 0;
+
+	return sgx_encl_reclaimer_get_ref(epc_page);
+}
+
+static inline void sgx_encl_reclaimer_put_ref(struct sgx_epc_page *epc_page)
+{
+	struct sgx_encl_page *encl_page = epc_page->owner;
+
+	kref_put(&encl_page->encl->refcount, sgx_encl_release);
+}
+
+static void sgx_reclaimer_put_ref(struct sgx_epc_page *epc_page)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return;
+
+	sgx_encl_reclaimer_put_ref(epc_page);
+}
+
+static inline int sgx_encl_reclaimer_get_backing(struct sgx_epc_page *epc_page,
+						 struct sgx_backing *backing)
+{
+	struct sgx_encl_page *encl_page = epc_page->owner;
+
+	return sgx_encl_get_backing(encl_page->encl,
+				    SGX_ENCL_PAGE_INDEX(encl_page), backing);
+}
+
+
+static int sgx_reclaimer_get_backing(struct sgx_epc_page *epc_page,
+				     struct sgx_backing *backing)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return 0;
+
+	return sgx_encl_reclaimer_get_backing(epc_page, backing);
+}
+
+static void sgx_reclaimer_put_backing(struct sgx_epc_page *epc_page,
+				      struct sgx_backing *backing)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return;
+
+	sgx_encl_put_backing(backing, true);
+}
+
+static void sgx_encl_reclaimer_zap(struct sgx_epc_page *epc_page)
+{
+	struct sgx_encl_page *encl_page = epc_page->owner;
+
+	mutex_lock(&encl_page->encl->lock);
+	encl_page->desc |= SGX_ENCL_PAGE_RECLAIMED;
+	mutex_unlock(&encl_page->encl->lock);
+}
+
+static void sgx_reclaimer_zap(struct sgx_epc_page *epc_page)
+{
+	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+		return;
+
+	sgx_encl_reclaimer_zap(epc_page);
+}
+
 /**
  * sgx_reclaim_pages() - Reclaim EPC pages from the consumers
  *
@@ -382,10 +487,8 @@ void sgx_reclaim_pages(void)
 	struct sgx_epc_page *chunk[SGX_NR_TO_SCAN];
 	struct sgx_backing backing[SGX_NR_TO_SCAN];
 	struct sgx_epc_section *section;
-	struct sgx_encl_page *encl_page;
 	struct sgx_epc_page *epc_page;
 	int cnt = 0;
-	int ret;
 	int i;
 
 	spin_lock(&sgx_active_page_list_lock);
@@ -396,9 +499,8 @@ void sgx_reclaim_pages(void)
 		epc_page = list_first_entry(&sgx_active_page_list,
 					    struct sgx_epc_page, list);
 		list_del_init(&epc_page->list);
-		encl_page = epc_page->owner;
 
-		if (kref_get_unless_zero(&encl_page->encl->refcount) != 0)
+		if (sgx_reclaimer_get_ref(epc_page))
 			chunk[cnt++] = epc_page;
 		else
 			/* The owner is freeing the page. No need to add the
@@ -410,24 +512,18 @@ void sgx_reclaim_pages(void)
 
 	for (i = 0; i < cnt; i++) {
 		epc_page = chunk[i];
-		encl_page = epc_page->owner;
 
 		if (!sgx_reclaimer_age(epc_page))
 			goto skip;
 
-		ret = sgx_encl_get_backing(encl_page->encl,
-					   SGX_ENCL_PAGE_INDEX(encl_page),
-					   &backing[i]);
-		if (ret)
+		if (sgx_reclaimer_get_backing(epc_page, &backing[i]))
 			goto skip;
 
-		mutex_lock(&encl_page->encl->lock);
-		encl_page->desc |= SGX_ENCL_PAGE_RECLAIMED;
-		mutex_unlock(&encl_page->encl->lock);
+		sgx_reclaimer_zap(epc_page);
 		continue;
 
 skip:
-		kref_put(&encl_page->encl->refcount, sgx_encl_release);
+		sgx_reclaimer_put_ref(epc_page);
 
 		spin_lock(&sgx_active_page_list_lock);
 		list_add_tail(&epc_page->list, &sgx_active_page_list);
@@ -447,11 +543,10 @@ skip:
 		if (!epc_page)
 			continue;
 
-		encl_page = epc_page->owner;
 		sgx_reclaimer_write(epc_page, &backing[i]);
-		sgx_encl_put_backing(&backing[i], true);
+		sgx_reclaimer_put_backing(epc_page, &backing[i]);
 
-		kref_put(&encl_page->encl->refcount, sgx_encl_release);
+		sgx_reclaimer_put_ref(epc_page);
 		epc_page->desc &= ~SGX_EPC_PAGE_RECLAIMABLE;
 
 		section = sgx_epc_section(epc_page);

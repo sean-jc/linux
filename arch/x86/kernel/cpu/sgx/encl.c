@@ -126,7 +126,7 @@ static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 		return ERR_CAST(epc_page);
 
 	encl->secs_child_cnt++;
-	sgx_mark_page_reclaimable(entry->epc_page);
+	sgx_mark_page_reclaimable(entry->epc_page, SGX_EPC_PAGE_ENCLAVE);
 
 	return entry;
 }

@@ -46,6 +46,7 @@ extern struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
  *				physical memory. The existing and near-future
  *				hardware defines at most eight sections, hence
  *				three bits to hold a section.
+ * %SGX_EPC_PAGE_ENCLAVE:	The page is a reclaimable enclave page.
  * %SGX_EPC_PAGE_RECLAIMABLE:	The page has been been marked as reclaimable.
  *				Pages need to be colored this way because a page
  *				can be out of the active page list in the
@@ -53,8 +54,10 @@ extern struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
  */
 enum sgx_epc_page_desc {
 	SGX_EPC_SECTION_MASK			= GENMASK_ULL(3, 0),
-	SGX_EPC_PAGE_RECLAIMABLE		= BIT(4),
+	SGX_EPC_PAGE_ENCLAVE			= BIT(4),
 	/* bits 12-63 are reserved for the physical page address of the page */
+
+	SGX_EPC_PAGE_RECLAIMABLE		= SGX_EPC_PAGE_ENCLAVE,
 };
 
 static inline struct sgx_epc_section *sgx_epc_section(struct sgx_epc_page *page)
@@ -97,7 +100,7 @@ static inline bool sgx_should_reclaim(unsigned long watermark)
 }
 
 bool __init sgx_page_reclaimer_init(void);
-void sgx_mark_page_reclaimable(struct sgx_epc_page *page);
+void sgx_mark_page_reclaimable(struct sgx_epc_page *page, unsigned long flag);
 int sgx_unmark_page_reclaimable(struct sgx_epc_page *page);
 void sgx_reclaim_pages(void);
 
