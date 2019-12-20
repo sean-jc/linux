@@ -81,6 +81,8 @@ struct sgx_backing {
 int sgx_get_backing(struct file *file, unsigned long swap_size,
 		    unsigned long page_index, struct sgx_backing *backing);
 void sgx_put_backing(struct sgx_backing *backing, bool do_write);
+int sgx_ewb(struct sgx_epc_page *epc_page, void *va_slot,
+	    struct sgx_backing *backing, unsigned long *addr);
 
 #define SGX_NR_TO_SCAN		16
 #define SGX_NR_LOW_PAGES	32

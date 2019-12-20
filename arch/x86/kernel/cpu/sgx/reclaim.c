@@ -243,8 +243,8 @@ static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 	sgx_encl_reclaimer_block(epc_page);
 }
 
-static int __sgx_encl_ewb(struct sgx_epc_page *epc_page, void *va_slot,
-			  struct sgx_backing *backing)
+int sgx_ewb(struct sgx_epc_page *epc_page, void *va_slot,
+	    struct sgx_backing *backing, unsigned long *addr)
 {
 	struct sgx_pageinfo pginfo;
 	int ret;
@@ -262,6 +262,8 @@ static int __sgx_encl_ewb(struct sgx_epc_page *epc_page, void *va_slot,
 					      backing->pcmd_offset));
 	kunmap_atomic((void *)(unsigned long)pginfo.contents);
 
+	if (!ret && addr)
+		*addr = pginfo.addr;
 	return ret;
 }
 
@@ -312,7 +314,7 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 	if (sgx_va_page_full(va_page))
 		list_move_tail(&va_page->list, &encl->va_pages);
 
-	ret = __sgx_encl_ewb(epc_page, va_slot, backing);
+	ret = sgx_ewb(epc_page, va_slot, backing, NULL);
 	if (ret == SGX_NOT_TRACKED) {
 		ret = __etrack(sgx_epc_addr(encl->secs.epc_page));
 		if (ret) {
@@ -320,7 +322,7 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 				ENCLx_WARN(ret, "ETRACK");
 		}
 
-		ret = __sgx_encl_ewb(epc_page, va_slot, backing);
+		ret = sgx_ewb(epc_page, va_slot, backing, NULL);
 		if (ret == SGX_NOT_TRACKED) {
 			/*
 			 * Slow path, send IPIs to kick cpus out of the
@@ -331,7 +333,7 @@ static void sgx_encl_ewb(struct sgx_epc_page *epc_page,
 			 */
 			on_each_cpu_mask(sgx_encl_ewb_cpumask(encl),
 					 sgx_ipi_cb, NULL, 1);
-			ret = __sgx_encl_ewb(epc_page, va_slot, backing);
+			ret = sgx_ewb(epc_page, va_slot, backing, NULL);
 		}
 	}
 
