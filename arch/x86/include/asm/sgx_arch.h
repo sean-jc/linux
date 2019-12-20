@@ -83,9 +83,12 @@ enum sgx_enclv_leafs {
  * %SGX_UNMASKED_EVENT:		An unmasked event, e.g. INTR, was received
  */
 enum sgx_return_code {
+	SGX_PG_INVLD			= 6,
+	SGX_EPC_PAGE_CONFLICT		= 7,
 	SGX_NOT_TRACKED			= 11,
 	SGX_CHILD_PRESENT		= 13,
 	SGX_INVALID_EINITTOKEN		= 16,
+	SGX_PREV_TRK_INCMPL		= 17,
 	SGX_INVALID_COUNTER		= 25,
 	SGX_PG_NONEPC			= 26,
 	SGX_TRACK_NOT_REQUIRED		= 27,

@@ -190,8 +190,8 @@ static bool sgx_encl_reclaimer_age(struct sgx_epc_page *epc_page)
 
 static bool sgx_reclaimer_age(struct sgx_epc_page *epc_page)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return false;
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_age(epc_page);
 
 	return sgx_encl_reclaimer_age(epc_page);
 }
@@ -235,12 +235,13 @@ static void sgx_encl_reclaimer_block(struct sgx_epc_page *epc_page)
 	mutex_unlock(&encl->lock);
 }
 
-static void sgx_reclaimer_block(struct sgx_epc_page *epc_page)
+static int sgx_reclaimer_block(struct sgx_epc_page *epc_page)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return;
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_block(epc_page);
 
 	sgx_encl_reclaimer_block(epc_page);
+	return 0;
 }
 
 int sgx_ewb(struct sgx_epc_page *epc_page, void *va_slot,
@@ -391,13 +392,14 @@ out:
 	mutex_unlock(&encl->lock);
 }
 
-static void sgx_reclaimer_write(struct sgx_epc_page *epc_page,
+static int sgx_reclaimer_write(struct sgx_epc_page *epc_page,
 				struct sgx_backing *backing)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return;
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_write(epc_page, backing);
 
 	sgx_encl_reclaimer_write(epc_page, backing);
+	return 0;
 }
 
 static inline bool sgx_encl_reclaimer_get_ref(struct sgx_epc_page *epc_page)
@@ -409,9 +411,11 @@ static inline bool sgx_encl_reclaimer_get_ref(struct sgx_epc_page *epc_page)
 
 static bool sgx_reclaimer_get_ref(struct sgx_epc_page *epc_page)
 {
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_get_ref(epc_page);
 
 	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return 0;
+		return false;
 
 	return sgx_encl_reclaimer_get_ref(epc_page);
 }
@@ -425,8 +429,8 @@ static inline void sgx_encl_reclaimer_put_ref(struct sgx_epc_page *epc_page)
 
 static void sgx_reclaimer_put_ref(struct sgx_epc_page *epc_page)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return;
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_put_ref(epc_page);
 
 	sgx_encl_reclaimer_put_ref(epc_page);
 }
@@ -440,23 +444,13 @@ static inline int sgx_encl_reclaimer_get_backing(struct sgx_epc_page *epc_page,
 			       SGX_ENCL_PAGE_INDEX(encl_page), backing);
 }
 
-
 static int sgx_reclaimer_get_backing(struct sgx_epc_page *epc_page,
 				     struct sgx_backing *backing)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return 0;
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
+		return sgx_virt_reclaimer_get_backing(epc_page, backing);
 
 	return sgx_encl_reclaimer_get_backing(epc_page, backing);
-}
-
-static void sgx_reclaimer_put_backing(struct sgx_epc_page *epc_page,
-				      struct sgx_backing *backing)
-{
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
-		return;
-
-	sgx_put_backing(backing, true);
 }
 
 static void sgx_encl_reclaimer_zap(struct sgx_epc_page *epc_page)
@@ -470,10 +464,17 @@ static void sgx_encl_reclaimer_zap(struct sgx_epc_page *epc_page)
 
 static void sgx_reclaimer_zap(struct sgx_epc_page *epc_page)
 {
-	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
+	if (epc_page->desc & SGX_EPC_PAGE_GUEST)
 		return;
 
 	sgx_encl_reclaimer_zap(epc_page);
+}
+
+static void sgx_reclaimer_return_page(struct sgx_epc_page *epc_page)
+{
+	spin_lock(&sgx_active_page_list_lock);
+	list_add_tail(&epc_page->list, &sgx_active_page_list);
+	spin_unlock(&sgx_active_page_list_lock);
 }
 
 /**
@@ -491,7 +492,7 @@ void sgx_reclaim_pages(void)
 	struct sgx_epc_section *section;
 	struct sgx_epc_page *epc_page;
 	int cnt = 0;
-	int i;
+	int i, r;
 
 	spin_lock(&sgx_active_page_list_lock);
 	for (i = 0; i < SGX_NR_TO_SCAN; i++) {
@@ -527,17 +528,21 @@ void sgx_reclaim_pages(void)
 skip:
 		sgx_reclaimer_put_ref(epc_page);
 
-		spin_lock(&sgx_active_page_list_lock);
-		list_add_tail(&epc_page->list, &sgx_active_page_list);
-		spin_unlock(&sgx_active_page_list_lock);
+		sgx_reclaimer_return_page(epc_page);
 
 		chunk[i] = NULL;
 	}
 
 	for (i = 0; i < cnt; i++) {
 		epc_page = chunk[i];
-		if (epc_page)
-			sgx_reclaimer_block(epc_page);
+		if (epc_page && sgx_reclaimer_block(epc_page)) {
+			sgx_put_backing(&backing[i], false);
+			sgx_reclaimer_put_ref(epc_page);
+
+			sgx_reclaimer_return_page(epc_page);
+
+			chunk[i] = NULL;
+		}
 	}
 
 	for (i = 0; i < cnt; i++) {
@@ -545,10 +550,17 @@ skip:
 		if (!epc_page)
 			continue;
 
-		sgx_reclaimer_write(epc_page, &backing[i]);
-		sgx_reclaimer_put_backing(epc_page, &backing[i]);
+		r = sgx_reclaimer_write(epc_page, &backing[i]);
+		sgx_put_backing(&backing[i], true);
 
 		sgx_reclaimer_put_ref(epc_page);
+
+		/* Don't free the page if writeback failed. */
+		if (r) {
+			sgx_reclaimer_return_page(epc_page);
+			continue;
+		}
+
 		epc_page->desc &= ~SGX_EPC_PAGE_RECLAIMABLE;
 
 		section = sgx_epc_section(epc_page);

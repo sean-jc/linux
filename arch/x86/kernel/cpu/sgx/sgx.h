@@ -55,9 +55,11 @@ extern struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
 enum sgx_epc_page_desc {
 	SGX_EPC_SECTION_MASK			= GENMASK_ULL(3, 0),
 	SGX_EPC_PAGE_ENCLAVE			= BIT(4),
+	SGX_EPC_PAGE_GUEST			= BIT(5),
 	/* bits 12-63 are reserved for the physical page address of the page */
 
-	SGX_EPC_PAGE_RECLAIMABLE		= SGX_EPC_PAGE_ENCLAVE,
+	SGX_EPC_PAGE_RECLAIMABLE		= SGX_EPC_PAGE_ENCLAVE |
+						  SGX_EPC_PAGE_GUEST,
 };
 
 static inline struct sgx_epc_section *sgx_epc_section(struct sgx_epc_page *page)
@@ -70,6 +72,11 @@ static inline void *sgx_epc_addr(struct sgx_epc_page *page)
 	struct sgx_epc_section *section = sgx_epc_section(page);
 
 	return section->va + (page->desc & PAGE_MASK) - section->pa;
+}
+
+static inline unsigned long sgx_epc_pfn(struct sgx_epc_page *page)
+{
+	return PFN_DOWN(page->desc);
 }
 
 struct sgx_backing {
@@ -115,6 +122,15 @@ bool __init sgx_page_reclaimer_init(void);
 void sgx_mark_page_reclaimable(struct sgx_epc_page *page, unsigned long flag);
 int sgx_unmark_page_reclaimable(struct sgx_epc_page *page);
 void sgx_reclaim_pages(void);
+
+bool sgx_virt_reclaimer_get_ref(struct sgx_epc_page *epc_page);
+void sgx_virt_reclaimer_put_ref(struct sgx_epc_page *epc_page);
+bool sgx_virt_reclaimer_age(struct sgx_epc_page *epc_page);
+int sgx_virt_reclaimer_get_backing(struct sgx_epc_page *epc_page,
+				   struct sgx_backing *backing);
+int sgx_virt_reclaimer_block(struct sgx_epc_page *epc_page);
+int sgx_virt_reclaimer_write(struct sgx_epc_page *epc_page,
+			     struct sgx_backing *backing);
 
 struct sgx_epc_page *sgx_try_alloc_page(void);
 struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim);
