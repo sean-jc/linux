@@ -371,8 +371,8 @@ static void sgx_encl_reclaimer_write(struct sgx_epc_page *epc_page,
 			sgx_free_page(encl->secs.epc_page);
 			encl->secs.epc_page = NULL;
 		} else if (atomic_read(&encl->flags) & SGX_ENCL_INITIALIZED) {
-			ret = sgx_encl_get_backing(encl, PFN_DOWN(encl->size),
-						   &secs_backing);
+			ret = sgx_get_backing(encl->backing, encl->size,
+					      PFN_DOWN(encl->size), &secs_backing);
 			if (ret)
 				goto out;
 
@@ -381,7 +381,7 @@ static void sgx_encl_reclaimer_write(struct sgx_epc_page *epc_page,
 			sgx_free_page(encl->secs.epc_page);
 			encl->secs.epc_page = NULL;
 
-			sgx_encl_put_backing(&secs_backing, true);
+			sgx_put_backing(&secs_backing, true);
 		}
 	}
 
@@ -434,8 +434,8 @@ static inline int sgx_encl_reclaimer_get_backing(struct sgx_epc_page *epc_page,
 {
 	struct sgx_encl_page *encl_page = epc_page->owner;
 
-	return sgx_encl_get_backing(encl_page->encl,
-				    SGX_ENCL_PAGE_INDEX(encl_page), backing);
+	return sgx_get_backing(encl_page->encl->backing, encl_page->encl->size,
+			       SGX_ENCL_PAGE_INDEX(encl_page), backing);
 }
 
 
@@ -454,7 +454,7 @@ static void sgx_reclaimer_put_backing(struct sgx_epc_page *epc_page,
 	if (WARN_ON_ONCE(!(epc_page->desc & SGX_EPC_PAGE_ENCLAVE)))
 		return;
 
-	sgx_encl_put_backing(backing, true);
+	sgx_put_backing(backing, true);
 }
 
 static void sgx_encl_reclaimer_zap(struct sgx_epc_page *epc_page)

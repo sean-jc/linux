@@ -4,7 +4,6 @@
 #include <linux/lockdep.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
-#include <linux/shmem_fs.h>
 #include <linux/suspend.h>
 #include <linux/sched/mm.h>
 #include <asm/sgx_arch.h>
@@ -28,7 +27,7 @@ static int __sgx_encl_eldu(struct sgx_encl_page *encl_page,
 	else
 		page_index = PFN_DOWN(encl->size);
 
-	ret = sgx_encl_get_backing(encl, page_index, &b);
+	ret = sgx_get_backing(encl->backing, encl->size, page_index, &b);
 	if (ret)
 		return ret;
 
@@ -54,7 +53,7 @@ static int __sgx_encl_eldu(struct sgx_encl_page *encl_page,
 	kunmap_atomic((void *)(unsigned long)(pginfo.metadata - b.pcmd_offset));
 	kunmap_atomic((void *)(unsigned long)pginfo.contents);
 
-	sgx_encl_put_backing(&b, false);
+	sgx_put_backing(&b, false);
 
 	return ret;
 }
@@ -529,72 +528,6 @@ void sgx_encl_release(struct kref *ref)
 	WARN_ON_ONCE(encl->secs.epc_page);
 
 	kfree(encl);
-}
-
-static struct page *sgx_encl_get_backing_page(struct sgx_encl *encl,
-					      pgoff_t index)
-{
-	struct inode *inode = encl->backing->f_path.dentry->d_inode;
-	struct address_space *mapping = inode->i_mapping;
-	gfp_t gfpmask = mapping_gfp_mask(mapping);
-
-	return shmem_read_mapping_page_gfp(mapping, index, gfpmask);
-}
-
-/**
- * sgx_encl_get_backing() - Pin the backing storage
- * @encl:	an enclave
- * @page_index:	enclave page index
- * @backing:	data for accessing backing storage for the page
- *
- * Pin the backing storage pages for storing the encrypted contents and Paging
- * Crypto MetaData (PCMD) of an enclave page.
- *
- * Return:
- *   0 on success,
- *   -errno otherwise.
- */
-int sgx_encl_get_backing(struct sgx_encl *encl, unsigned long page_index,
-			 struct sgx_backing *backing)
-{
-	pgoff_t pcmd_index = PFN_DOWN(encl->size) + 1 + (page_index >> 5);
-	struct page *contents;
-	struct page *pcmd;
-
-	contents = sgx_encl_get_backing_page(encl, page_index);
-	if (IS_ERR(contents))
-		return PTR_ERR(contents);
-
-	pcmd = sgx_encl_get_backing_page(encl, pcmd_index);
-	if (IS_ERR(pcmd)) {
-		put_page(contents);
-		return PTR_ERR(pcmd);
-	}
-
-	backing->page_index = page_index;
-	backing->contents = contents;
-	backing->pcmd = pcmd;
-	backing->pcmd_offset =
-		(page_index & (PAGE_SIZE / sizeof(struct sgx_pcmd) - 1)) *
-		sizeof(struct sgx_pcmd);
-
-	return 0;
-}
-
-/**
- * sgx_encl_put_backing() - Unpin the backing storage
- * @backing:	data for accessing backing storage for the page
- * @do_write:	mark pages dirty
- */
-void sgx_encl_put_backing(struct sgx_backing *backing, bool do_write)
-{
-	if (do_write) {
-		set_page_dirty(backing->pcmd);
-		set_page_dirty(backing->contents);
-	}
-
-	put_page(backing->pcmd);
-	put_page(backing->contents);
 }
 
 static int sgx_encl_test_and_clear_young_cb(pte_t *ptep, unsigned long addr,

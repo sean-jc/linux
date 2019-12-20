@@ -72,6 +72,16 @@ static inline void *sgx_epc_addr(struct sgx_epc_page *page)
 	return section->va + (page->desc & PAGE_MASK) - section->pa;
 }
 
+struct sgx_backing {
+	pgoff_t page_index;
+	struct page *contents;
+	struct page *pcmd;
+	unsigned long pcmd_offset;
+};
+int sgx_get_backing(struct file *file, unsigned long swap_size,
+		    unsigned long page_index, struct sgx_backing *backing);
+void sgx_put_backing(struct sgx_backing *backing, bool do_write);
+
 #define SGX_NR_TO_SCAN		16
 #define SGX_NR_LOW_PAGES	32
 #define SGX_NR_HIGH_PAGES	64

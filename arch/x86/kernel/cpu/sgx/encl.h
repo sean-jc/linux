@@ -104,16 +104,6 @@ int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm);
 int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 		     unsigned long end, unsigned long vm_prot_bits);
 
-struct sgx_backing {
-	pgoff_t page_index;
-	struct page *contents;
-	struct page *pcmd;
-	unsigned long pcmd_offset;
-};
-
-int sgx_encl_get_backing(struct sgx_encl *encl, unsigned long page_index,
-			 struct sgx_backing *backing);
-void sgx_encl_put_backing(struct sgx_backing *backing, bool do_write);
 int sgx_encl_test_and_clear_young(struct mm_struct *mm,
 				  struct sgx_encl_page *page);
 struct sgx_encl_page *sgx_encl_reserve_page(struct sgx_encl *encl,

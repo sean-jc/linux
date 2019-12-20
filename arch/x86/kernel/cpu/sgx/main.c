@@ -9,6 +9,7 @@
 #include <linux/pagemap.h>
 #include <linux/ratelimit.h>
 #include <linux/sched/signal.h>
+#include <linux/shmem_fs.h>
 #include <linux/slab.h>
 
 #include <asm/sgx_arch.h>
@@ -287,6 +288,73 @@ static bool __init sgx_page_cache_init(void)
 	}
 
 	return true;
+}
+
+static struct page *sgx_get_backing_page(struct file *backing, pgoff_t index)
+{
+	struct inode *inode = backing->f_path.dentry->d_inode;
+	struct address_space *mapping = inode->i_mapping;
+	gfp_t gfpmask = mapping_gfp_mask(mapping);
+
+	return shmem_read_mapping_page_gfp(mapping, index, gfpmask);
+}
+
+
+/**
+ * sgx_get_backing() - Pin the backing storage
+ * @file:	a shmem file used to back an enclave or virtual EPC
+ * @swap_size:	size of the swap portion of the shmem file
+ * @page_index:	page index into the shmem file
+ * @backing:	data for accessing backing storage for the page
+ *
+ * Pin the backing storage pages for storing the encrypted contents and Paging
+ * Crypto MetaData (PCMD) of an enclave page.
+ *
+ * Return:
+ *   0 on success,
+ *   -errno otherwise.
+ */
+int sgx_get_backing(struct file *file, unsigned long swap_size,
+		    unsigned long page_index, struct sgx_backing *backing)
+{
+	pgoff_t pcmd_index = PFN_DOWN(swap_size) + 1 + (page_index >> 5);
+	struct page *contents;
+	struct page *pcmd;
+
+	contents = sgx_get_backing_page(file, page_index);
+	if (IS_ERR(contents))
+		return PTR_ERR(contents);
+
+	pcmd = sgx_get_backing_page(file, pcmd_index);
+	if (IS_ERR(pcmd)) {
+		put_page(contents);
+		return PTR_ERR(pcmd);
+	}
+
+	backing->page_index = page_index;
+	backing->contents = contents;
+	backing->pcmd = pcmd;
+	backing->pcmd_offset =
+		(page_index & (PAGE_SIZE / sizeof(struct sgx_pcmd) - 1)) *
+		sizeof(struct sgx_pcmd);
+
+	return 0;
+}
+
+/**
+ * sgx_put_backing() - Unpin the backing storage
+ * @backing:	data for accessing backing storage for the page
+ * @do_write:	mark pages dirty
+ */
+void sgx_put_backing(struct sgx_backing *backing, bool do_write)
+{
+	if (do_write) {
+		set_page_dirty(backing->pcmd);
+		set_page_dirty(backing->contents);
+	}
+
+	put_page(backing->pcmd);
+	put_page(backing->contents);
 }
 
 const struct file_operations sgx_provision_fops = {
