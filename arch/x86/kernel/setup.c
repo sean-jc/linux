@@ -38,6 +38,7 @@
 #include <asm/io_apic.h>
 #include <asm/kasan.h>
 #include <asm/kaslr.h>
+#include <asm/kvm_boot.h>
 #include <asm/mce.h>
 #include <asm/mtrr.h>
 #include <asm/realmode.h>
@@ -1199,6 +1200,8 @@ void __init setup_arch(char **cmdline_p)
 	init_apic_mappings();
 
 	prefill_possible_map();
+
+	tdx_seam_init();
 
 	init_cpu_to_node();
 	init_gi_nodes();
