@@ -1010,6 +1010,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_ARM_NISV_TO_USER 177
 #define KVM_CAP_ARM_INJECT_EXT_DABT 178
 #define KVM_CAP_SGX_ATTRIBUTE 200
+#define KVM_CAP_SGX_EPC_RECLAIM 201
 
 #ifdef KVM_CAP_IRQ_ROUTING
 

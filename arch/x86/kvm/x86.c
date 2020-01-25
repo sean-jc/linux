@@ -3283,6 +3283,13 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 #endif
 		r = 1;
 		break;
+#ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
+	case KVM_CAP_SGX_EPC_RECLAIM:
+		r = boot_cpu_has(X86_FEATURE_SGX) &&
+		    boot_cpu_has(X86_FEATURE_ENCLV) &&
+		    boot_cpu_has(X86_FEATURE_ENCLS_C);
+		break;
+#endif
 	case KVM_CAP_SYNC_REGS:
 		r = KVM_SYNC_X86_VALID_FIELDS;
 		break;
@@ -4852,6 +4859,34 @@ split_irqchip_unlock:
 			kvm->arch.sgx_provisioning_allowed = true;
 		else
 			r = -EINVAL;
+		break;
+	}
+	case KVM_CAP_SGX_EPC_RECLAIM: {
+		void *epc;
+
+		if (!boot_cpu_has(X86_FEATURE_SGX) ||
+		    !boot_cpu_has(X86_FEATURE_ENCLV) ||
+		    !boot_cpu_has(X86_FEATURE_ENCLS_C)) {
+			r = -EINVAL;
+			break;
+		}
+
+		mutex_lock(&kvm->lock);
+		if (kvm->created_vcpus) {
+			r = -EINVAL;
+			goto epc_unlock;
+		}
+
+		epc = sgx_virt_enable_reclaim(cap->args[0], kvm, gfn_to_hva);
+		if (IS_ERR(epc)) {
+			r = PTR_ERR(epc);
+			goto epc_unlock;
+		}
+
+		kvm->arch.virt_epc = epc;
+		r = 0;
+epc_unlock:
+		mutex_unlock(&kvm->lock);
 		break;
 	}
 #endif
@@ -9700,6 +9735,11 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 	kvm_mmu_uninit_vm(kvm);
 	kvm_page_track_cleanup(kvm);
 	kvm_hv_destroy_vm(kvm);
+
+#ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
+	if (kvm->arch.virt_epc)
+		sgx_virt_disable_reclaim(kvm->arch.virt_epc);
+#endif
 }
 
 void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *free,
