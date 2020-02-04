@@ -259,4 +259,27 @@ static inline int __eldbc(struct sgx_pageinfo *pginfo, void *addr, void *va)
 	return __encls_ret_3(ELDBC, pginfo, addr, va);
 }
 
+#define __enclv_ret_N(rax, inputs...)	\
+	__enclx_ret_N(".byte 0x0f, 0x01, 0xc0", rax, inputs)
+
+#define __enclv_ret_2(rax, rbx, rcx)			\
+	({						\
+	__enclv_ret_N(rax, "b"(rbx),"c"(rcx));		\
+	})
+
+static inline int __edecvirtchild(void *epc, void *secs)
+{
+	return __enclv_ret_2(EDECVIRTCHILD, epc, secs);
+}
+
+static inline int __eincvirtchild(void *epc, void *secs)
+{
+	return __enclv_ret_2(EINCVIRTCHILD, epc, secs);
+}
+
+static inline int __esetcontext(void *secs, struct sgx_enclavecontext *ctxt)
+{
+	return __enclv_ret_N(ESETCONTEXT, "c"(secs),"d"(ctxt));
+}
+
 #endif /* _X86_ENCLx_H */
