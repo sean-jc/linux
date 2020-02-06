@@ -10011,7 +10011,7 @@ void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
 		return;
 
 	if (!vcpu->arch.mmu->direct_map &&
-	      work->arch.cr3 != vcpu->arch.mmu->get_cr3(vcpu))
+	      work->arch.cr3 != vcpu->arch.mmu->get_guest_cr3_or_eptp(vcpu))
 		return;
 
 	vcpu->arch.mmu->page_fault(vcpu, work->gva, 0, true);
