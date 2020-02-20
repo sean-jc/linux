@@ -98,14 +98,9 @@ static int sgx_gva_to_hva(struct kvm_vcpu *vcpu, gva_t gva, bool write,
 	return 0;
 }
 
-static int sgx_encls_postamble(struct kvm_vcpu *vcpu, int ret, int trapnr,
-			       gva_t gva)
+static int sgx_skip_encls(struct kvm_vcpu *vcpu, int ret)
 {
-	struct x86_exception ex;
 	unsigned long rflags;
-
-	if (ret == -EFAULT)
-		goto handle_fault;
 
 	rflags = vmx_get_rflags(vcpu) & ~(X86_EFLAGS_CF | X86_EFLAGS_PF |
 					  X86_EFLAGS_AF | X86_EFLAGS_SF |
@@ -118,8 +113,16 @@ static int sgx_encls_postamble(struct kvm_vcpu *vcpu, int ret, int trapnr,
 
 	kvm_rax_write(vcpu, ret);
 	return kvm_skip_emulated_instruction(vcpu);
+}
 
-handle_fault:
+static int sgx_encls_postamble(struct kvm_vcpu *vcpu, int ret, int trapnr,
+			       gva_t gva)
+{
+	struct x86_exception ex;
+
+	if (ret != -EFAULT)
+		return sgx_skip_encls(vcpu, ret);
+
 	/*
 	 * A non-EPCM #PF indicates a bad userspace HVA.  This *should* check
 	 * for PFEC.SGX and not assume any #PF on SGX2 originated in the EPC,
@@ -245,4 +248,87 @@ int handle_encls_einit(struct kvm_vcpu *vcpu)
 			     vmx->msr_ia32_sgxlepubkeyhash, &trapnr);
 
 	return sgx_encls_postamble(vcpu, ret, trapnr, secs_hva);
+}
+
+int handle_sgx_conflict(struct kvm_vcpu *vcpu)
+{
+	unsigned long exit_qual = vmcs_readl(EXIT_QUALIFICATION);
+	gpa_t gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+	void *virt_epc = vcpu->kvm->arch.virt_epc;
+	u16 code = exit_qual & 0xffff;
+	unsigned long hva;
+	u32 leaf;
+
+	if (WARN_ON_ONCE(!virt_epc)) {
+		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		vcpu->run->internal.suberror =
+			KVM_INTERNAL_ERROR_UNEXPECTED_EXIT_REASON;
+		vcpu->run->internal.ndata = 1;
+		vcpu->run->internal.data[0] = EXIT_REASON_SGX_CONFLICT;
+		return 0;
+	}
+
+	/*
+	 * ENCLS isn't allowed in SMM (don't need to use vCPU variant) and the
+	 * guest won't have made it this far if the memslot is read-only (don't
+	 * need the _prot() variant).
+	 */
+	hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
+
+	switch (code) {
+	case SGX_TRACKING_LOCK_CONFLICT:
+	case SGX_REFERENCE_COUNT_CONFLICT:
+		/*
+		 * Restart the instruction if KVM executed ETRACKC on the same
+		 * SECS at some point prior to the VMEXIT, i.e. the conflict
+		 * may have been induced by KVM.
+		 */
+		if (sgx_virt_host_tracked(virt_epc, hva))
+			break;
+
+		/*
+		 * KVM hasn't executed ETRACKC since the last guest VMEXIT
+		 * due to ETRACK[C].  The conflict is within the guest itself,
+		 * e.g. either a guest driver bug, or due to a conflict with
+		 * a nested SGX driver.
+		 *
+		 * An EPOCH conflict, i.e. SGX_REFERENCE_COUNT_CONFLICT, is
+		 * a return_code failure for both ETRACK and ETRACK, while
+		 * a lock conflict is a #GP on ETRACK.
+		 */
+		if (code == SGX_REFERENCE_COUNT_CONFLICT)
+			return sgx_skip_encls(vcpu, SGX_PREV_TRK_INCMPL);
+
+		leaf = (u32)kvm_rax_read(vcpu);
+		if (leaf == ETRACKC)
+			return sgx_skip_encls(vcpu, SGX_EPC_PAGE_CONFLICT);
+
+		WARN_ON_ONCE(leaf != ETRACK);
+
+		/* Lock conflict on ETRACK */
+		kvm_inject_gp(vcpu, 0);
+		break;
+	case SGX_EPCM_LOCK_CONFLICT_EXCEPTION:
+	case SGX_EPCM_LOCK_CONFLICT_ERROR:
+		/*
+		 * Restart the instruction if KVM locked the page's SECS at
+		 * some point prior to the VMEXIT, i.e. the conflict may have
+		 * been induced by KVM.
+		 */
+		if (sgx_virt_host_locked(virt_epc, hva))
+			break;
+
+		if (code == SGX_EPCM_LOCK_CONFLICT_ERROR)
+			return sgx_skip_encls(vcpu, SGX_EPC_PAGE_CONFLICT);
+
+		/* Lock conflict that faults. */
+		kvm_inject_gp(vcpu, 0);
+		break;
+	default:
+		vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+		vcpu->run->hw.hardware_exit_reason = EXIT_REASON_SGX_CONFLICT;
+		vcpu_unimpl(vcpu, "unhandled SGX_CONFLICT code: %u", code);
+		return 0;
+	}
+	return 1;
 }

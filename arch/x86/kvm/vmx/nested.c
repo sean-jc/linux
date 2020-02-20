@@ -5693,8 +5693,7 @@ bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 	case EXIT_REASON_ENCLV:
 		return nested_vmx_exit_handled_enclv(vcpu, vmcs12);
 	case EXIT_REASON_SGX_CONFLICT:
-		/* KVM doesn't enable EPC virtualization itself. */
-		return true;
+		return nested_cpu_has2(vmcs12, SECONDARY_EXEC_SGX_EPC_VIRT);
 	default:
 		return true;
 	}
@@ -5989,7 +5988,7 @@ void nested_vmx_set_vmcs_shadowing_bitmap(void)
  * may be on. See also vmx_control_verify().
  */
 void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps,
-				bool apicv)
+				bool apicv, bool allow_epc_virt)
 {
 	/*
 	 * Note that as a general rule, the high half of the MSRs (bits in
@@ -6180,7 +6179,7 @@ void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps,
 		msrs->secondary_ctls_high |= SECONDARY_EXEC_ENCLS_EXITING;
 	if (enable_sgx && cpu_has_vmx_encls_vmexit())
 		msrs->secondary_ctls_high |= SECONDARY_EXEC_ENCLV_EXITING;
-	if (enable_sgx && cpu_has_vmx_sgx_epc_virt())
+	if (enable_sgx && allow_epc_virt && cpu_has_vmx_sgx_epc_virt())
 		msrs->secondary_ctls_high |= SECONDARY_EXEC_SGX_EPC_VIRT;
 
 	/* miscellaneous data */

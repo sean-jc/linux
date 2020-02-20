@@ -4069,11 +4069,9 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 	*/
 	exec_control &= ~SECONDARY_EXEC_SHADOW_VMCS;
 
-	/*
-	 * KVM doesn't use EPC virtualization directly, it's only ever enabled
-	 * in vmcs02 when requested by an L1 VMM.
-	 */
-	exec_control &= ~SECONDARY_EXEC_SGX_EPC_VIRT;
+	/* Enable EPC virtualization if EPC reclaim is enabled. */
+	if (!vcpu->kvm->arch.virt_epc)
+		exec_control &= ~SECONDARY_EXEC_SGX_EPC_VIRT;
 
 	if (!enable_pml)
 		exec_control &= ~SECONDARY_EXEC_ENABLE_PML;
@@ -5720,6 +5718,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_ENCLS]		      = handle_encls,
 #ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
 	[EXIT_REASON_ENCLV]		      = handle_enclv,
+	[EXIT_REASON_SGX_CONFLICT]	      = handle_sgx_conflict,
 #endif
 };
 
@@ -6955,7 +6954,8 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 	if (nested)
 		nested_vmx_setup_ctls_msrs(&vmx->nested.msrs,
 					   vmx_capability.ept,
-					   kvm_vcpu_apicv_active(&vmx->vcpu));
+					   kvm_vcpu_apicv_active(&vmx->vcpu),
+					   !kvm->arch.virt_epc);
 	else
 		memset(&vmx->nested.msrs, 0, sizeof(vmx->nested.msrs));
 
@@ -7045,7 +7045,7 @@ static int __init vmx_check_processor_compat(void)
 		return -EIO;
 	if (nested)
 		nested_vmx_setup_ctls_msrs(&vmcs_conf.nested, vmx_cap.ept,
-					   enable_apicv);
+					   enable_apicv, true);
 	if (memcmp(&vmcs_config, &vmcs_conf, sizeof(struct vmcs_config)) != 0) {
 		printk(KERN_ERR "kvm: CPU %d feature inconsistency!\n",
 				smp_processor_id());
@@ -8060,7 +8060,8 @@ static __init int hardware_setup(void)
 
 	if (nested) {
 		nested_vmx_setup_ctls_msrs(&vmcs_config.nested,
-					   vmx_capability.ept, enable_apicv);
+					   vmx_capability.ept, enable_apicv,
+					   true);
 
 		r = nested_vmx_hardware_setup(kvm_vmx_exit_handlers);
 		if (r)

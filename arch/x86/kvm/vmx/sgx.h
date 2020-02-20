@@ -5,6 +5,7 @@
 #ifdef CONFIG_INTEL_SGX_VIRTUALIZATION
 int handle_encls_ecreate(struct kvm_vcpu *vcpu);
 int handle_encls_einit(struct kvm_vcpu *vcpu);
+int handle_sgx_conflict(struct kvm_vcpu *vcpu);
 #endif
 
 #endif /* __KVM_X86_SGX_H */
