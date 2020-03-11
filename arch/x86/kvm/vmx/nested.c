@@ -3255,7 +3255,10 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 	bool evaluate_pending_interrupts;
-	u32 exit_reason = EXIT_REASON_INVALID_STATE;
+	union vmx_exit_reason exit_reason = {
+		.basic = EXIT_REASON_INVALID_STATE,
+		.failed_vmentry = 1,
+	};
 	u32 exit_qual;
 
 	if (kvm_check_request(KVM_REQ_TLB_FLUSH_CURRENT, vcpu))
@@ -3316,7 +3319,7 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 		goto vmentry_fail_vmexit_guest_mode;
 
 	if (from_vmentry) {
-		exit_reason = EXIT_REASON_MSR_LOAD_FAIL;
+		exit_reason.basic = EXIT_REASON_MSR_LOAD_FAIL;
 		exit_qual = nested_vmx_load_msr(vcpu,
 						vmcs12->vm_entry_msr_load_addr,
 						vmcs12->vm_entry_msr_load_count);
@@ -3384,7 +3387,7 @@ vmentry_fail_vmexit:
 		return NVMX_VMENTRY_VMEXIT;
 
 	load_vmcs12_host_state(vcpu, vmcs12);
-	vmcs12->vm_exit_reason = exit_reason | VMX_EXIT_REASONS_FAILED_VMENTRY;
+	vmcs12->vm_exit_reason = exit_reason.full;
 	vmcs12->exit_qualification = exit_qual;
 	if (enable_shadow_vmcs || vmx->nested.hv_evmcs)
 		vmx->nested.need_vmcs12_to_shadow_sync = true;
@@ -5418,7 +5421,12 @@ static int handle_vmfunc(struct kvm_vcpu *vcpu)
 	return kvm_skip_emulated_instruction(vcpu);
 
 fail:
-	nested_vmx_vmexit(vcpu, vmx->exit_reason,
+	/*
+	 * This is effectively a reflected VM-Exit, as opposed to a synthesized
+	 * nested VM-Exit.  Pass the original exit reason, i.e. don't hardcode
+	 * EXIT_REASON_VMFUNC as the exit reason.
+	 */
+	nested_vmx_vmexit(vcpu, vmx->exit_reason.full,
 			  vmcs_read32(VM_EXIT_INTR_INFO),
 			  vmcs_readl(EXIT_QUALIFICATION));
 	return 1;
@@ -5486,7 +5494,8 @@ static bool nested_vmx_exit_handled_io(struct kvm_vcpu *vcpu,
  * MSR bitmap. This may be the case even when L0 doesn't use MSR bitmaps.
  */
 static bool nested_vmx_exit_handled_msr(struct kvm_vcpu *vcpu,
-	struct vmcs12 *vmcs12, u32 exit_reason)
+					struct vmcs12 *vmcs12,
+					union vmx_exit_reason exit_reason)
 {
 	u32 msr_index = kvm_rcx_read(vcpu);
 	gpa_t bitmap;
@@ -5500,7 +5509,7 @@ static bool nested_vmx_exit_handled_msr(struct kvm_vcpu *vcpu,
 	 * First we need to figure out which of the four to use:
 	 */
 	bitmap = vmcs12->msr_bitmap;
-	if (exit_reason == EXIT_REASON_MSR_WRITE)
+	if (exit_reason.basic == EXIT_REASON_MSR_WRITE)
 		bitmap += 2048;
 	if (msr_index >= 0xc0000000) {
 		msr_index -= 0xc0000000;
@@ -5646,11 +5655,12 @@ static bool nested_vmx_exit_handled_mtf(struct vmcs12 *vmcs12)
  * Return true if L0 wants to handle an exit from L2 regardless of whether or not
  * L1 wants the exit.  Only call this when in is_guest_mode (L2).
  */
-static bool nested_vmx_l0_wants_exit(struct kvm_vcpu *vcpu, u32 exit_reason)
+static bool nested_vmx_l0_wants_exit(struct kvm_vcpu *vcpu,
+				     union vmx_exit_reason exit_reason)
 {
 	u32 intr_info;
 
-	switch (exit_reason) {
+	switch (exit_reason.basic) {
 	case EXIT_REASON_EXCEPTION_NMI:
 		intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
 		if (is_nmi(intr_info))
@@ -5706,12 +5716,13 @@ static bool nested_vmx_l0_wants_exit(struct kvm_vcpu *vcpu, u32 exit_reason)
  * Return 1 if L1 wants to intercept an exit from L2.  Only call this when in
  * is_guest_mode (L2).
  */
-static bool nested_vmx_l1_wants_exit(struct kvm_vcpu *vcpu, u32 exit_reason)
+static bool nested_vmx_l1_wants_exit(struct kvm_vcpu *vcpu,
+				     union vmx_exit_reason exit_reason)
 {
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 	u32 intr_info;
 
-	switch (exit_reason) {
+	switch (exit_reason.basic) {
 	case EXIT_REASON_EXCEPTION_NMI:
 		intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
 		if (is_nmi(intr_info))
@@ -5830,7 +5841,7 @@ static bool nested_vmx_l1_wants_exit(struct kvm_vcpu *vcpu, u32 exit_reason)
 bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	u32 exit_reason = vmx->exit_reason;
+	union vmx_exit_reason exit_reason = vmx->exit_reason;
 	u32 exit_intr_info, exit_qual;
 
 	WARN_ON_ONCE(vmx->nested.nested_run_pending);
@@ -5851,7 +5862,7 @@ bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu)
 	exit_intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
 	exit_qual = vmcs_readl(EXIT_QUALIFICATION);
 
-	trace_kvm_nested_vmexit(kvm_rip_read(vcpu), exit_reason, exit_qual,
+	trace_kvm_nested_vmexit(kvm_rip_read(vcpu), exit_reason.full, exit_qual,
 				vmx->idt_vectoring_info, exit_intr_info,
 				vmcs_read32(VM_EXIT_INTR_ERROR_CODE),
 				KVM_ISA_VMX);
@@ -5880,7 +5891,7 @@ bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu)
 	}
 
 reflect_vmexit:
-	nested_vmx_vmexit(vcpu, exit_reason, exit_intr_info, exit_qual);
+	nested_vmx_vmexit(vcpu, exit_reason.full, exit_intr_info, exit_qual);
 	return true;
 }
 
