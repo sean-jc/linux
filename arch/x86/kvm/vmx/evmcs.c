@@ -332,7 +332,7 @@ bool nested_enlightened_vmentry(struct kvm_vcpu *vcpu, u64 *evmcs_gpa)
 	return true;
 }
 
-uint16_t nested_get_evmcs_version(struct kvm_vcpu *vcpu)
+uint16_t nested_vmx_get_evmcs_version(struct kvm_vcpu *vcpu)
 {
        struct vcpu_vmx *vmx = to_vmx(vcpu);
        /*
@@ -425,15 +425,14 @@ int nested_evmcs_check_controls(struct vmcs12 *vmcs12)
 	return ret;
 }
 
-int nested_enable_evmcs(struct kvm_vcpu *vcpu,
-			uint16_t *vmcs_version)
+int nested_vmx_enable_evmcs(struct kvm_vcpu *vcpu, uint16_t *vmcs_version)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
 	vmx->nested.enlightened_vmcs_enabled = true;
 
 	if (vmcs_version)
-		*vmcs_version = nested_get_evmcs_version(vcpu);
+		*vmcs_version = nested_vmx_get_evmcs_version(vcpu);
 
 	return 0;
 }

@@ -778,7 +778,7 @@ static int nested_vmx_check_apicv_controls(struct kvm_vcpu *vcpu,
 	/*
 	 * bits 15:8 should be zero in posted_intr_nv,
 	 * the descriptor address has been already checked
-	 * in nested_get_vmcs12_pages.
+	 * in nested_vmx_get_vmcs12_pages.
 	 *
 	 * bits 5:0 of posted_intr_desc_addr should be zero.
 	 */
@@ -1982,7 +1982,7 @@ static enum nested_evmptrld_status nested_vmx_handle_enlightened_vmptrld(
 		 * Guest should be aware of supported eVMCS versions by host by
 		 * examining CPUID.0x4000000A.EAX[0:15]. Host userspace VMM is
 		 * expected to set this CPUID leaf according to the value
-		 * returned in vmcs_version from nested_enable_evmcs().
+		 * returned in vmcs_version from nested_vmx_enable_evmcs().
 		 *
 		 * However, it turns out that Microsoft Hyper-V fails to comply
 		 * to their own invented interface: When Hyper-V use eVMCS, it
@@ -2215,7 +2215,7 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 	exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
 
 	/*
-	 * This bit will be computed in nested_get_vmcs12_pages, because
+	 * This bit will be computed in nested_vmx_get_vmcs12_pages, because
 	 * we do not have access to L1's MSR bitmap yet.  For now, keep
 	 * the same bit as before, hoping to avoid multiple VMWRITEs that
 	 * only set/clear this bit.
@@ -3084,7 +3084,7 @@ static int nested_vmx_check_vmentry_hw(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static bool nested_get_vmcs12_pages(struct kvm_vcpu *vcpu)
+static bool nested_vmx_get_vmcs12_pages(struct kvm_vcpu *vcpu)
 {
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -3271,7 +3271,7 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 	prepare_vmcs02_early(vmx, vmcs12);
 
 	if (from_vmentry) {
-		if (unlikely(!nested_get_vmcs12_pages(vcpu)))
+		if (unlikely(!nested_vmx_get_vmcs12_pages(vcpu)))
 			return NVMX_VMENTRY_KVM_INTERNAL_ERROR;
 
 		if (nested_vmx_check_vmentry_hw(vcpu)) {
@@ -3302,7 +3302,7 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 		 * The MMU is not initialized to point at the right entities yet and
 		 * "get pages" would need to read data from the guest (i.e. we will
 		 * need to perform gpa to hpa translation). Request a call
-		 * to nested_get_vmcs12_pages before the next VM-entry.  The MSRs
+		 * to nested_vmx_get_vmcs12_pages before the next VM-entry.  The MSRs
 		 * have already been set at vmentry time and should not be reset.
 		 */
 		kvm_make_request(KVM_REQ_GET_VMCS12_PAGES, vcpu);
@@ -3670,7 +3670,7 @@ static void nested_vmx_update_pending_dbg(struct kvm_vcpu *vcpu)
 			    vcpu->arch.exception.payload);
 }
 
-static int vmx_check_nested_events(struct kvm_vcpu *vcpu)
+static int nested_vmx_check_events(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long exit_qual;
@@ -5743,7 +5743,7 @@ bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 }
 
 
-static int vmx_get_nested_state(struct kvm_vcpu *vcpu,
+static int nested_vmx_get_state(struct kvm_vcpu *vcpu,
 				struct kvm_nested_state __user *user_kvm_nested_state,
 				u32 user_data_size)
 {
@@ -5858,7 +5858,7 @@ void vmx_leave_nested(struct kvm_vcpu *vcpu)
 	free_nested(vcpu);
 }
 
-static int vmx_set_nested_state(struct kvm_vcpu *vcpu,
+static int nested_vmx_set_state(struct kvm_vcpu *vcpu,
 				struct kvm_nested_state __user *user_kvm_nested_state,
 				struct kvm_nested_state *kvm_state)
 {
@@ -5950,7 +5950,7 @@ static int vmx_set_nested_state(struct kvm_vcpu *vcpu,
 		 * nested_vmx_handle_enlightened_vmptrld() cannot be called
 		 * directly from here as HV_X64_MSR_VP_ASSIST_PAGE may not be
 		 * restored yet. EVMCS will be mapped from
-		 * nested_get_vmcs12_pages().
+		 * nested_vmx_get_vmcs12_pages().
 		 */
 		kvm_make_request(KVM_REQ_GET_VMCS12_PAGES, vcpu);
 	} else {
@@ -6280,12 +6280,12 @@ void nested_vmx_hardware_unsetup(void)
 }
 
 static struct kvm_x86_nested_ops vmx_nested_ops __initdata = {
-	.check_events = vmx_check_nested_events,
-	.get_state = vmx_get_nested_state,
-	.set_state = vmx_set_nested_state,
-	.get_vmcs12_pages = nested_get_vmcs12_pages,
-	.enable_evmcs = nested_enable_evmcs,
-	.get_evmcs_version = nested_get_evmcs_version,
+	.check_events = nested_vmx_check_events,
+	.get_state = nested_vmx_get_state,
+	.set_state = nested_vmx_set_state,
+	.get_vmcs12_pages = nested_vmx_get_vmcs12_pages,
+	.enable_evmcs = nested_vmx_enable_evmcs,
+	.get_evmcs_version = nested_vmx_get_evmcs_version,
 	.write_log_dirty = nested_vmx_write_log_dirty,
 };
 
