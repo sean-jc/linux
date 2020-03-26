@@ -3424,14 +3424,14 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = KVM_X2APIC_API_VALID_FLAGS;
 		break;
 	case KVM_CAP_NESTED_STATE:
-		r = kvm_x86_ops.get_nested_state ?
-			kvm_x86_ops.get_nested_state(NULL, NULL, 0) : 0;
+		r = kvm_x86_ops.nested.get_state ?
+			kvm_x86_ops.nested.get_state(NULL, NULL, 0) : 0;
 		break;
 	case KVM_CAP_HYPERV_DIRECT_TLBFLUSH:
 		r = kvm_x86_ops.enable_direct_tlbflush != NULL;
 		break;
 	case KVM_CAP_HYPERV_ENLIGHTENED_VMCS:
-		r = kvm_x86_ops.nested_enable_evmcs != NULL;
+		r = kvm_x86_ops.nested.enable_evmcs != NULL;
 		break;
 	default:
 		break;
@@ -4217,9 +4217,9 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
 		return kvm_hv_activate_synic(vcpu, cap->cap ==
 					     KVM_CAP_HYPERV_SYNIC2);
 	case KVM_CAP_HYPERV_ENLIGHTENED_VMCS:
-		if (!kvm_x86_ops.nested_enable_evmcs)
+		if (!kvm_x86_ops.nested.enable_evmcs)
 			return -ENOTTY;
-		r = kvm_x86_ops.nested_enable_evmcs(vcpu, &vmcs_version);
+		r = kvm_x86_ops.nested.enable_evmcs(vcpu, &vmcs_version);
 		if (!r) {
 			user_ptr = (void __user *)(uintptr_t)cap->args[0];
 			if (copy_to_user(user_ptr, &vmcs_version,
@@ -4534,7 +4534,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		u32 user_data_size;
 
 		r = -EINVAL;
-		if (!kvm_x86_ops.get_nested_state)
+		if (!kvm_x86_ops.nested.get_state)
 			break;
 
 		BUILD_BUG_ON(sizeof(user_data_size) != sizeof(user_kvm_nested_state->size));
@@ -4542,8 +4542,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		if (get_user(user_data_size, &user_kvm_nested_state->size))
 			break;
 
-		r = kvm_x86_ops.get_nested_state(vcpu, user_kvm_nested_state,
-						  user_data_size);
+		r = kvm_x86_ops.nested.get_state(vcpu, user_kvm_nested_state,
+						 user_data_size);
 		if (r < 0)
 			break;
 
@@ -4564,7 +4564,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		int idx;
 
 		r = -EINVAL;
-		if (!kvm_x86_ops.set_nested_state)
+		if (!kvm_x86_ops.nested.set_state)
 			break;
 
 		r = -EFAULT;
@@ -4586,7 +4586,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 			break;
 
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
-		r = kvm_x86_ops.set_nested_state(vcpu, user_kvm_nested_state, &kvm_state);
+		r = kvm_x86_ops.nested.set_state(vcpu, user_kvm_nested_state, &kvm_state);
 		srcu_read_unlock(&vcpu->kvm->srcu, idx);
 		break;
 	}
@@ -7674,13 +7674,13 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 	}
 
 	/*
-	 * Call check_nested_events() even if we reinjected a previous event
+	 * Call nested.check_events() even if we reinjected a previous event
 	 * in order for caller to determine if it should require immediate-exit
 	 * from L2 to L1 due to pending L1 events which require exit
 	 * from L2 to L1.
 	 */
-	if (is_guest_mode(vcpu) && kvm_x86_ops.check_nested_events) {
-		r = kvm_x86_ops.check_nested_events(vcpu);
+	if (is_guest_mode(vcpu) && kvm_x86_ops.nested.check_events) {
+		r = kvm_x86_ops.nested.check_events(vcpu);
 		if (r != 0)
 			return r;
 	}
@@ -7702,7 +7702,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 		if (vcpu->arch.exception.nr == DB_VECTOR) {
 			/*
 			 * This code assumes that nSVM doesn't use
-			 * check_nested_events(). If it does, the
+			 * nested.check_events(). If it does, the
 			 * DR6/DR7 changes should happen before L1
 			 * gets a #VMEXIT for an intercepted #DB in
 			 * L2.  (Under VMX, on the other hand, the
@@ -7736,13 +7736,13 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 	} else if (kvm_cpu_has_injectable_intr(vcpu)) {
 		/*
 		 * Because interrupts can be injected asynchronously, we are
-		 * calling check_nested_events again here to avoid a race condition.
+		 * calling nested.check_events() again here to avoid a race condition.
 		 * See https://lkml.org/lkml/2014/7/2/60 for discussion about this
 		 * proposal and current concerns.  Perhaps we should be setting
 		 * KVM_REQ_EVENT only on certain events and not unconditionally?
 		 */
-		if (is_guest_mode(vcpu) && kvm_x86_ops.check_nested_events) {
-			r = kvm_x86_ops.check_nested_events(vcpu);
+		if (is_guest_mode(vcpu) && kvm_x86_ops.nested.check_events) {
+			r = kvm_x86_ops.nested.check_events(vcpu);
 			if (r != 0)
 				return r;
 		}
@@ -8176,7 +8176,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	if (kvm_request_pending(vcpu)) {
 		if (kvm_check_request(KVM_REQ_GET_VMCS12_PAGES, vcpu)) {
-			if (unlikely(!kvm_x86_ops.get_vmcs12_pages(vcpu))) {
+			if (unlikely(!kvm_x86_ops.nested.get_vmcs12_pages(vcpu))) {
 				r = 0;
 				goto out;
 			}
@@ -8509,8 +8509,8 @@ static inline int vcpu_block(struct kvm *kvm, struct kvm_vcpu *vcpu)
 
 static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 {
-	if (is_guest_mode(vcpu) && kvm_x86_ops.check_nested_events)
-		kvm_x86_ops.check_nested_events(vcpu);
+	if (is_guest_mode(vcpu) && kvm_x86_ops.nested.check_events)
+		kvm_x86_ops.nested.check_events(vcpu);
 
 	return (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
 		!vcpu->arch.apf.halted);

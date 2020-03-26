@@ -1053,7 +1053,24 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 	return dest_mode_logical ? APIC_DEST_LOGICAL : APIC_DEST_PHYSICAL;
 }
 
+struct kvm_x86_nested_ops {
+	int (*check_events)(struct kvm_vcpu *vcpu);
+
+	int (*get_state)(struct kvm_vcpu *vcpu,
+			 struct kvm_nested_state __user *user_kvm_nested_state,
+			 unsigned user_data_size);
+	int (*set_state)(struct kvm_vcpu *vcpu,
+			 struct kvm_nested_state __user *user_kvm_nested_state,
+			 struct kvm_nested_state *kvm_state);
+	bool (*get_vmcs12_pages)(struct kvm_vcpu *vcpu);
+
+	int (*enable_evmcs)(struct kvm_vcpu *vcpu, uint16_t *vmcs_version);
+	uint16_t (*get_evmcs_version)(struct kvm_vcpu *vcpu);
+};
+
 struct kvm_x86_ops {
+	struct kvm_x86_nested_ops nested;
+
 	int (*hardware_enable)(void);
 	void (*hardware_disable)(void);
 	void (*hardware_unsetup)(void);
@@ -1167,7 +1184,6 @@ struct kvm_x86_ops {
 	void (*handle_exit_irqoff)(struct kvm_vcpu *vcpu,
 		enum exit_fastpath_completion *exit_fastpath);
 
-	int (*check_nested_events)(struct kvm_vcpu *vcpu);
 	void (*request_immediate_exit)(struct kvm_vcpu *vcpu);
 
 	void (*sched_in)(struct kvm_vcpu *kvm, int cpu);
@@ -1227,14 +1243,6 @@ struct kvm_x86_ops {
 
 	void (*setup_mce)(struct kvm_vcpu *vcpu);
 
-	int (*get_nested_state)(struct kvm_vcpu *vcpu,
-				struct kvm_nested_state __user *user_kvm_nested_state,
-				unsigned user_data_size);
-	int (*set_nested_state)(struct kvm_vcpu *vcpu,
-				struct kvm_nested_state __user *user_kvm_nested_state,
-				struct kvm_nested_state *kvm_state);
-	bool (*get_vmcs12_pages)(struct kvm_vcpu *vcpu);
-
 	int (*smi_allowed)(struct kvm_vcpu *vcpu);
 	int (*pre_enter_smm)(struct kvm_vcpu *vcpu, char *smstate);
 	int (*pre_leave_smm)(struct kvm_vcpu *vcpu, const char *smstate);
@@ -1245,10 +1253,6 @@ struct kvm_x86_ops {
 	int (*mem_enc_unreg_region)(struct kvm *kvm, struct kvm_enc_region *argp);
 
 	int (*get_msr_feature)(struct kvm_msr_entry *entry);
-
-	int (*nested_enable_evmcs)(struct kvm_vcpu *vcpu,
-				   uint16_t *vmcs_version);
-	uint16_t (*nested_get_evmcs_version)(struct kvm_vcpu *vcpu);
 
 	bool (*need_emulation_on_page_fault)(struct kvm_vcpu *vcpu);
 

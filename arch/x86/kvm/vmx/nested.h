@@ -19,7 +19,7 @@ enum nvmx_vmentry_status {
 void vmx_leave_nested(struct kvm_vcpu *vcpu);
 void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps);
 void nested_vmx_hardware_unsetup(void);
-__init int nested_vmx_hardware_setup(struct kvm_x86_ops *ops,
+__init int nested_vmx_hardware_setup(struct kvm_x86_nested_ops *ops,
 				     int (*exit_handlers[])(struct kvm_vcpu *));
 void nested_vmx_set_vmcs_shadowing_bitmap(void);
 void nested_vmx_free_vcpu(struct kvm_vcpu *vcpu);
@@ -53,7 +53,7 @@ static inline int vmx_has_valid_vmcs12(struct kvm_vcpu *vcpu)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
 	/*
-	 * In case we do two consecutive get/set_nested_state()s while L2 was
+	 * In case we do two consecutive nested.get/set_state()s while L2 was
 	 * running hv_evmcs may end up not being mapped (we map it from
 	 * nested_vmx_run()/vmx_vcpu_run()). Check is_guest_mode() as we always
 	 * have vmcs12 if it is true.

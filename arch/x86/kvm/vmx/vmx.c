@@ -7789,12 +7789,6 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.pre_leave_smm = vmx_pre_leave_smm,
 	.enable_smi_window = enable_smi_window,
 
-	.check_nested_events = NULL,
-	.get_nested_state = NULL,
-	.set_nested_state = NULL,
-	.get_vmcs12_pages = NULL,
-	.nested_enable_evmcs = NULL,
-	.nested_get_evmcs_version = NULL,
 	.need_emulation_on_page_fault = vmx_need_emulation_on_page_fault,
 	.apic_init_signal_blocked = vmx_apic_init_signal_blocked,
 };
@@ -7959,7 +7953,7 @@ static __init int hardware_setup(void)
 		nested_vmx_setup_ctls_msrs(&vmcs_config.nested,
 					   vmx_capability.ept);
 
-		r = nested_vmx_hardware_setup(&vmx_x86_ops,
+		r = nested_vmx_hardware_setup(&vmx_x86_ops.nested,
 					      kvm_vmx_exit_handlers);
 		if (r)
 			return r;
