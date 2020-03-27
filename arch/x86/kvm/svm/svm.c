@@ -3169,7 +3169,7 @@ static void svm_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t gva)
 	invlpga(gva, svm->vmcb->control.asid);
 }
 
-static void svm_prepare_guest_switch(struct kvm_vcpu *vcpu)
+static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 {
 }
 
@@ -3915,7 +3915,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.vm_init = svm_vm_init,
 	.vm_destroy = svm_vm_destroy,
 
-	.prepare_guest_switch = svm_prepare_guest_switch,
+	.prepare_switch_to_guest = svm_prepare_switch_to_guest,
 	.vcpu_load = svm_vcpu_load,
 	.vcpu_put = svm_vcpu_put,
 	.vcpu_blocking = svm_vcpu_blocking,

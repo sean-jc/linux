@@ -8322,7 +8322,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	preempt_disable();
 
-	kvm_x86_ops.prepare_guest_switch(vcpu);
+	kvm_x86_ops.prepare_switch_to_guest(vcpu);
 
 	/*
 	 * Disable IRQs before setting IN_GUEST_MODE.  Posted interrupt
