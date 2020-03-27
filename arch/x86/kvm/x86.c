@@ -7668,9 +7668,9 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 	 */
 	else if (!vcpu->arch.exception.pending) {
 		if (vcpu->arch.nmi_injected)
-			kvm_x86_ops.set_nmi(vcpu);
+			kvm_x86_ops.inject_nmi(vcpu);
 		else if (vcpu->arch.interrupt.injected)
-			kvm_x86_ops.set_irq(vcpu);
+			kvm_x86_ops.inject_irq(vcpu);
 	}
 
 	/*
@@ -7732,7 +7732,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 	} else if (vcpu->arch.nmi_pending && kvm_x86_ops.nmi_allowed(vcpu)) {
 		--vcpu->arch.nmi_pending;
 		vcpu->arch.nmi_injected = true;
-		kvm_x86_ops.set_nmi(vcpu);
+		kvm_x86_ops.inject_nmi(vcpu);
 	} else if (kvm_cpu_has_injectable_intr(vcpu)) {
 		/*
 		 * Because interrupts can be injected asynchronously, we are
@@ -7749,7 +7749,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu)
 		if (kvm_x86_ops.interrupt_allowed(vcpu)) {
 			kvm_queue_interrupt(vcpu, kvm_cpu_get_interrupt(vcpu),
 					    false);
-			kvm_x86_ops.set_irq(vcpu);
+			kvm_x86_ops.inject_irq(vcpu);
 		}
 	}
 
