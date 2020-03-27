@@ -7710,7 +7710,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.tlb_flush = vmx_flush_tlb,
 	.tlb_flush_gva = vmx_flush_tlb_gva,
 
-	.run = vmx_vcpu_run,
+	.vcpu_run = vmx_vcpu_run,
 	.handle_exit = vmx_handle_exit,
 	.skip_emulated_instruction = vmx_skip_emulated_instruction,
 	.update_emulated_instruction = vmx_update_emulated_instruction,
