@@ -1747,8 +1747,8 @@ void kvm_arch_mmu_enable_log_dirty_pt_masked(struct kvm *kvm,
  */
 int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu)
 {
-	if (kvm_x86_ops.write_log_dirty)
-		return kvm_x86_ops.write_log_dirty(vcpu);
+	if (kvm_x86_ops.nested.write_log_dirty)
+		return kvm_x86_ops.nested.write_log_dirty(vcpu);
 
 	return 0;
 }

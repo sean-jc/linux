@@ -367,6 +367,44 @@ static void nested_ept_uninit_mmu_context(struct kvm_vcpu *vcpu)
 	vcpu->arch.walk_mmu = &vcpu->arch.root_mmu;
 }
 
+
+/* Emulate a dirty log update, i.e. write to L2's PML buffer if it's in use. */
+static int nested_vmx_write_log_dirty(struct kvm_vcpu *vcpu)
+{
+	struct vmcs12 *vmcs12;
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	gpa_t gpa, dst;
+
+	if (is_guest_mode(vcpu)) {
+		WARN_ON_ONCE(vmx->nested.pml_full);
+
+		/*
+		 * Check if PML is enabled for the nested guest.
+		 * Whether eptp bit 6 is set is already checked
+		 * as part of A/D emulation.
+		 */
+		vmcs12 = get_vmcs12(vcpu);
+		if (!nested_cpu_has_pml(vmcs12))
+			return 0;
+
+		if (vmcs12->guest_pml_index >= PML_ENTITY_NUM) {
+			vmx->nested.pml_full = true;
+			return 1;
+		}
+
+		gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS) & ~0xFFFull;
+		dst = vmcs12->pml_address + sizeof(u64) * vmcs12->guest_pml_index;
+
+		if (kvm_write_guest_page(vcpu->kvm, gpa_to_gfn(dst), &gpa,
+					 offset_in_page(dst), sizeof(gpa)))
+			return 0;
+
+		vmcs12->guest_pml_index--;
+	}
+
+	return 0;
+}
+
 static bool nested_vmx_is_page_fault_vmexit(struct vmcs12 *vmcs12,
 					    u16 error_code)
 {
@@ -6248,6 +6286,7 @@ static struct kvm_x86_nested_ops vmx_nested_ops __initdata = {
 	.get_vmcs12_pages = nested_get_vmcs12_pages,
 	.enable_evmcs = nested_enable_evmcs,
 	.get_evmcs_version = nested_get_evmcs_version,
+	.write_log_dirty = nested_vmx_write_log_dirty,
 };
 
 __init int nested_vmx_hardware_setup(struct kvm_x86_nested_ops *nested_ops,
