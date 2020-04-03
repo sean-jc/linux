@@ -6279,14 +6279,16 @@ void nested_vmx_hardware_unsetup(void)
 	}
 }
 
+#define KVM_X86_NESTED_OP(name) .name = nested_vmx_##name
+
 static struct kvm_x86_nested_ops vmx_nested_ops __initdata = {
-	.check_events = nested_vmx_check_events,
-	.get_state = nested_vmx_get_state,
-	.set_state = nested_vmx_set_state,
-	.get_vmcs12_pages = nested_vmx_get_vmcs12_pages,
-	.enable_evmcs = nested_vmx_enable_evmcs,
-	.get_evmcs_version = nested_vmx_get_evmcs_version,
-	.write_log_dirty = nested_vmx_write_log_dirty,
+	KVM_X86_NESTED_OP(check_events),
+	KVM_X86_NESTED_OP(get_state),
+	KVM_X86_NESTED_OP(set_state),
+	KVM_X86_NESTED_OP(get_vmcs12_pages),
+	KVM_X86_NESTED_OP(enable_evmcs),
+	KVM_X86_NESTED_OP(get_evmcs_version),
+	KVM_X86_NESTED_OP(write_log_dirty),
 };
 
 __init int nested_vmx_hardware_setup(struct kvm_x86_nested_ops *nested_ops,
