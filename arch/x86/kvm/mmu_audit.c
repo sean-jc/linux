@@ -233,6 +233,16 @@ static void audit_vcpu_spte(struct kvm_vcpu *vcpu)
 	mmu_spte_walk(vcpu, audit_spte);
 }
 
+static void kvm_mmu_audit_destroy_vm(struct kvm *kvm)
+{
+	int i;
+
+	for (i = 0; i < KVM_NUM_MMU_PAGES; i++) {
+		if (WARN_ON_ONCE(!hlist_empty(&kvm->arch.mmu_page_hash[i])))
+			break;
+	}
+}
+
 static bool mmu_audit;
 static struct static_key mmu_audit_key;
 

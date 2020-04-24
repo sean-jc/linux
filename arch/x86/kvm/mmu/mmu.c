@@ -2319,6 +2319,7 @@ static void kvm_mmu_flush_or_zap(struct kvm_vcpu *vcpu,
 #include "mmu_audit.c"
 #else
 static void kvm_mmu_audit(struct kvm_vcpu *vcpu, int point) { }
+static void kvm_mmu_audit_destroy_vm(struct kvm *kvm) { }
 static void mmu_audit_disable(void) { }
 #endif
 
@@ -2766,13 +2767,12 @@ static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 		else
 			list_move(&sp->link, invalid_list);
 		kvm_mod_used_mmu_pages(kvm, -1);
-	} else {
+	} else if (!sp->role.invalid) {
 		list_del(&sp->link);
 
 		/*
 		 * Obsolete pages cannot be used on any vCPUs, see the comment
-		 * in kvm_mmu_zap_all_fast().  Note, is_obsolete_sp() also
-		 * treats invalid shadow pages as being obsolete.
+		 * in kvm_mmu_zap_all_fast().
 		 */
 		if (!is_obsolete_sp(kvm, sp))
 			kvm_reload_remote_mmus(kvm);
@@ -5849,6 +5849,8 @@ void kvm_mmu_uninit_vm(struct kvm *kvm)
 	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
 
 	kvm_page_track_unregister_notifier(kvm, node);
+
+	kvm_mmu_audit_destroy_vm(kvm);
 }
 
 void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
