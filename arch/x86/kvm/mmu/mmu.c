@@ -2778,7 +2778,7 @@ static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 			kvm_reload_remote_mmus(kvm);
 	}
 
-	if (sp->lpage_disallowed)
+	if (sp->lpage_disallowed && !sp->role.invalid)
 		unaccount_huge_nx_page(kvm, sp);
 
 	sp->role.invalid = 1;
