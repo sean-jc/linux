@@ -7883,12 +7883,31 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 
 static __init int hardware_setup(void)
 {
+	unsigned long start, time, total, min, max;
 	unsigned long host_bndcfgs;
 	struct desc_ptr dt;
 	int r, i, ept_lpage_level;
 
 	store_idt(&dt);
 	host_idt_base = dt.address;
+
+	min = 100000;
+	max = 0;
+	total = 0;
+	for (i = 0; i < 10000; i++) {
+		local_irq_disable();
+		start = rdtsc_ordered();
+		kvm_hypercall0(100);
+		time = rdtsc_ordered() - start;
+		local_irq_enable();
+		if (time > max)
+			max = time;
+		if (time < min)
+			min = time;
+		total += time;
+	}
+	pr_warn("kvm: VMCALL total = %lu (%lu), min = %lu, max = %lu\n",
+		total, total / 10000, min, max);
 
 	for (i = 0; i < ARRAY_SIZE(vmx_msr_index); ++i)
 		kvm_define_shared_msr(i, vmx_msr_index[i]);
