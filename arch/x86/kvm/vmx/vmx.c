@@ -66,6 +66,8 @@
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
+extern bool retpoline_trace;
+
 #ifdef MODULE
 static const struct x86_cpu_id vmx_cpu_id[] = {
 	X86_MATCH_FEATURE(X86_FEATURE_VMX, NULL),
@@ -6565,6 +6567,8 @@ void vmx_update_host_rsp(struct vcpu_vmx *vmx, unsigned long host_rsp)
 
 bool __vmx_vcpu_run(struct vcpu_vmx *vmx, unsigned long *regs, bool launched);
 
+static bool __read_mostly traced_retpoline;
+
 static enum exit_fastpath_completion vmx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	enum exit_fastpath_completion exit_fastpath;
@@ -6658,6 +6662,14 @@ static enum exit_fastpath_completion vmx_vcpu_run(struct kvm_vcpu *vcpu)
 				   vmx->loaded_vmcs->launched);
 
 	vcpu->arch.cr2 = read_cr2();
+
+	if (!traced_retpoline && !vmx->fail && !is_guest_mode(vcpu) &&
+	    vmcs_read32(VM_EXIT_REASON) == EXIT_REASON_VMRESUME) {
+		retpoline_trace = true;
+		traced_retpoline = true;
+	}
+	if (retpoline_trace && is_guest_mode(vcpu))
+		retpoline_trace = false;
 
 	/*
 	 * We do not use IBRS in the kernel. If this vCPU has used the

@@ -47,6 +47,9 @@ u64 x86_spec_ctrl_base;
 EXPORT_SYMBOL_GPL(x86_spec_ctrl_base);
 static DEFINE_MUTEX(spec_ctrl_mutex);
 
+bool retpoline_trace;
+EXPORT_SYMBOL_GPL(retpoline_trace);
+
 /*
  * The vendor and possibly platform specific bits which can be modified in
  * x86_spec_ctrl_base.

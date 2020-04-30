@@ -48,6 +48,7 @@
 #include <linux/sched.h>
 #include <linux/rculist.h>
 
+extern bool retpoline_trace;
 extern struct bug_entry __start___bug_table[], __stop___bug_table[];
 
 static inline unsigned long bug_addr(const struct bug_entry *bug)
@@ -145,6 +146,11 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 	struct bug_entry *bug;
 	const char *file;
 	unsigned line, warning, once, done;
+
+	if (retpoline_trace) {
+		__warn("retpoline.c", 777, (void *)bugaddr, 0, regs, NULL);
+		return BUG_TRAP_TYPE_WARN;
+	}
 
 	if (!is_valid_bugaddr(bugaddr))
 		return BUG_TRAP_TYPE_NONE;
