@@ -153,6 +153,8 @@ static inline void tk_update_sleep_time(struct timekeeper *tk, ktime_t delta)
 	tk->monotonic_to_boot = ktime_to_timespec64(tk->offs_boot);
 }
 
+static u64 clock_reads, retpolined_clock_reads;
+
 /*
  * tk_clock_read - atomic clocksource read() helper
  *
@@ -170,9 +172,15 @@ static inline u64 tk_clock_read(const struct tk_read_base *tkr)
 {
 	struct clocksource *clock = READ_ONCE(tkr->clock);
 
+	++clock_reads;
+	if ((clock_reads % 1000) == 0)
+		pr_warn_ratelimited("tk: %llu clock reads (%llu retpolined)\n",
+				    clock_reads, retpolined_clock_reads);
 #if defined(CONFIG_RETPOLINE) && defined(arch_preferred_clocksource_read)
 	if (clock->read == arch_preferred_clocksource_read)
 		return arch_preferred_clocksource_read(clock);
+
+	++retpolined_clock_reads;
 #endif
 	return clock->read(clock);
 }
