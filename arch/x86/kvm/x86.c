@@ -2098,7 +2098,7 @@ static inline void adjust_tsc_offset_host(struct kvm_vcpu *vcpu, s64 adjustment)
 
 #ifdef CONFIG_X86_64
 
-static u64 read_tsc(void)
+static u64 do_rdtsc(void)
 {
 	u64 ret = (u64)rdtsc_ordered();
 	u64 last = pvclock_gtod_data.clock.cycle_last;
@@ -2140,7 +2140,7 @@ static inline u64 vgettsc(struct pvclock_clock *clock, u64 *tsc_timestamp,
 		break;
 	case VDSO_CLOCKMODE_TSC:
 		*mode = VDSO_CLOCKMODE_TSC;
-		*tsc_timestamp = read_tsc();
+		*tsc_timestamp = do_rdtsc();
 		v = (*tsc_timestamp - clock->cycle_last) &
 			clock->mask;
 		break;

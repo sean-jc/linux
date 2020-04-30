@@ -73,4 +73,8 @@ extern void tsc_restore_sched_clock_state(void);
 
 unsigned long cpu_khz_from_msr(void);
 
+struct clocksource;
+u64 read_tsc(struct clocksource *cs);
+#define arch_preferred_clocksource_read read_tsc
+
 #endif /* _ASM_X86_TSC_H */

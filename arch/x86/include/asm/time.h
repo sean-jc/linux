@@ -4,6 +4,7 @@
 
 #include <linux/clocksource.h>
 #include <asm/mc146818rtc.h>
+#include <asm/tsc.h>
 
 extern void hpet_time_init(void);
 extern void time_init(void);

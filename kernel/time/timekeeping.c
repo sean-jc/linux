@@ -170,6 +170,10 @@ static inline u64 tk_clock_read(const struct tk_read_base *tkr)
 {
 	struct clocksource *clock = READ_ONCE(tkr->clock);
 
+#if defined(CONFIG_RETPOLINE) && defined(arch_preferred_clocksource_read)
+	if (clock->read == arch_preferred_clocksource_read)
+		return arch_preferred_clocksource_read(clock);
+#endif
 	return clock->read(clock);
 }
 
