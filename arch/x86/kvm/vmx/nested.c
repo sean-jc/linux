@@ -2115,6 +2115,12 @@ static void vmx_start_preemption_timer(struct kvm_vcpu *vcpu)
 		      ns_to_ktime(preemption_timeout), HRTIMER_MODE_REL);
 }
 
+static void nested_vmx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
+{
+	vcpu->arch.dr7 = (val & DR7_VOLATILE) | DR7_FIXED_1;
+	vmcs_writel(GUEST_DR7, __kvm_update_dr7(vcpu));
+}
+
 static u64 nested_vmx_calc_efer(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 {
 	if (vmx->nested.nested_run_pending &&
@@ -2486,10 +2492,10 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 
 	if (vmx->nested.nested_run_pending &&
 	    (vmcs12->vm_entry_controls & VM_ENTRY_LOAD_DEBUG_CONTROLS)) {
-		kvm_set_dr(vcpu, 7, vmcs12->guest_dr7);
+		nested_vmx_set_dr7(vcpu, vmcs12->guest_dr7);
 		vmcs_write64(GUEST_IA32_DEBUGCTL, vmcs12->guest_ia32_debugctl);
 	} else {
-		kvm_set_dr(vcpu, 7, vcpu->arch.dr7);
+		nested_vmx_set_dr7(vcpu, vcpu->arch.dr7);
 		vmcs_write64(GUEST_IA32_DEBUGCTL, vmx->nested.vmcs01_debugctl);
 	}
 	if (kvm_mpx_supported() && (!vmx->nested.nested_run_pending ||
@@ -4175,7 +4181,7 @@ static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
 	};
 	vmx_set_segment(vcpu, &seg, VCPU_SREG_TR);
 
-	kvm_set_dr(vcpu, 7, 0x400);
+	nested_vmx_set_dr7(vcpu, 0x400);
 	vmcs_write64(GUEST_IA32_DEBUGCTL, 0);
 
 	if (cpu_has_vmx_msr_bitmap())
@@ -4227,9 +4233,9 @@ static void nested_vmx_restore_host_state(struct kvm_vcpu *vcpu)
 		 * nested VMENTER (not worth adding a variable in nested_vmx).
 		 */
 		if (vcpu->guest_debug & KVM_GUESTDBG_USE_HW_BP)
-			kvm_set_dr(vcpu, 7, DR7_FIXED_1);
+			nested_vmx_set_dr7(vcpu, DR7_FIXED_1);
 		else
-			WARN_ON(kvm_set_dr(vcpu, 7, vmcs_readl(GUEST_DR7)));
+			nested_vmx_set_dr7(vcpu, vmcs_readl(GUEST_DR7));
 	}
 
 	/*
