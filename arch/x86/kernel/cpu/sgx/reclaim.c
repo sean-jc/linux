@@ -56,17 +56,17 @@ static int ksgxswapd(void *p)
 	 * on kmemexec.
 	 */
 	for (i = 0; i < sgx_nr_epc_sections; i++)
-		sgx_sanitize_section(&sgx_epc_sections[i]);
+		sgx_sanitize_section(sgx_epc_sections[i]);
 
 	/*
 	 * 2nd round for the SECS pages as they cannot be removed when they
 	 * still hold child pages.
 	 */
 	for (i = 0; i < sgx_nr_epc_sections; i++) {
-		sgx_sanitize_section(&sgx_epc_sections[i]);
+		sgx_sanitize_section(sgx_epc_sections[i]);
 
 		/* Should never happen. */
-		if (!list_empty(&sgx_epc_sections[i].unsanitized_page_list))
+		if (!list_empty(&sgx_epc_sections[i]->unsanitized_page_list))
 			WARN(1, "EPC section %d has unsanitized pages.\n", i);
 	}
 

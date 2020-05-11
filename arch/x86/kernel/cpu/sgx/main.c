@@ -11,7 +11,15 @@
 #include "driver.h"
 #include "encls.h"
 
-struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
+struct sgx_epc_node {
+	struct sgx_epc_section sections[SGX_MAX_EPC_SECTIONS];
+	int nr_sections;
+};
+
+static struct sgx_epc_node sgx_epc_nodes[MAX_NUMNODES];
+static int sgx_nr_epc_nodes;
+
+struct sgx_epc_section *sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
 int sgx_nr_epc_sections;
 
 static struct sgx_epc_page *__sgx_try_alloc_page(struct sgx_epc_section *section)
@@ -28,6 +36,26 @@ static struct sgx_epc_page *__sgx_try_alloc_page(struct sgx_epc_section *section
 	return page;
 }
 
+static struct sgx_epc_page *sgx_try_alloc_page_node(int nid)
+{
+	struct sgx_epc_node *node = &sgx_epc_nodes[nid];
+	struct sgx_epc_section *section;
+	struct sgx_epc_page *page;
+	int i;
+
+	for (i = 0; i < node->nr_sections; i++) {
+		section = &node->sections[i];
+		spin_lock(&section->lock);
+		page = __sgx_try_alloc_page(section);
+		spin_unlock(&section->lock);
+
+		if (page)
+			return page;
+	}
+
+	return NULL;
+}
+
 /**
  * sgx_try_alloc_page() - Allocate an EPC page
  *
@@ -39,19 +67,26 @@ static struct sgx_epc_page *__sgx_try_alloc_page(struct sgx_epc_section *section
  */
 struct sgx_epc_page *sgx_try_alloc_page(void)
 {
-	struct sgx_epc_section *section;
 	struct sgx_epc_page *page;
+	int nid = numa_node_id();
+#ifdef CONFIG_NUMA
 	int i;
+#endif
 
-	for (i = 0; i < sgx_nr_epc_sections; i++) {
-		section = &sgx_epc_sections[i];
-		spin_lock(&section->lock);
-		page = __sgx_try_alloc_page(section);
-		spin_unlock(&section->lock);
+	page = sgx_try_alloc_page_node(nid);
+	if (page)
+		return page;
 
+#ifdef CONFIG_NUMA
+	for (i = 0; i < sgx_nr_epc_nodes; i++) {
+		if (i == nid)
+			continue;
+
+		page = sgx_try_alloc_page_node(i);
 		if (page)
 			return page;
 	}
+#endif
 
 	return ERR_PTR(-ENOMEM);
 }
@@ -192,7 +227,26 @@ static void __init sgx_page_cache_teardown(void)
 	int i;
 
 	for (i = 0; i < sgx_nr_epc_sections; i++)
-		sgx_free_epc_section(&sgx_epc_sections[i]);
+		sgx_free_epc_section(sgx_epc_sections[i]);
+}
+
+static int __init sgx_epc_numa_node_id(unsigned long epc_pa)
+{
+#ifdef CONFIG_NUMA
+	unsigned long start, end;
+	pg_data_t *pgdat;
+	int nid;
+
+	for (nid = 0; nid < nr_node_ids; nid++) {
+		pgdat = NODE_DATA(nid);
+		start = pgdat->node_start_pfn << PAGE_SHIFT;
+		end = start + (pgdat->node_spanned_pages << PAGE_SHIFT);
+
+		if (epc_pa >= start && epc_pa < end)
+			return nid;
+	}
+#endif
+	return 0;
 }
 
 /**
@@ -209,8 +263,9 @@ static inline u64 __init sgx_calc_section_metric(u64 low, u64 high)
 static bool __init sgx_page_cache_init(void)
 {
 	u32 eax, ebx, ecx, edx, type;
+	struct sgx_epc_node *node;
+	int i, j, nid;
 	u64 pa, size;
-	int i;
 
 	for (i = 0; i <= ARRAY_SIZE(sgx_epc_sections); i++) {
 		cpuid_count(SGX_CPUID, i + SGX_CPUID_FIRST_VARIABLE_SUB_LEAF,
@@ -235,11 +290,17 @@ static bool __init sgx_page_cache_init(void)
 
 		pr_info("EPC section 0x%llx-0x%llx\n", pa, pa + size - 1);
 
-		if (!sgx_alloc_epc_section(pa, size, i, &sgx_epc_sections[i])) {
+		nid = sgx_epc_numa_node_id(pa);
+		node = &sgx_epc_nodes[nid];
+		j = node->nr_sections++;
+
+		if (!sgx_alloc_epc_section(pa, size, i, &node->sections[j])) {
 			pr_err("No free memory for an EPC section\n");
+			node->nr_sections--;
 			break;
 		}
-
+		sgx_nr_epc_nodes = max(sgx_nr_epc_nodes, nid + 1);
+		sgx_epc_sections[i] = &node->sections[j];
 		sgx_nr_epc_sections++;
 	}
 

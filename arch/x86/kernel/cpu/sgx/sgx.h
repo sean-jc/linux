@@ -55,11 +55,11 @@ enum sgx_epc_page_desc {
 
 #define SGX_MAX_EPC_SECTIONS (SGX_EPC_SECTION_MASK + 1)
 
-extern struct sgx_epc_section sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
+extern struct sgx_epc_section *sgx_epc_sections[SGX_MAX_EPC_SECTIONS];
 
 static inline struct sgx_epc_section *sgx_epc_section(struct sgx_epc_page *page)
 {
-	return &sgx_epc_sections[page->desc & SGX_EPC_SECTION_MASK];
+	return sgx_epc_sections[page->desc & SGX_EPC_SECTION_MASK];
 }
 
 static inline void *sgx_epc_addr(struct sgx_epc_page *page)
@@ -85,7 +85,7 @@ static inline unsigned long sgx_nr_free_pages(void)
 	int i;
 
 	for (i = 0; i < sgx_nr_epc_sections; i++)
-		cnt += sgx_epc_sections[i].free_cnt;
+		cnt += sgx_epc_sections[i]->free_cnt;
 
 	return cnt;
 }
