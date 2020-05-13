@@ -72,20 +72,22 @@ static inline void *sgx_epc_addr(struct sgx_epc_page *page)
 struct sgx_epc_lru {
 	spinlock_t lock;
 	struct list_head reclaimable;
+	struct list_head unreclaimable;
 };
 
 static inline void sgx_lru_init(struct sgx_epc_lru *lru)
 {
 	spin_lock_init(&lru->lock);
 	INIT_LIST_HEAD(&lru->reclaimable);
+	INIT_LIST_HEAD(&lru->unreclaimable);
 }
 
 #define SGX_NR_TO_SCAN		16
 #define SGX_NR_LOW_PAGES	32
 #define SGX_NR_HIGH_PAGES	64
 
-void sgx_mark_page_reclaimable(struct sgx_epc_page *page);
-int sgx_unmark_page_reclaimable(struct sgx_epc_page *page);
+void sgx_record_page(struct sgx_epc_page *page, unsigned long flags);
+int sgx_drop_page(struct sgx_epc_page *page);
 
 struct sgx_epc_page *sgx_try_alloc_page(void);
 struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim);
