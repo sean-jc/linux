@@ -69,6 +69,17 @@ static inline void *sgx_epc_addr(struct sgx_epc_page *page)
 	return section->va + (page->desc & PAGE_MASK) - section->pa;
 }
 
+struct sgx_epc_lru {
+	spinlock_t lock;
+	struct list_head reclaimable;
+};
+
+static inline void sgx_lru_init(struct sgx_epc_lru *lru)
+{
+	spin_lock_init(&lru->lock);
+	INIT_LIST_HEAD(&lru->reclaimable);
+}
+
 #define SGX_NR_TO_SCAN		16
 #define SGX_NR_LOW_PAGES	32
 #define SGX_NR_HIGH_PAGES	64
