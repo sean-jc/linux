@@ -411,6 +411,8 @@ skip:
 		section->free_cnt++;
 		spin_unlock(&section->lock);
 	}
+
+	cond_resched();
 }
 
 
@@ -493,8 +495,6 @@ static int ksgxswapd(void *p)
 
 		if (sgx_should_reclaim(SGX_NR_HIGH_PAGES))
 			sgx_reclaim_pages();
-
-		cond_resched();
 	}
 
 	return 0;
@@ -593,7 +593,6 @@ struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim)
 		}
 
 		sgx_reclaim_pages();
-		cond_resched();
 	}
 
 	if (sgx_should_reclaim(SGX_NR_LOW_PAGES))
