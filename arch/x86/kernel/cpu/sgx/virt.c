@@ -3,6 +3,7 @@
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
+#include <linux/sched/mm.h>
 #include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <asm/sgx.h>
@@ -15,6 +16,7 @@
 struct sgx_virt_epc {
 	struct radix_tree_root page_tree;
 	struct rw_semaphore lock;
+	struct mm_struct *mm;
 };
 
 static struct mutex virt_epc_lock;
@@ -149,7 +151,12 @@ const struct vm_operations_struct sgx_virt_epc_vm_ops = {
 
 static int sgx_virt_epc_mmap(struct file *file, struct vm_area_struct *vma)
 {
+	struct sgx_virt_epc *epc = file->private_data;
+
 	if (!(vma->vm_flags & VM_SHARED))
+		return -EINVAL;
+
+	if (vma->vm_mm != epc->mm)
 		return -EINVAL;
 
 	vma->vm_ops = &sgx_virt_epc_vm_ops;
@@ -184,6 +191,8 @@ static int sgx_virt_epc_release(struct inode *inode, struct file *file)
 	void **slot;
 
 	LIST_HEAD(secs_pages);
+
+	mmdrop(epc->mm);
 
 	radix_tree_for_each_slot(slot, &epc->page_tree, &iter, 0) {
 		if (sgx_virt_epc_free_page(*slot))
@@ -244,6 +253,8 @@ static int sgx_virt_epc_open(struct inode *inode, struct file *file)
 	if (!epc)
 		return -ENOMEM;
 
+	mmgrab(current->mm);
+	epc->mm = current->mm;
 	init_rwsem(&epc->lock);
 	INIT_RADIX_TREE(&epc->page_tree, GFP_KERNEL);
 
