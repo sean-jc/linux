@@ -13,10 +13,15 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "sgx: " fmt
 
+struct sgx_epc_cgroup;
+
 struct sgx_epc_page {
 	unsigned long desc;
 	void *owner;
 	struct list_head list;
+#ifdef CONFIG_CGROUP_SGX_EPC
+	struct sgx_epc_cgroup *epc_cg;
+#endif
 };
 
 /**
@@ -103,7 +108,8 @@ void sgx_record_page(struct sgx_epc_page *page, unsigned long flags);
 int sgx_drop_page(struct sgx_epc_page *page);
 void sgx_isolate_pages(struct sgx_epc_lru *lru, int *nr_to_scan,
 		       struct list_head *dst);
-int sgx_reclaim_pages(int nr_to_scan, bool ignore_age);
+int sgx_reclaim_pages(int nr_to_scan, bool ignore_age,
+		      struct sgx_epc_cgroup *epc_cg);
 bool sgx_oom(struct sgx_epc_lru *lru);
 void sgx_oom_zap(void *owner, struct mm_struct *mm, unsigned long start,
 		 unsigned long end, const struct vm_operations_struct *ops);
