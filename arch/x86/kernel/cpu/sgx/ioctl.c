@@ -456,8 +456,11 @@ err_out_free:
 	 * Destroy enclave on ENCLS failure as this means that EPC has been
 	 * invalidated.
 	 */
-	if (ret == -EIO)
+	if (ret == -EIO) {
+		mutex_lock(&encl->lock);
 		sgx_encl_destroy(encl);
+		mutex_unlock(&encl->lock);
+	}
 
 	return ret;
 }
