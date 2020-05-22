@@ -48,14 +48,21 @@ struct sgx_epc_section {
  *				process of being swapped out.
  * @SGX_EPC_PAGE_RECLAIM_IN_PROGRESS:  The page is in the process of being
  * 				reclaimed and cannot be freed.
+ * %SGX_EPC_PAGE_ENCLAVE:	The page is an enclave page.
  */
 enum sgx_epc_page_desc {
 	SGX_EPC_SECTION_MASK			= GENMASK_ULL(3, 0),
 	SGX_EPC_PAGE_RECLAIMABLE		= BIT(4),
 	SGX_EPC_PAGE_RECLAIM_IN_PROGRESS	= BIT(5),
+	SGX_EPC_PAGE_ENCLAVE			= BIT(6),
+	SGX_EPC_PAGE_ENCLAVE_RECLAIMABLE	= SGX_EPC_PAGE_ENCLAVE |
+						  SGX_EPC_PAGE_RECLAIMABLE,
+	SGX_EPC_PAGE_VERSION_ARRAY		= BIT(7),
 
 	SGX_EPC_PAGE_RECLAIM_FLAGS		= SGX_EPC_PAGE_RECLAIMABLE | \
-						  SGX_EPC_PAGE_RECLAIM_IN_PROGRESS,
+						  SGX_EPC_PAGE_RECLAIM_IN_PROGRESS |
+						  SGX_EPC_PAGE_ENCLAVE |
+						  SGX_EPC_PAGE_VERSION_ARRAY,
 	/* bits 12-63 are reserved for the physical page address of the page */
 };
 
