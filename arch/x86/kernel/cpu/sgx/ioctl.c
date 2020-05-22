@@ -406,6 +406,11 @@ static int sgx_encl_add_page(struct sgx_encl *encl, unsigned long src,
 	if (va_page)
 		list_add(&va_page->list, &encl->va_pages);
 
+	if (atomic_read(&encl->flags) & SGX_ENCL_OOM) {
+		ret = -EFAULT;
+		goto err_out_unlock;
+	}
+
 	/*
 	 * Insert prior to EADD in case of OOM.  EADD modifies MRENCLAVE, i.e.
 	 * can't be gracefully unwound, while failure on EADD/EXTEND is limited
@@ -762,6 +767,11 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	encl_flags = atomic_fetch_or(SGX_ENCL_IOCTL, &encl->flags);
 	if (encl_flags & SGX_ENCL_IOCTL)
 		return -EBUSY;
+
+	if (encl_flags & SGX_ENCL_DEAD_OR_OOM) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	switch (cmd) {
 	case SGX_IOC_ENCLAVE_CREATE:
