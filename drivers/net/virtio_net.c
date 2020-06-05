@@ -1469,6 +1469,21 @@ static int virtnet_poll(struct napi_struct *napi, int budget)
 	return received;
 }
 
+static int virtnet_reg_xdp(struct xdp_rxq_info *xdp_rxq,
+			   struct net_device *dev, u32 queue_index)
+{
+	int err;
+
+	err = xdp_rxq_info_reg(xdp_rxq, dev, queue_index);
+	if (err < 0)
+		return err;
+
+	err = xdp_rxq_info_reg_mem_model(xdp_rxq, MEM_TYPE_PAGE_SHARED, NULL);
+	if (err < 0)
+		xdp_rxq_info_unreg(xdp_rxq);
+	return err;
+}
+
 static int virtnet_open(struct net_device *dev)
 {
 	struct virtnet_info *vi = netdev_priv(dev);
@@ -1480,16 +1495,9 @@ static int virtnet_open(struct net_device *dev)
 			if (!try_fill_recv(vi, &vi->rq[i], GFP_KERNEL))
 				schedule_delayed_work(&vi->refill, 0);
 
-		err = xdp_rxq_info_reg(&vi->rq[i].xdp_rxq, dev, i);
+		err = virtnet_reg_xdp(&vi->rq[i].xdp_rxq, dev, i);
 		if (err < 0)
 			return err;
-
-		err = xdp_rxq_info_reg_mem_model(&vi->rq[i].xdp_rxq,
-						 MEM_TYPE_PAGE_SHARED, NULL);
-		if (err < 0) {
-			xdp_rxq_info_unreg(&vi->rq[i].xdp_rxq);
-			return err;
-		}
 
 		virtnet_napi_enable(vi->rq[i].vq, &vi->rq[i].napi);
 		virtnet_napi_tx_enable(vi, vi->sq[i].vq, &vi->sq[i].napi);
@@ -2306,6 +2314,7 @@ static void virtnet_freeze_down(struct virtio_device *vdev)
 
 	if (netif_running(vi->dev)) {
 		for (i = 0; i < vi->max_queue_pairs; i++) {
+			xdp_rxq_info_unreg(&vi->rq[i].xdp_rxq);
 			napi_disable(&vi->rq[i].napi);
 			virtnet_napi_tx_disable(&vi->sq[i].napi);
 		}
@@ -2313,6 +2322,8 @@ static void virtnet_freeze_down(struct virtio_device *vdev)
 }
 
 static int init_vqs(struct virtnet_info *vi);
+static void virtnet_del_vqs(struct virtnet_info *vi);
+static void free_receive_page_frags(struct virtnet_info *vi);
 
 static int virtnet_restore_up(struct virtio_device *vdev)
 {
@@ -2331,6 +2342,10 @@ static int virtnet_restore_up(struct virtio_device *vdev)
 				schedule_delayed_work(&vi->refill, 0);
 
 		for (i = 0; i < vi->max_queue_pairs; i++) {
+			err = virtnet_reg_xdp(&vi->rq[i].xdp_rxq, vi->dev, i);
+			if (err)
+				goto free_vqs;
+
 			virtnet_napi_enable(vi->rq[i].vq, &vi->rq[i].napi);
 			virtnet_napi_tx_enable(vi, vi->sq[i].vq,
 					       &vi->sq[i].napi);
@@ -2340,6 +2355,12 @@ static int virtnet_restore_up(struct virtio_device *vdev)
 	netif_tx_lock_bh(vi->dev);
 	netif_device_attach(vi->dev);
 	netif_tx_unlock_bh(vi->dev);
+	return 0;
+
+free_vqs:
+	cancel_delayed_work_sync(&vi->refill);
+	free_receive_page_frags(vi);
+	virtnet_del_vqs(vi);
 	return err;
 }
 
