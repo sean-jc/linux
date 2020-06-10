@@ -8,6 +8,9 @@
 #define PT_FIRST_AVAIL_BITS_SHIFT 10
 #define PT64_SECOND_AVAIL_BITS_SHIFT 54
 
+/* Masks that used to track metadata for not-present SPTEs. */
+#define SPTE_PRIVATE_ZAPPED	BIT_ULL(62)
+
 /*
  * The mask used to denote special SPTEs, which can be either MMIO SPTEs or
  * Access Tracking SPTEs.
@@ -176,6 +179,11 @@ static inline bool is_access_track_spte(u64 spte)
 	return !spte_ad_enabled(spte) && (spte & shadow_acc_track_mask) == 0;
 }
 
+static inline bool is_zapped_private_pte(u64 pte)
+{
+	return !!(pte & SPTE_PRIVATE_ZAPPED);
+}
+
 static inline bool __is_shadow_present_pte(u64 pte)
 {
 	/*
@@ -191,7 +199,8 @@ static inline bool __is_shadow_present_pte(u64 pte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return __is_shadow_present_pte(pte) && !is_mmio_spte(pte);
+	return __is_shadow_present_pte(pte) && !is_mmio_spte(pte) &&
+	       !is_zapped_private_pte(pte);
 }
 
 static inline int is_large_pte(u64 pte)
