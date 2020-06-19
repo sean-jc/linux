@@ -1031,6 +1031,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_PPC_SECURE_GUEST 181
 #define KVM_CAP_HALT_POLL 182
 #define KVM_CAP_ASYNC_PF_INT 183
+#define KVM_CAP_MEMSLOT_ZAP_CONTROL 184
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -1684,5 +1685,8 @@ struct kvm_hyperv_eventfd {
 
 #define KVM_DIRTY_LOG_MANUAL_PROTECT_ENABLE    (1 << 0)
 #define KVM_DIRTY_LOG_INITIALLY_SET            (1 << 1)
+
+/* Flags for KVM_CAP_MEMSLOT_ZAP_CONTROL */
+#define KVM_ZAP_ONLY_MEMSLOT_SPTES	(1 << 0)
 
 #endif /* __LINUX_KVM_H */

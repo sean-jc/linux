@@ -5843,6 +5843,27 @@ controlled by the kvm module parameter halt_poll_ns. This capability allows
 the maximum halt time to specified on a per-VM basis, effectively overriding
 the module parameter for the target VM.
 
+7.21 KVM_CAP_MEMSLOT_ZAP_CONTROL
+--------------------------------
+
+:Architectures: x86
+:Target: VM
+:Parameters: args[0] controls which flags are enabled/disabled
+:Returns: 0 on success; -1 on error
+
+Valid flags are::
+
+  #define KVM_ZAP_ONLY_MEMSLOT_SPTES   (1 << 0)
+
+This capability allows userspace to control the shadow PTE zapping behavior
+when a memslot is deleted or moved via KVM_SET_USER_MEMORY_REGION.  By default,
+x86 zaps all SPTEs across all memslots, which can negatively impact performance
+but may be necessary for functional correctness for certain configurations.
+
+If KVM_ZAP_ONLY_MEMSLOT_SPTES is set, KVM zaps only the leaf/last SPTEs for the
+deleted/moved memslot.  Upper level SPTEs are retained, as are SPTEs for other
+memslots.
+
 8. Other capabilities.
 ======================
 

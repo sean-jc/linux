@@ -3471,6 +3471,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_MSR_PLATFORM_INFO:
 	case KVM_CAP_EXCEPTION_PAYLOAD:
 	case KVM_CAP_SET_GUEST_DEBUG:
+	case KVM_CAP_MEMSLOT_ZAP_CONTROL:
 		r = 1;
 		break;
 	case KVM_CAP_SYNC_REGS:
@@ -4982,6 +4983,15 @@ split_irqchip_unlock:
 		break;
 	case KVM_CAP_EXCEPTION_PAYLOAD:
 		kvm->arch.exception_payload_enabled = cap->args[0];
+		r = 0;
+		break;
+	case KVM_CAP_MEMSLOT_ZAP_CONTROL:
+		r = -EINVAL;
+		if (cap->args[0] & ~(u64)KVM_ZAP_ONLY_MEMSLOT_SPTES)
+			break;
+
+		kvm->arch.zap_only_memslot_sptes = cap->args[0] &
+						   KVM_ZAP_ONLY_MEMSLOT_SPTES;
 		r = 0;
 		break;
 	default:
