@@ -4105,6 +4105,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	kvm_pfn_t pfn;
 	int r;
 
+restart:
 	if (page_fault_handle_page_track(vcpu, error_code, gfn))
 		return RET_PF_EMULATE;
 
@@ -4127,10 +4128,12 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	if (handle_abnormal_pfn(vcpu, is_tdp ? 0 : gpa, gfn, pfn, ACC_ALL, &r))
 		return r;
 
-	r = RET_PF_RETRY;
 	spin_lock(&vcpu->kvm->mmu_lock);
-	if (mmu_notifier_retry(vcpu->kvm, mmu_seq))
-		goto out_unlock;
+	if (mmu_notifier_retry(vcpu->kvm, mmu_seq)) {
+		spin_unlock(&vcpu->kvm->mmu_lock);
+		kvm_release_pfn_clean(pfn);
+		goto restart;
+	}
 	r = make_mmu_pages_available(vcpu);
 	if (r)
 		goto out_unlock;
