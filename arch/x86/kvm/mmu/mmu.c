@@ -202,11 +202,14 @@ module_param(dbg, bool, 0644);
  *
  * For handle_mmio_page_fault only:
  * RET_PF_INVALID: the spte is invalid, let the real page fault path update it.
+ *
+ * RET_PF_FIXED: The faulting entry has been fixed (possibly by another vCPU).
  */
 enum {
 	RET_PF_RETRY = 0,
 	RET_PF_EMULATE = 1,
 	RET_PF_INVALID = 2,
+	RET_PF_FIXED = 3,
 };
 
 struct pte_list_desc {
@@ -3087,7 +3090,7 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 	int was_rmapped = 0;
 	int rmap_count;
 	int set_spte_ret;
-	int ret = RET_PF_RETRY;
+	int ret = RET_PF_FIXED;
 	bool flush = false;
 
 	pgprintk("%s: spte %llx write_fault %d gfn %llx\n", __func__,
@@ -4117,7 +4120,7 @@ restart:
 		max_level = PG_LEVEL_4K;
 
 	if (fast_page_fault(vcpu, gpa, error_code))
-		return RET_PF_RETRY;
+		return RET_PF_FIXED;
 
 	mmu_seq = vcpu->kvm->mmu_notifier_seq;
 	smp_rmb();
@@ -5428,7 +5431,7 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		WARN_ON(r == RET_PF_INVALID);
 	}
 
-	if (r == RET_PF_RETRY)
+	if (r == RET_PF_RETRY || r == RET_PF_FIXED)
 		return 1;
 	if (r < 0)
 		return r;
