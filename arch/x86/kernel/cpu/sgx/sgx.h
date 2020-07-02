@@ -101,6 +101,7 @@ static inline void sgx_lru_init(struct sgx_epc_lru *lru)
 
 void sgx_record_page(struct sgx_epc_page *page, unsigned long flags);
 int sgx_drop_page(struct sgx_epc_page *page);
+int sgx_reclaim_pages(int nr_to_scan, bool ignore_age);
 
 struct sgx_epc_page *sgx_try_alloc_page(void);
 struct sgx_epc_page *sgx_alloc_page(void *owner, bool reclaim);
