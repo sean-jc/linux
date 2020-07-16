@@ -7368,6 +7368,33 @@ static void update_intel_pt_cfg(struct kvm_vcpu *vcpu)
 		vmx->pt_desc.ctl_bitmask &= ~(0xfULL << (32 + i * 4));
 }
 
+static bool is_cet_state_supported(struct kvm_vcpu *vcpu, u32 xss_state)
+{
+	return (vcpu->arch.guest_supported_xss & xss_state) &&
+	       (guest_cpuid_has(vcpu, X86_FEATURE_SHSTK) ||
+		guest_cpuid_has(vcpu, X86_FEATURE_IBT));
+}
+
+static void vmx_update_intercept_for_cet_msr(struct kvm_vcpu *vcpu)
+{
+	unsigned long *bitmap = to_vmx(vcpu)->vmcs01.msr_bitmap;
+	bool incpt = !is_cet_state_supported(vcpu, XFEATURE_MASK_CET_USER);
+
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_U_CET, MSR_TYPE_RW, incpt);
+
+	incpt |= !guest_cpuid_has(vcpu, X86_FEATURE_SHSTK);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_PL3_SSP, MSR_TYPE_RW, incpt);
+
+	incpt = !is_cet_state_supported(vcpu, XFEATURE_MASK_CET_KERNEL);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_S_CET, MSR_TYPE_RW, incpt);
+
+	incpt |= !guest_cpuid_has(vcpu, X86_FEATURE_SHSTK);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_INT_SSP_TAB, MSR_TYPE_RW, incpt);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_PL0_SSP, MSR_TYPE_RW, incpt);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_PL1_SSP, MSR_TYPE_RW, incpt);
+	vmx_set_intercept_for_msr(bitmap, MSR_IA32_PL2_SSP, MSR_TYPE_RW, incpt);
+}
+
 static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -7406,6 +7433,9 @@ static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 			vmx_set_guest_msr(vmx, msr, enabled ? 0 : TSX_CTRL_RTM_DISABLE);
 		}
 	}
+
+	if (kvm_cet_supported())
+		vmx_update_intercept_for_cet_msr(vcpu);
 }
 
 static __init void vmx_set_cpu_caps(void)
