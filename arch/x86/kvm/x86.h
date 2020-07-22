@@ -286,6 +286,13 @@ static inline bool kvm_mpx_supported(void)
 		== (XFEATURE_MASK_BNDREGS | XFEATURE_MASK_BNDCSR);
 }
 
+static inline bool kvm_cet_supported(void)
+{
+	const u64 mask = XFEATURE_MASK_CET_USER | XFEATURE_MASK_CET_KERNEL;
+
+	return (supported_xss & mask) == mask;
+}
+
 extern unsigned int min_timer_period_us;
 
 extern bool enable_vmware_backdoor;
