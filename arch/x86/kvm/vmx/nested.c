@@ -632,6 +632,29 @@ static inline bool nested_vmx_prepare_msr_bitmap(struct kvm_vcpu *vcpu,
 	nested_vmx_disable_intercept_for_msr(msr_bitmap_l1, msr_bitmap_l0,
 					     MSR_KERNEL_GS_BASE, MSR_TYPE_RW);
 
+	/* Pass CET MSRs to nested VM if L0 and L1 are set to pass-through. */
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_U_CET,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL3_SSP,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_S_CET,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL0_SSP,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL1_SSP,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL2_SSP,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_INT_SSP_TAB,
+						  msr_bitmap_l1, msr_bitmap_l0,
+						  MSR_TYPE_RW);
+
 	/*
 	 * Checking the L0->L1 bitmap is trying to verify two things:
 	 *

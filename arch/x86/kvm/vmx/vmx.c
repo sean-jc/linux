@@ -7278,6 +7278,7 @@ static void nested_vmx_cr_fixed1_bits_update(struct kvm_vcpu *vcpu)
 	cr4_fixed1_update(X86_CR4_PKE,        ecx, feature_bit(PKU));
 	cr4_fixed1_update(X86_CR4_UMIP,       ecx, feature_bit(UMIP));
 	cr4_fixed1_update(X86_CR4_LA57,       ecx, feature_bit(LA57));
+	cr4_fixed1_update(X86_CR4_CET,	      ecx, feature_bit(SHSTK));
 
 #undef cr4_fixed1_update
 }
@@ -7295,6 +7296,19 @@ static void nested_vmx_entry_exit_ctls_update(struct kvm_vcpu *vcpu)
 		} else {
 			msrs->entry_ctls_high &= ~VM_ENTRY_LOAD_BNDCFGS;
 			msrs->exit_ctls_high &= ~VM_EXIT_CLEAR_BNDCFGS;
+		}
+	}
+
+	if (kvm_cet_supported()) {
+		bool cet_enabled = guest_cpuid_has(vcpu, X86_FEATURE_SHSTK) ||
+				   guest_cpuid_has(vcpu, X86_FEATURE_IBT);
+
+		if (cet_enabled) {
+			msrs->entry_ctls_high |= VM_ENTRY_LOAD_CET_STATE;
+			msrs->exit_ctls_high |= VM_EXIT_LOAD_CET_STATE;
+		} else {
+			msrs->entry_ctls_high &= ~VM_ENTRY_LOAD_CET_STATE;
+			msrs->exit_ctls_high &= ~VM_EXIT_LOAD_CET_STATE;
 		}
 	}
 }
