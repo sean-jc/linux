@@ -813,6 +813,9 @@ int kvm_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 	if (!(cr0 & X86_CR0_PG) && kvm_read_cr4_bits(vcpu, X86_CR4_PCIDE))
 		return 1;
 
+	if (!(cr0 & X86_CR0_WP) && kvm_read_cr4_bits(vcpu, X86_CR4_CET))
+		return 1;
+
 	kvm_x86_ops.set_cr0(vcpu, cr0);
 
 	if ((cr0 ^ old_cr0) & X86_CR0_PG) {
@@ -950,6 +953,9 @@ EXPORT_SYMBOL_GPL(kvm_set_xcr);
 		__reserved_bits |= X86_CR4_LA57;	\
 	if (!__cpu_has(__c, X86_FEATURE_UMIP))		\
 		__reserved_bits |= X86_CR4_UMIP;	\
+	if (!__cpu_has(__c, X86_FEATURE_SHSTK) &&	\
+	    !__cpu_has(__c, X86_FEATURE_IBT))		\
+		__reserved_bits |= X86_CR4_CET;		\
 	__reserved_bits;				\
 })
 
@@ -992,6 +998,9 @@ int kvm_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 		if ((kvm_read_cr3(vcpu) & X86_CR3_PCID_MASK) || !is_long_mode(vcpu))
 			return 1;
 	}
+
+	if ((cr4 & X86_CR4_CET) && !(kvm_read_cr0(vcpu) & X86_CR0_WP))
+		return 1;
 
 	if (kvm_x86_ops.set_cr4(vcpu, cr4))
 		return 1;
