@@ -1138,6 +1138,13 @@ struct kvm_x86_ops {
 
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, unsigned long cr3);
 
+	bool (*pin_spte)(struct kvm_vcpu *vcpu, gfn_t gfn, int level,
+			 kvm_pfn_t pfn);
+	void (*drop_pinned_spte)(struct kvm *kvm, gfn_t gfn, int level,
+				 kvm_pfn_t pfn);
+	void (*zap_pinned_spte)(struct kvm *kvm, gfn_t gfn, int level);
+	void (*unzap_pinned_spte)(struct kvm *kvm, gfn_t gfn, int level);
+
 	bool (*has_wbinvd_exit)(void);
 
 	/* Returns actual tsc_offset set in active VMCS */
