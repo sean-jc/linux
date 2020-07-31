@@ -4150,6 +4150,9 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.need_emulation_on_page_fault = svm_need_emulation_on_page_fault,
 
 	.apic_init_signal_blocked = svm_apic_init_signal_blocked,
+
+	.pin_spte = sev_pin_spte,
+	.drop_pinned_spte = sev_drop_pinned_spte,
 };
 
 static struct kvm_x86_init_ops svm_init_ops __initdata = {

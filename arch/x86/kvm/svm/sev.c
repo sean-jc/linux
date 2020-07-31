@@ -1193,3 +1193,27 @@ void pre_sev_run(struct vcpu_svm *svm, int cpu)
 	svm->vmcb->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
 	vmcb_mark_dirty(svm->vmcb, VMCB_ASID);
 }
+
+bool sev_pin_spte(struct kvm_vcpu *vcpu, gfn_t gfn, int level, kvm_pfn_t pfn)
+{
+	if (!sev_guest(vcpu->kvm))
+		return false;
+
+	get_page(pfn_to_page(pfn));
+
+	/*
+	 * Flush any cached lines of the page being added since "ownership" of
+	 * it will be transferred from the host to an encrypted guest.
+	 */
+	clflush_cache_range(__va(pfn << PAGE_SHIFT), page_level_size(level));
+
+	return true;
+}
+
+void sev_drop_pinned_spte(struct kvm *kvm, gfn_t gfn, int level, kvm_pfn_t pfn)
+{
+	if (WARN_ON_ONCE(!sev_guest(kvm)))
+		return;
+
+	put_page(pfn_to_page(pfn));
+}

@@ -489,4 +489,7 @@ void pre_sev_run(struct vcpu_svm *svm, int cpu);
 int __init sev_hardware_setup(void);
 void sev_hardware_teardown(void);
 
+bool sev_pin_spte(struct kvm_vcpu *vcpu, gfn_t gfn, int level, kvm_pfn_t pfn);
+void sev_drop_pinned_spte(struct kvm *kvm, gfn_t gfn, int level, kvm_pfn_t pfn);
+
 #endif
