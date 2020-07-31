@@ -15,6 +15,7 @@
 #include <linux/pagemap.h>
 #include <linux/swap.h>
 
+#include "mmu.h"
 #include "x86.h"
 #include "svm.h"
 
@@ -415,6 +416,107 @@ static unsigned long get_num_contig_pages(unsigned long idx,
 	return pages;
 }
 
+#define SEV_PFERR (PFERR_WRITE_MASK | PFERR_USER_MASK)
+
+static void *sev_alloc_pages(unsigned long size, unsigned long *npages)
+{
+	/* TODO */
+	*npages = 0;
+	return NULL;
+}
+
+static struct kvm_memory_slot *hva_to_memslot(struct kvm *kvm,
+					      unsigned long hva)
+{
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	struct kvm_memory_slot *memslot;
+
+	kvm_for_each_memslot(memslot, slots) {
+		if (hva >= memslot->userspace_addr &&
+			hva < memslot->userspace_addr +
+				(memslot->npages << PAGE_SHIFT))
+			return memslot;
+	}
+
+	return NULL;
+}
+
+static bool hva_to_gpa(struct kvm *kvm, unsigned long hva)
+{
+	struct kvm_memory_slot *memslot;
+	gpa_t gpa_offset;
+
+	memslot = hva_to_memslot(kvm, hva);
+	if (!memslot)
+		return UNMAPPED_GVA;
+
+	gpa_offset = hva - memslot->userspace_addr;
+	return ((memslot->base_gfn << PAGE_SHIFT) + gpa_offset);
+}
+
+static struct page **sev_pin_memory_in_mmu(struct kvm *kvm, unsigned long addr,
+					   unsigned long size,
+					   unsigned long *npages)
+{
+	struct kvm_vcpu *vcpu;
+	struct page **pages;
+	unsigned long i;
+	kvm_pfn_t pfn;
+	int idx, ret;
+	gpa_t gpa;
+
+	pages = sev_alloc_pages(size, npages);
+	if (!pages)
+		return ERR_PTR(-ENOMEM);
+
+	vcpu = kvm_get_vcpu(kvm, 0);
+	if (mutex_lock_killable(&vcpu->mutex)) {
+		kvfree(pages);
+		return ERR_PTR(-EINTR);
+	}
+
+	vcpu_load(vcpu);
+	idx = srcu_read_lock(&kvm->srcu);
+
+	kvm_mmu_load(vcpu);
+
+	for (i = 0; i < *npages; i++, addr += PAGE_SIZE) {
+		if (signal_pending(current)) {
+			ret = -ERESTARTSYS;
+			goto err;
+		}
+
+		if (need_resched())
+			cond_resched();
+
+		gpa = hva_to_gpa(kvm, addr);
+		if (gpa == UNMAPPED_GVA) {
+			ret = -EFAULT;
+			goto err;
+		}
+		pfn = kvm_mmu_map_tdp_page(vcpu, gpa, SEV_PFERR, PG_LEVEL_4K);
+		if (is_error_noslot_pfn(pfn)) {
+			ret = -EFAULT;
+			goto err;
+		}
+		pages[i] = pfn_to_page(pfn);
+		get_page(pages[i]);
+	}
+
+	srcu_read_unlock(&kvm->srcu, idx);
+	vcpu_put(vcpu);
+
+	mutex_unlock(&vcpu->mutex);
+	return pages;
+
+err:
+	for ( ; i; --i)
+		put_page(pages[i-1]);
+
+	kvfree(pages);
+	return ERR_PTR(ret);
+}
+
 static int sev_launch_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
 	unsigned long vaddr, vaddr_end, next_vaddr, npages, pages, size, i;
@@ -439,9 +541,12 @@ static int sev_launch_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	vaddr_end = vaddr + size;
 
 	/* Lock the user memory. */
-	inpages = sev_pin_memory(kvm, vaddr, size, &npages, 1);
-	if (!inpages) {
-		ret = -ENOMEM;
+	if (atomic_read(&kvm->online_vcpus))
+		inpages = sev_pin_memory_in_mmu(kvm, vaddr, size, &npages);
+	else
+		inpages = sev_pin_memory(kvm, vaddr, size, &npages, 1);
+	if (IS_ERR(inpages)) {
+		ret = PTR_ERR(inpages);
 		goto e_free;
 	}
 
@@ -449,9 +554,11 @@ static int sev_launch_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	 * The LAUNCH_UPDATE command will perform in-place encryption of the
 	 * memory content (i.e it will write the same memory region with C=1).
 	 * It's possible that the cache may contain the data with C=0, i.e.,
-	 * unencrypted so invalidate it first.
+	 * unencrypted so invalidate it first.  Flushing is automatically
+	 * handled if the pages can be pinned in the MMU.
 	 */
-	sev_clflush_pages(inpages, npages);
+	if (!atomic_read(&kvm->online_vcpus))
+		sev_clflush_pages(inpages, npages);
 
 	for (i = 0; vaddr < vaddr_end; vaddr = next_vaddr, i += pages) {
 		int offset, len;
