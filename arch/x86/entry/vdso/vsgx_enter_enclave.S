@@ -48,7 +48,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 
 	/* Invoke userspace's exit handler if one was provided. */
 .Lhandle_exit:
-	cmp	$0, 0x20(%rbp)
+	cmpq	$0, 0x20(%rbp)
 	jne	.Linvoke_userspace_handler
 
 .Lout:
