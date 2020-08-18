@@ -74,6 +74,9 @@ struct sgx_enclave_provision {
 	__u64 attribute_fd;
 };
 
+#define SGX_SYNCHRONOUS_EXIT	0
+#define SGX_EXCEPTION_EXIT	1
+
 struct sgx_enclave_run;
 
 /**

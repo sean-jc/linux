@@ -18,6 +18,9 @@
 /* #define SGX_ENCLAVE_RUN_USER_DATA	3*8 */
 #define SGX_ENCLAVE_RUN_EXCEPTION	4*8
 
+#define SGX_SYNCHRONOUS_EXIT		0
+#define SGX_EXCEPTION_EXIT		1
+
 /* Offsets into sgx_enter_enclave.exception. */
 #define SGX_EX_LEAF			0*8
 #define SGX_EX_TRAPNR			0*8+4
@@ -65,7 +68,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	mov	SGX_ENCLAVE_RUN_PTR(%rbp), %rbx
 
 	/* Set exit_reason. */
-	movl	$0, SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
+	movl	$SGX_SYNCHRONOUS_EXIT, SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
 
 	/* Invoke userspace's exit handler if one was provided. */
 .Lhandle_exit:
@@ -92,7 +95,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	mov	SGX_ENCLAVE_RUN_PTR(%rbp), %rbx
 
 	/* Set the exit_reason and exception info. */
-	movl	$(-EFAULT), SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
+	movl	$SGX_EXCEPTION_EXIT, SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
 
 	mov	%eax, (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_LEAF)(%rbx)
 	mov	%di,  (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_TRAPNR)(%rbx)
