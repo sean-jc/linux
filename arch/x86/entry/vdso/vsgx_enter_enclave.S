@@ -7,10 +7,22 @@
 
 #include "extable.h"
 
-#define EX_LEAF		0*8
-#define EX_TRAPNR	0*8+4
-#define EX_ERROR_CODE	0*8+6
-#define EX_ADDRESS	1*8
+/* Offset of 'struct sgx_enclave_run' relative to %rbp. */
+#define SGX_ENCLAVE_RUN_PTR	2*8
+
+/* Offsets into 'struct sgx_enclave_run'. */
+#define SGX_ENCLAVE_RUN_TSC		0*8
+#define SGX_ENCLAVE_RUN_FLAGS		1*8
+#define SGX_ENCLAVE_RUN_EXIT_REASON	1*8 + 4
+#define SGX_ENCLAVE_RUN_USER_HANDLER	2*8
+/* #define SGX_ENCLAVE_RUN_USER_DATA	3*8 */
+#define SGX_ENCLAVE_RUN_EXCEPTION	4*8
+
+/* Offsets into sgx_enter_enclave.exception. */
+#define SGX_EX_LEAF			0*8
+#define SGX_EX_TRAPNR			0*8+4
+#define SGX_EX_ERROR_CODE		0*8+6
+#define SGX_EX_ADDRESS			1*8
 
 .code64
 .section .text, "ax"
@@ -30,12 +42,18 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 .Lenter_enclave:
 	/* EENTER <= leaf <= ERESUME */
 	cmp	$EENTER, %eax
-	jb	.Linvalid_leaf
+	jb	.Linvalid_input
 	cmp	$ERESUME, %eax
-	ja	.Linvalid_leaf
+	ja	.Linvalid_input
+
+	mov	SGX_ENCLAVE_RUN_PTR(%rbp), %rcx
+
+	/* No flags are currently defined/supported. */
+	cmpl	$0, SGX_ENCLAVE_RUN_FLAGS(%rcx)
+	jne	.Linvalid_input
 
 	/* Load TCS and AEP */
-	mov	0x10(%rbp), %rbx
+	mov	SGX_ENCLAVE_RUN_TSC(%rcx), %rbx
 	lea	.Lasync_exit_pointer(%rip), %rcx
 
 	/* Single ENCLU serving as both EENTER and AEP (ERESUME) */
@@ -44,12 +62,18 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	enclu
 
 	/* EEXIT jumps here unless the enclave is doing something fancy. */
-	xor	%eax, %eax
+	mov	SGX_ENCLAVE_RUN_PTR(%rbp), %rbx
+
+	/* Set exit_reason. */
+	movl	$0, SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
 
 	/* Invoke userspace's exit handler if one was provided. */
 .Lhandle_exit:
-	cmpq	$0, 0x20(%rbp)
+	cmpq	$0, SGX_ENCLAVE_RUN_USER_HANDLER(%rbx)
 	jne	.Linvoke_userspace_handler
+
+	/* Success, in the sense that ENCLU was attempted. */
+	xor	%eax, %eax
 
 .Lout:
 	pop	%rbx
@@ -60,27 +84,28 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	/* The out-of-line code runs with the pre-leave stack frame. */
 	.cfi_def_cfa		%rbp, 16
 
-.Linvalid_leaf:
+.Linvalid_input:
 	mov	$(-EINVAL), %eax
 	jmp	.Lout
 
 .Lhandle_exception:
-	mov	0x18(%rbp), %rcx
-	test    %rcx, %rcx
-	je	.Lskip_exception_info
+	mov	SGX_ENCLAVE_RUN_PTR(%rbp), %rbx
 
-	/* Fill optional exception info. */
-	mov	%eax, EX_LEAF(%rcx)
-	mov	%di,  EX_TRAPNR(%rcx)
-	mov	%si,  EX_ERROR_CODE(%rcx)
-	mov	%rdx, EX_ADDRESS(%rcx)
-.Lskip_exception_info:
-	mov	$(-EFAULT), %eax
+	/* Set the exit_reason and exception info. */
+	movl	$(-EFAULT), SGX_ENCLAVE_RUN_EXIT_REASON(%rbx)
+
+	mov	%eax, (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_LEAF)(%rbx)
+	mov	%di,  (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_TRAPNR)(%rbx)
+	mov	%si,  (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_ERROR_CODE)(%rbx)
+	mov	%rdx, (SGX_ENCLAVE_RUN_EXCEPTION + SGX_EX_ADDRESS)(%rbx)
 	jmp	.Lhandle_exit
 
 .Linvoke_userspace_handler:
 	/* Pass the untrusted RSP (at exit) to the callback via %rcx. */
 	mov	%rsp, %rcx
+
+	/* Save @e, %rbx is about to be clobbered. */
+	mov	%rbx, %rax
 
 	/* Save the untrusted RSP offset in %rbx (non-volatile register). */
 	mov	%rsp, %rbx
@@ -93,20 +118,18 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	and	$-0x10, %rsp
 	push	%rax
 
-	/* Push @e, the "return" value and @tcs as params to the callback. */
-	push	0x18(%rbp)
+	/* Push @e as a param to the callback. */
 	push	%rax
-	push	0x10(%rbp)
 
 	/* Clear RFLAGS.DF per x86_64 ABI */
 	cld
 
 	/* Load the callback pointer to %rax and invoke it via retpoline. */
-	mov	0x20(%rbp), %rax
+	mov	SGX_ENCLAVE_RUN_USER_HANDLER(%rax), %rax
 	call	.Lretpoline
 
 	/* Undo the post-exit %rsp adjustment. */
-	lea	0x20(%rsp, %rbx), %rsp
+	lea	0x10(%rsp, %rbx), %rsp
 
 	/*
 	 * If the return from callback is zero or negative, return immediately,
