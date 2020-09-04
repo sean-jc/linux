@@ -123,6 +123,24 @@ static Elf64_Sym *vdso_symtab_get(struct vdso_symtab *symtab, const char *name)
 	return NULL;
 }
 
+int check_result(struct sgx_enclave_run *run, int ret, uint64_t result,
+		 const char *test)
+{
+	if (ret) {
+		printf("FAIL: %s() returned: %d\n", test, ret);
+		return ret;
+	} else if (run->exit_reason != SGX_SYNCHRONOUS_EXIT) {
+		printf("FAIL: %s() exit reason, expected: %u, got: %u\n",
+		       test, SGX_SYNCHRONOUS_EXIT, run->exit_reason);
+		return -EIO;
+	} else if (result != MAGIC) {
+		printf("FAIL: %s(), expected: 0x%lx, got: 0x%lx\n",
+		       test, MAGIC, result);
+		return -EIO;
+	}
+	return 0;
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
 	struct sgx_enclave_run run;
@@ -132,6 +150,7 @@ int main(int argc, char *argv[], char *envp[])
 	struct encl encl;
 	unsigned int i;
 	void *addr;
+	int ret;
 
 	if (!encl_load("test_encl.elf", &encl))
 		goto err;
@@ -172,21 +191,17 @@ int main(int argc, char *argv[], char *envp[])
 
 	eenter = addr + eenter_sym->st_value;
 
-	sgx_call_vdso((void *)&MAGIC, &result, 0, EENTER, NULL, NULL, &run);
-	if (result != MAGIC) {
-		printf("FAIL: sgx_call_vdso(), expected: 0x%lx, got: 0x%lx\n",
-		       MAGIC, result);
+	ret = sgx_call_vdso((void *)&MAGIC, &result, 0, EENTER, NULL, NULL, &run);
+	if (check_result(&run, ret, result, "sgx_call_vdso"))
 		goto err;
-	}
+
 
 	/* Invoke the vDSO directly. */
 	result = 0;
-	eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER, 0, 0, &run);
-	if (result != MAGIC) {
-		printf("FAIL: eenter(), expected: 0x%lx, got: 0x%lx\n",
-		       MAGIC, result);
+	ret = eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER,
+		     0, 0, &run);
+	if (check_result(&run, ret, result, "eenter"))
 		goto err;
-	}
 
 	printf("SUCCESS\n");
 	encl_delete(&encl);
