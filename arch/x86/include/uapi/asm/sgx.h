@@ -145,7 +145,9 @@ struct sgx_enclave_run {
 };
 
 /**
- * __vdso_sgx_enter_enclave() - Enter an SGX enclave
+ * typedef vdso_sgx_enter_enclave_t - Prototype for __vdso_sgx_enter_enclave(),
+ *				      a vDSO function to enter an SGX enclave.
+ *
  * @rdi:	Pass-through value for RDI
  * @rsi:	Pass-through value for RSI
  * @rdx:	Pass-through value for RDX
@@ -177,7 +179,7 @@ struct sgx_enclave_run {
  * never fixed up and are always delivered via standard signals. On synchrously
  * reported exceptions, -EFAULT is returned and details about the exception are
  * recorded in @e, the optional sgx_enclave_exception struct.
-
+ *
  * If an exit handler is provided, the handler will be invoked on synchronous
  * exits from the enclave and for all synchronously reported exceptions. In
  * latter case, @e is filled prior to invoking the handler.
