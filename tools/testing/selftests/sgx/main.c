@@ -125,7 +125,7 @@ static Elf64_Sym *vdso_symtab_get(struct vdso_symtab *symtab, const char *name)
 
 int main(int argc, char *argv[], char *envp[])
 {
-	struct sgx_enclave_exception exception;
+	struct sgx_enclave_run run;
 	struct vdso_symtab symtab;
 	Elf64_Sym *eenter_sym;
 	uint64_t result = 0;
@@ -156,7 +156,8 @@ int main(int argc, char *argv[], char *envp[])
 		}
 	}
 
-	memset(&exception, 0, sizeof(exception));
+	memset(&run, 0, sizeof(run));
+	run.tcs = encl.encl_base;
 
 	addr = vdso_get_base_addr(envp);
 	if (!addr)
@@ -171,8 +172,7 @@ int main(int argc, char *argv[], char *envp[])
 
 	eenter = addr + eenter_sym->st_value;
 
-	sgx_call_vdso((void *)&MAGIC, &result, 0, EENTER, NULL, NULL,
-		      (void *)encl.encl_base, &exception, NULL);
+	sgx_call_vdso((void *)&MAGIC, &result, 0, EENTER, NULL, NULL, &run);
 	if (result != MAGIC) {
 		printf("FAIL: sgx_call_vdso(), expected: 0x%lx, got: 0x%lx\n",
 		       MAGIC, result);
@@ -181,8 +181,7 @@ int main(int argc, char *argv[], char *envp[])
 
 	/* Invoke the vDSO directly. */
 	result = 0;
-	eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER, 0, 0,
-	       (void *)encl.encl_base, &exception, NULL);
+	eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER, 0, 0, &run);
 	if (result != MAGIC) {
 		printf("FAIL: eenter(), expected: 0x%lx, got: 0x%lx\n",
 		       MAGIC, result);

@@ -31,15 +31,11 @@ sgx_call_vdso:
 	.cfi_rel_offset		%rbx, 0
 	push	$0
 	.cfi_adjust_cfa_offset	8
-	push	0x48(%rsp)
-	.cfi_adjust_cfa_offset	8
-	push	0x48(%rsp)
-	.cfi_adjust_cfa_offset	8
-	push	0x48(%rsp)
+	push	0x38(%rsp)
 	.cfi_adjust_cfa_offset	8
 	call	*eenter(%rip)
-	add	$0x20, %rsp
-	.cfi_adjust_cfa_offset	-0x20
+	add	$0x10, %rsp
+	.cfi_adjust_cfa_offset	-0x10
 	pop	%rbx
 	.cfi_adjust_cfa_offset	-8
 	pop	%r12

@@ -33,6 +33,6 @@ bool encl_measure(struct encl *encl);
 bool encl_build(struct encl *encl);
 
 int sgx_call_vdso(void *rdi, void *rsi, long rdx, u32 leaf, void *r8, void *r9,
-		  void *tcs, struct sgx_enclave_exception *ei, void *cb);
+		  struct sgx_enclave_run *run);
 
 #endif /* MAIN_H */
