@@ -137,7 +137,18 @@ int check_result(struct sgx_enclave_run *run, int ret, uint64_t result,
 		printf("FAIL: %s(), expected: 0x%lx, got: 0x%lx\n",
 		       test, MAGIC, result);
 		return -EIO;
+	} else if (run->user_data) {
+		printf("FAIL: %s() user data, expected: 0x0, got: 0x%llx\n",
+		       test, run->user_data);
+		return -EIO;
 	}
+	return 0;
+}
+
+static int exit_handler(long rdi, long rsi, long rdx, long ursp, long r8, long r9,
+			struct sgx_enclave_run *run)
+{
+	run->user_data = 0;
 	return 0;
 }
 
@@ -201,6 +212,14 @@ int main(int argc, char *argv[], char *envp[])
 	ret = eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER,
 		     0, 0, &run);
 	if (check_result(&run, ret, result, "eenter"))
+		goto err;
+
+	/* And with an exit handler. */
+	run.user_handler = exit_handler;
+	run.user_data = 0xdeadbeef;
+	ret = eenter((unsigned long)&MAGIC, (unsigned long)&result, 0, EENTER,
+		     0, 0, &run);
+	if (check_result(&run, ret, result, "exit_handler"))
 		goto err;
 
 	printf("SUCCESS\n");
