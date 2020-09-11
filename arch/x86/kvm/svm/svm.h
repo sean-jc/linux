@@ -214,6 +214,21 @@ static inline struct vmcb *get_host_vmcb(struct vcpu_svm *svm)
 		return svm->vmcb;
 }
 
+static inline void vmcb_set_intercept(struct vmcb_control_area *control, int bit)
+{
+	__set_bit(bit, (unsigned long *)&control->intercept_cr);
+}
+
+static inline void vmcb_clr_intercept(struct vmcb_control_area *control, int bit)
+{
+	__clear_bit(bit, (unsigned long *)&control->intercept_cr);
+}
+
+static inline bool vmcb_is_intercept(struct vmcb_control_area *control, int bit)
+{
+	return test_bit(bit, (unsigned long *)&control->intercept_cr);
+}
+
 static inline void set_cr_intercept(struct vcpu_svm *svm, int bit)
 {
 	struct vmcb *vmcb = get_host_vmcb(svm);
