@@ -215,24 +215,24 @@ static inline struct vmcb *get_host_vmcb(struct vcpu_svm *svm)
 
 static inline void vmcb_set_intercept(struct vmcb_control_area *control, int bit)
 {
-	__set_bit(bit, (unsigned long *)&control->intercept_cr);
+	__set_bit(bit, (unsigned long *)&control->intercepts);
 }
 
 static inline void vmcb_clr_intercept(struct vmcb_control_area *control, int bit)
 {
-	__clear_bit(bit, (unsigned long *)&control->intercept_cr);
+	__clear_bit(bit, (unsigned long *)&control->intercepts);
 }
 
 static inline bool vmcb_is_intercept(struct vmcb_control_area *control, int bit)
 {
-	return test_bit(bit, (unsigned long *)&control->intercept_cr);
+	return test_bit(bit, (unsigned long *)&control->intercepts);
 }
 
 static inline void set_cr_intercept(struct vcpu_svm *svm, int bit)
 {
 	struct vmcb *vmcb = get_host_vmcb(svm);
 
-	vmcb->control.intercept_cr |= (1U << bit);
+	vmcb_set_intercept(&vmcb->control, bit);
 
 	recalc_intercepts(svm);
 }
@@ -241,7 +241,7 @@ static inline void clr_cr_intercept(struct vcpu_svm *svm, int bit)
 {
 	struct vmcb *vmcb = get_host_vmcb(svm);
 
-	vmcb->control.intercept_cr &= ~(1U << bit);
+	vmcb_clr_intercept(&vmcb->control, bit);
 
 	recalc_intercepts(svm);
 }
@@ -250,7 +250,7 @@ static inline bool is_cr_intercept(struct vcpu_svm *svm, int bit)
 {
 	struct vmcb *vmcb = get_host_vmcb(svm);
 
-	return vmcb->control.intercept_cr & (1U << bit);
+	return vmcb_is_intercept(&vmcb->control, bit);
 }
 
 static inline void set_dr_intercepts(struct vcpu_svm *svm)
