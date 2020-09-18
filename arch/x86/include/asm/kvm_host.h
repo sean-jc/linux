@@ -995,6 +995,7 @@ struct kvm_arch {
 	} msr_filter;
 
 	bool guest_state_protected;
+	bool irq_injection_disallowed;
 
 	struct kvm_pmu_event_filter *pmu_event_filter;
 	struct task_struct *nx_lpage_recovery_thread;
