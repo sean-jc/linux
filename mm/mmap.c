@@ -2236,7 +2236,7 @@ get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 	if (file) {
 		if (file->f_op->get_unmapped_area)
 			get_area = file->f_op->get_unmapped_area;
-	} else if (flags & MAP_SHARED) {
+	} else if (is_map_shared(flags)) {
 		/*
 		 * mmap_region() will call shmem_zero_setup() to create a file,
 		 * so use shmem's get_unmapped_area in case it can be huge.

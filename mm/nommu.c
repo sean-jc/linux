@@ -833,7 +833,7 @@ static int validate_mmap_request(struct file *file,
 		if (!(file->f_mode & FMODE_READ))
 			return -EACCES;
 
-		if (flags & MAP_SHARED) {
+		if (is_map_shared(flags)) {
 			/* do checks for writing, appending and locking */
 			if ((prot & PROT_WRITE) &&
 			    !(file->f_mode & FMODE_WRITE))
@@ -869,7 +869,7 @@ static int validate_mmap_request(struct file *file,
 			    ((prot & PROT_EXEC)  && !(capabilities & NOMMU_MAP_EXEC))
 			    ) {
 				capabilities &= ~NOMMU_MAP_DIRECT;
-				if (flags & MAP_SHARED) {
+				if (is_map_shared(flags)) {
 					pr_warn("MAP_SHARED not completely supported on !MMU\n");
 					return -EINVAL;
 				}
@@ -940,7 +940,7 @@ static unsigned long determine_vm_flags(struct file *file,
 		 * if possible - used for chardevs, ramfs/tmpfs/shmfs and
 		 * romfs/cramfs */
 		vm_flags |= VM_MAYSHARE | (capabilities & NOMMU_VMFLAGS);
-		if (flags & MAP_SHARED)
+		if (is_map_shared(flags))
 			vm_flags |= VM_SHARED;
 	}
 
@@ -948,7 +948,7 @@ static unsigned long determine_vm_flags(struct file *file,
 	 * it's being traced - otherwise breakpoints set in it may interfere
 	 * with another untraced process
 	 */
-	if ((flags & MAP_TYPE) == MAP_PRIVATE && current->ptrace)
+	if (is_map_private(flags) && current->ptrace)
 		vm_flags &= ~VM_MAYSHARE;
 
 	return vm_flags;

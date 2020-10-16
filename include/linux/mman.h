@@ -157,5 +157,17 @@ calc_vm_flag_bits(unsigned long flags)
 	       arch_calc_vm_flag_bits(flags);
 }
 
+static inline bool is_map_shared(unsigned long flags)
+{
+	unsigned long map_type = flags & MAP_TYPE;
+
+	return map_type == MAP_SHARED || map_type == MAP_SHARED_VALIDATE;
+}
+
+static inline bool is_map_private(unsigned long flags)
+{
+	return (map_type & MAP_TYPE) == MAP_PRIVATE;
+}
+
 unsigned long vm_commit_limit(void);
 #endif /* _LINUX_MMAN_H */
