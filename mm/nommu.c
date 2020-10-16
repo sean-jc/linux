@@ -948,7 +948,7 @@ static unsigned long determine_vm_flags(struct file *file,
 	 * it's being traced - otherwise breakpoints set in it may interfere
 	 * with another untraced process
 	 */
-	if ((flags & MAP_PRIVATE) && current->ptrace)
+	if ((flags & MAP_TYPE) == MAP_PRIVATE && current->ptrace)
 		vm_flags &= ~VM_MAYSHARE;
 
 	return vm_flags;
