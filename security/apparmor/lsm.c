@@ -504,7 +504,7 @@ static int common_mmap(const char *op, struct file *file, unsigned long prot,
 	 * Private mappings don't require write perms since they don't
 	 * write back to the files
 	 */
-	if ((prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
+	if ((prot & PROT_WRITE) && (flags & MAP_TYPE) != MAP_PRIVATE)
 		mask |= MAY_WRITE;
 	if (prot & PROT_EXEC)
 		mask |= AA_EXEC_MMAP;
