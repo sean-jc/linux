@@ -2886,7 +2886,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			disallowed_hugepage_adjust(*it.sptep, gfn, it.level,
 						   &pfn, &level);
 
-		base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
+		base_gfn = gfn & KVM_HPAGE_GFN_MASK(it.level);
 		if (it.level == level)
 			break;
 

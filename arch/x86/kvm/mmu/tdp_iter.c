@@ -17,7 +17,7 @@ static void tdp_iter_refresh_sptep(struct tdp_iter *iter)
 
 static gfn_t round_gfn_for_level(gfn_t gfn, int level)
 {
-	return gfn & -KVM_PAGES_PER_HPAGE(level);
+	return gfn & KVM_HPAGE_GFN_MASK(level);
 }
 
 /*

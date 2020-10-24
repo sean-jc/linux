@@ -698,7 +698,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, gpa_t addr,
 			disallowed_hugepage_adjust(*it.sptep, gw->gfn, it.level,
 						   &pfn, &level);
 
-		base_gfn = gw->gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
+		base_gfn = gw->gfn & KVM_HPAGE_GFN_MASK(it.level);
 		if (it.level == level)
 			break;
 
@@ -751,7 +751,7 @@ FNAME(is_self_change_mapping)(struct kvm_vcpu *vcpu,
 			      bool *write_fault_to_shadow_pgtable)
 {
 	int level;
-	gfn_t mask = ~(KVM_PAGES_PER_HPAGE(walker->level) - 1);
+	gfn_t mask = KVM_HPAGE_GFN_MASK(walker->level);
 	bool self_changed = false;
 
 	if (!(walker->pte_access & ACC_WRITE_MASK ||
