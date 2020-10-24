@@ -372,7 +372,7 @@ TRACE_EVENT(
 
 	TP_fast_assign(
 		__entry->gfn = addr >> PAGE_SHIFT;
-		__entry->pfn = pfn | (__entry->gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
+		__entry->pfn = pfn | (__entry->gfn & ~KVM_HPAGE_GFN_MASK(level));
 		__entry->level = level;
 	),
 

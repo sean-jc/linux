@@ -2827,7 +2827,7 @@ int kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, gfn_t gfn,
 	 * mmu_notifier_retry() was successful and mmu_lock is held, so
 	 * the pmd can't be split from under us.
 	 */
-	mask = KVM_PAGES_PER_HPAGE(level) - 1;
+	mask = ~KVM_HPAGE_GFN_MASK(level);
 	VM_BUG_ON((gfn & mask) != (pfn & mask));
 	*pfnp = pfn & ~mask;
 
