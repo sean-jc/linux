@@ -15,11 +15,6 @@ static void tdp_iter_refresh_sptep(struct tdp_iter *iter)
 	iter->old_spte = READ_ONCE(*iter->sptep);
 }
 
-static gfn_t round_gfn_for_level(gfn_t gfn, int level)
-{
-	return gfn & KVM_HPAGE_GFN_MASK(level);
-}
-
 /*
  * Sets a TDP iterator to walk a pre-order traversal of the paging structure
  * rooted at root_pt, starting with the walk to translate goal_gfn.
@@ -36,7 +31,7 @@ void tdp_iter_start(struct tdp_iter *iter, u64 *root_pt, int root_level,
 	iter->level = root_level;
 	iter->pt_path[iter->level - 1] = root_pt;
 
-	iter->gfn = round_gfn_for_level(iter->goal_gfn, iter->level);
+	iter->gfn = iter->goal_gfn & KVM_HPAGE_GFN_MASK(iter->level);
 	tdp_iter_refresh_sptep(iter);
 
 	iter->valid = true;
@@ -82,7 +77,7 @@ static bool try_step_down(struct tdp_iter *iter)
 
 	iter->level--;
 	iter->pt_path[iter->level - 1] = child_pt;
-	iter->gfn = round_gfn_for_level(iter->goal_gfn, iter->level);
+	iter->gfn = iter->goal_gfn & KVM_HPAGE_GFN_MASK(iter->level);
 	tdp_iter_refresh_sptep(iter);
 
 	return true;
@@ -124,7 +119,7 @@ static bool try_step_up(struct tdp_iter *iter)
 		return false;
 
 	iter->level++;
-	iter->gfn = round_gfn_for_level(iter->gfn, iter->level);
+	iter->gfn &= KVM_HPAGE_GFN_MASK(iter->level);
 	tdp_iter_refresh_sptep(iter);
 
 	return true;
