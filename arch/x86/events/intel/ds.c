@@ -1265,14 +1265,14 @@ static int intel_pmu_pebs_fixup_ip(struct pt_regs *regs)
 		is_64bit = kernel_ip(to) || any_64bit_mode(regs);
 #endif
 		insn_init(&insn, kaddr, size, is_64bit);
-		insn_get_length(&insn);
+
 		/*
 		 * Make sure there was not a problem decoding the
 		 * instruction and getting the length.  This is
 		 * doubly important because we have an infinite
 		 * loop if insn.length=0.
 		 */
-		if (!insn.length)
+		if (insn_get_length(&insn) || !insn.length)
 			break;
 
 		to += insn.length;
