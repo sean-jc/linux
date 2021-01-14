@@ -525,6 +525,10 @@ void kvm_set_cpu_caps(void)
 		F(ACE2) | F(ACE2_EN) | F(PHE) | F(PHE_EN) |
 		F(PMM) | F(PMM_EN)
 	);
+
+	kvm_cpu_cap_init(CPUID_12_EAX,
+		SF(SGX1) | SF(SGX2)
+	);
 }
 EXPORT_SYMBOL_GPL(kvm_set_cpu_caps);
 
