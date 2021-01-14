@@ -50,10 +50,8 @@ void __init mem_encrypt_free_decrypted_mem(void);
 /* Architecture __weak replacement functions */
 void __init mem_encrypt_init(void);
 
-void __init sev_es_init_vc_handling(void);
 bool sme_active(void);
 bool sev_active(void);
-bool sev_es_active(void);
 
 #define __bss_decrypted __section(".bss..decrypted")
 
@@ -75,10 +73,8 @@ static inline void __init sev_setup_arch(void) { }
 static inline void __init sme_encrypt_kernel(struct boot_params *bp) { }
 static inline void __init sme_enable(struct boot_params *bp) { }
 
-static inline void sev_es_init_vc_handling(void) { }
 static inline bool sme_active(void) { return false; }
 static inline bool sev_active(void) { return false; }
-static inline bool sev_es_active(void) { return false; }
 
 static inline int __init
 early_set_memory_decrypted(unsigned long vaddr, unsigned long size) { return 0; }
@@ -90,6 +86,14 @@ static inline void mem_encrypt_free_decrypted_mem(void) { }
 #define __bss_decrypted
 
 #endif	/* CONFIG_AMD_MEM_ENCRYPT */
+
+#ifdef CONFIG_AMD_SEV_ES_GUEST
+bool sev_es_active(void);
+void __init sev_es_init_vc_handling(void);
+#else
+static inline bool sev_es_active(void) { return false; }
+static inline void sev_es_init_vc_handling(void) { }
+#endif /* CONFIG_AMD_SEV_ES_GUEST */
 
 /*
  * The __sme_pa() and __sme_pa_nodebug() macros are meant for use when

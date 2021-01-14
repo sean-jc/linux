@@ -21,7 +21,7 @@ struct real_mode_header {
 	/* SMP trampoline */
 	u32	trampoline_start;
 	u32	trampoline_header;
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 	u32	sev_es_trampoline_start;
 #endif
 #ifdef CONFIG_X86_64
@@ -60,7 +60,7 @@ extern unsigned char real_mode_blob_end[];
 extern unsigned long initial_code;
 extern unsigned long initial_gs;
 extern unsigned long initial_stack;
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 extern unsigned long initial_vc_handler;
 #endif
 

@@ -232,7 +232,7 @@ static const __initconst struct idt_data ist_idts[] = {
 #ifdef CONFIG_X86_MCE
 	ISTG(X86_TRAP_MC,	asm_exc_machine_check,		IST_INDEX_MCE),
 #endif
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 	ISTG(X86_TRAP_VC,	asm_exc_vmm_communication,	IST_INDEX_VC),
 #endif
 };

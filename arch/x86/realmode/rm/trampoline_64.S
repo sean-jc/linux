@@ -81,7 +81,7 @@ no_longmode:
 	jmp no_longmode
 SYM_CODE_END(trampoline_start)
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 /* SEV-ES supports non-zero IP for entry points - no alignment needed */
 SYM_CODE_START(sev_es_trampoline_start)
 	cli			# We should be safe anyway
@@ -98,7 +98,7 @@ SYM_CODE_START(sev_es_trampoline_start)
 
 	jmp	.Lswitch_to_protected
 SYM_CODE_END(sev_es_trampoline_start)
-#endif	/* CONFIG_AMD_MEM_ENCRYPT */
+#endif	/* CONFIG_AMD_SEV_ES_GUEST */
 
 #include "../kernel/verify_cpu.S"
 

@@ -118,7 +118,7 @@ static inline void console_init(void)
 
 void set_sev_encryption_mask(void);
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 void sev_es_shutdown_ghcb(void);
 extern bool sev_es_check_ghcb_fault(unsigned long address);
 #else
@@ -157,8 +157,11 @@ extern struct desc_ptr boot_idt_desc;
 
 /* IDT Entry Points */
 void boot_page_fault(void);
+
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 void boot_stage1_vc(void);
 void boot_stage2_vc(void);
+#endif
 
 unsigned long sev_verify_cbit(unsigned long cr3);
 

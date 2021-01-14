@@ -383,11 +383,13 @@ bool sev_active(void)
 	return sev_status & MSR_AMD64_SEV_ENABLED;
 }
 
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 /* Needs to be called from non-instrumentable code */
 bool noinstr sev_es_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ES_ENABLED;
 }
+#endif
 
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
 bool force_dma_unencrypted(struct device *dev)

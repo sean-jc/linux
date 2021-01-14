@@ -751,7 +751,7 @@ static void __init kvm_init_platform(void)
 	x86_platform.apic_post_init = kvm_apic_init;
 }
 
-#if defined(CONFIG_AMD_MEM_ENCRYPT)
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 static void kvm_sev_es_hcall_prepare(struct ghcb *ghcb, struct pt_regs *regs)
 {
 	/* RAX and CPL are already in the GHCB */
@@ -776,7 +776,7 @@ const __initconst struct hypervisor_x86 x86_hyper_kvm = {
 	.init.x2apic_available		= kvm_para_available,
 	.init.msi_ext_dest_id		= kvm_msi_ext_dest_id,
 	.init.init_platform		= kvm_init_platform,
-#if defined(CONFIG_AMD_MEM_ENCRYPT)
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 	.runtime.sev_es_hcall_prepare	= kvm_sev_es_hcall_prepare,
 	.runtime.sev_es_hcall_finish	= kvm_sev_es_hcall_finish,
 #endif

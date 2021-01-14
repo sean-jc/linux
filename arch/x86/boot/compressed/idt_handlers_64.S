@@ -71,7 +71,7 @@ SYM_FUNC_END(\name)
 
 EXCEPTION_HANDLER	boot_page_fault do_boot_page_fault error_code=1
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 EXCEPTION_HANDLER	boot_stage1_vc do_vc_no_ghcb		error_code=1
 EXCEPTION_HANDLER	boot_stage2_vc do_boot_stage2_vc	error_code=1
 #endif

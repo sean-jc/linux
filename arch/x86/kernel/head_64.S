@@ -300,7 +300,7 @@ SYM_CODE_START(start_cpu0)
 SYM_CODE_END(start_cpu0)
 #endif
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 /*
  * VC Exception handler used during early boot when running on kernel
  * addresses, but before the switch to the idt_table can be made.
@@ -338,7 +338,7 @@ SYM_CODE_END(vc_boot_ghcb)
 	.balign	8
 SYM_DATA(initial_code,	.quad x86_64_start_kernel)
 SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data))
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)
 #endif
 
@@ -403,7 +403,7 @@ SYM_CODE_START_LOCAL(early_idt_handler_common)
 	jmp restore_regs_and_return_to_kernel
 SYM_CODE_END(early_idt_handler_common)
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 /*
  * VC Exception handler used during very early boot. The
  * early_idt_handler_array can't be used because it returns via the

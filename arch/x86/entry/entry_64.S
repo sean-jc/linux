@@ -448,7 +448,7 @@ _ASM_NOKPROBE(\asmsym)
 SYM_CODE_END(\asmsym)
 .endm
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 /**
  * idtentry_vc - Macro to generate entry stub for #VC
  * @vector:		Vector number

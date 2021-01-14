@@ -33,8 +33,9 @@ void load_stage1_idt(void)
 	boot_idt_desc.address = (unsigned long)boot_idt;
 
 
-	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT))
-		set_idt_entry(X86_TRAP_VC, boot_stage1_vc);
+#ifdef CONFIG_AMD_SEV_ES_GUEST
+	set_idt_entry(X86_TRAP_VC, boot_stage1_vc);
+#endif
 
 	load_boot_idt(&boot_idt_desc);
 }
@@ -46,7 +47,7 @@ void load_stage2_idt(void)
 
 	set_idt_entry(X86_TRAP_PF, boot_page_fault);
 
-#ifdef CONFIG_AMD_MEM_ENCRYPT
+#ifdef CONFIG_AMD_SEV_ES_GUEST
 	set_idt_entry(X86_TRAP_VC, boot_stage2_vc);
 #endif
 
