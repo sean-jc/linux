@@ -1418,10 +1418,13 @@ static void sev_es_sync_to_ghcb(struct vcpu_svm *svm)
 	 * Copy their values, even if they may not have been written during the
 	 * VM-Exit.  It's the guest's responsibility to not consume random data.
 	 */
-	ghcb_set_rax(ghcb, vcpu->arch.regs[VCPU_REGS_RAX]);
-	ghcb_set_rbx(ghcb, vcpu->arch.regs[VCPU_REGS_RBX]);
-	ghcb_set_rcx(ghcb, vcpu->arch.regs[VCPU_REGS_RCX]);
-	ghcb_set_rdx(ghcb, vcpu->arch.regs[VCPU_REGS_RDX]);
+	if (svm->need_sync_to_ghcb) {
+		ghcb_set_rax(ghcb, vcpu->arch.regs[VCPU_REGS_RAX]);
+		ghcb_set_rbx(ghcb, vcpu->arch.regs[VCPU_REGS_RBX]);
+		ghcb_set_rcx(ghcb, vcpu->arch.regs[VCPU_REGS_RCX]);
+		ghcb_set_rdx(ghcb, vcpu->arch.regs[VCPU_REGS_RDX]);
+		svm->need_sync_to_ghcb = false;
+	}
 }
 
 static void sev_es_sync_from_ghcb(struct vcpu_svm *svm)
@@ -1441,8 +1444,10 @@ static void sev_es_sync_from_ghcb(struct vcpu_svm *svm)
 	 * VMMCALL allows the guest to provide extra registers. KVM also
 	 * expects RSI for hypercalls, so include that, too.
 	 *
-	 * Copy their values to the appropriate location if supplied.
+	 * Copy their values to the appropriate location if supplied, and
+	 * flag that a sync back to the GHCB is needed on the next VMRUN.
 	 */
+	svm->need_sync_to_ghcb = true;
 	memset(vcpu->arch.regs, 0, sizeof(vcpu->arch.regs));
 
 	vcpu->arch.regs[VCPU_REGS_RAX] = ghcb_get_rax_if_valid(ghcb);
