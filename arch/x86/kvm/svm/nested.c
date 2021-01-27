@@ -241,7 +241,7 @@ static bool nested_vmcb_check_cr3_cr4(struct vcpu_svm *svm,
 	 */
 	if ((save->efer & EFER_LME) && (save->cr0 & X86_CR0_PG)) {
 		if (!(save->cr4 & X86_CR4_PAE) || !(save->cr0 & X86_CR0_PE) ||
-		    (save->cr3 & vcpu->arch.cr3_lm_rsvd_bits))
+		    kvm_vcpu_is_illegal_gpa(vcpu, save->cr3))
 			return false;
 	}
 
