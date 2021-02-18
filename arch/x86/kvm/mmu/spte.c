@@ -40,6 +40,7 @@ static u64 generation_mmio_spte_mask(u64 gen)
 
 	WARN_ON(gen & ~MMIO_SPTE_GEN_MASK);
 	BUILD_BUG_ON((MMIO_SPTE_GEN_HIGH_MASK | MMIO_SPTE_GEN_LOW_MASK) & SPTE_SPECIAL_MASK);
+	BUILD_BUG_ON((MMIO_SPTE_GEN_HIGH_MASK | MMIO_SPTE_GEN_LOW_MASK) & SPTE_PRESENT);
 
 	mask = (gen << MMIO_SPTE_GEN_LOW_SHIFT) & MMIO_SPTE_GEN_LOW_MASK;
 	mask |= (gen << MMIO_SPTE_GEN_HIGH_SHIFT) & MMIO_SPTE_GEN_HIGH_MASK;
@@ -87,7 +88,7 @@ int make_spte(struct kvm_vcpu *vcpu, unsigned int pte_access, int level,
 		     bool can_unsync, bool host_writable, bool ad_disabled,
 		     u64 *new_spte)
 {
-	u64 spte = 0;
+	u64 spte = SPTE_PRESENT;
 	int ret = 0;
 
 	if (ad_disabled)
@@ -171,8 +172,9 @@ u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled)
 {
 	u64 spte;
 
-	spte = __pa(child_pt) | shadow_present_mask | PT_WRITABLE_MASK |
-	       shadow_user_mask | shadow_x_mask | shadow_me_mask;
+	spte = SPTE_PRESENT | __pa(child_pt) | shadow_present_mask |
+	       PT_WRITABLE_MASK | shadow_user_mask | shadow_x_mask |
+	       shadow_me_mask;
 
 	if (ad_disabled)
 		spte |= SPTE_AD_DISABLED_MASK;

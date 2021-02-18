@@ -5,6 +5,14 @@
 
 #include "mmu_internal.h"
 
+/*
+ * SPTE_PRESENT flags SPTEs that are present from KVM's perspective.  This does
+ * _not_ mean the SPTE is guaranteed to be present in hardware, e.g. access
+ * tracked SPTEs may be not-present in hardware, but "present" as far as KVM
+ * MMU operations are concerned.  Note, MMIO SPTEs do not set this bit.
+ */
+#define SPTE_PRESENT		BIT_ULL(62)
+
 #define PT_FIRST_AVAIL_BITS_SHIFT 10
 #define PT64_SECOND_AVAIL_BITS_SHIFT 54
 
@@ -52,11 +60,11 @@
 #define SPTE_MMU_WRITEABLE	(1ULL << (PT_FIRST_AVAIL_BITS_SHIFT + 1))
 
 /*
- * Due to limited space in PTEs, the MMIO generation is a 18 bit subset of
+ * Due to limited space in PTEs, the MMIO generation is a 17 bit subset of
  * the memslots generation and is derived as follows:
  *
  * Bits 0-8 of the MMIO generation are propagated to spte bits 3-11
- * Bits 9-17 of the MMIO generation are propagated to spte bits 54-62
+ * Bits 9-16 of the MMIO generation are propagated to spte bits 54-61
  *
  * The KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS flag is intentionally not included in
  * the MMIO generation number, as doing so would require stealing a bit from
@@ -70,7 +78,7 @@
 #define MMIO_SPTE_GEN_LOW_END		11
 
 #define MMIO_SPTE_GEN_HIGH_START	PT64_SECOND_AVAIL_BITS_SHIFT
-#define MMIO_SPTE_GEN_HIGH_END		62
+#define MMIO_SPTE_GEN_HIGH_END		61
 
 #define MMIO_SPTE_GEN_LOW_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_END, \
 						    MMIO_SPTE_GEN_LOW_START)
@@ -81,7 +89,7 @@
 #define MMIO_SPTE_GEN_HIGH_BITS		(MMIO_SPTE_GEN_HIGH_END - MMIO_SPTE_GEN_HIGH_START + 1)
 
 /* remember to adjust the comment above as well if you change these */
-static_assert(MMIO_SPTE_GEN_LOW_BITS == 9 && MMIO_SPTE_GEN_HIGH_BITS == 9);
+static_assert(MMIO_SPTE_GEN_LOW_BITS == 9 && MMIO_SPTE_GEN_HIGH_BITS == 8);
 
 #define MMIO_SPTE_GEN_LOW_SHIFT		(MMIO_SPTE_GEN_LOW_START - 0)
 #define MMIO_SPTE_GEN_HIGH_SHIFT	(MMIO_SPTE_GEN_HIGH_START - MMIO_SPTE_GEN_LOW_BITS)
@@ -204,7 +212,7 @@ static inline bool is_access_track_spte(u64 spte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte) && !is_removed_spte(pte);
+	return pte & SPTE_PRESENT;
 }
 
 static inline bool is_large_pte(u64 pte)
