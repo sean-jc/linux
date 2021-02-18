@@ -38,7 +38,7 @@ the mmu-lock on x86. Currently, the page fault can be fast in one of the
 following two cases:
 
 1. Access Tracking: The SPTE is not present, but it is marked for access
-   tracking i.e. the SPTE_SPECIAL_MASK is set. That means we need to
+   tracking i.e. the SPTE_ACC_TRACK_MASK is set. That means we need to
    restore the saved R/X bits. This is described in more detail later below.
 
 2. Write-Protection: The SPTE is present and the fault is
@@ -188,8 +188,8 @@ This is used for Intel CPUs that are using EPT but do not support the EPT A/D
 bits. In this case, when the KVM MMU notifier is called to track accesses to a
 page (via kvm_mmu_notifier_clear_flush_young), it marks the PTE as not-present
 by clearing the RWX bits in the PTE and storing the original R & X bits in
-some unused/ignored bits. In addition, the SPTE_SPECIAL_MASK is also set on the
-PTE (using the ignored bit 62). When the VM tries to access the page later on,
+some unused/ignored bits. In addition, the SPTE_ACC_TRACK_MASK is also set on
+the PTE (using ignored bits). When the VM tries to access the page later on,
 a fault is generated and the fast page fault mechanism described above is used
 to atomically restore the PTE to a Present state. The W bit is not saved when
 the PTE is marked for access tracking and during restoration to the Present
