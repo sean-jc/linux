@@ -5,8 +5,6 @@
 
 #include "mmu_internal.h"
 
-#define PT_FIRST_AVAIL_BITS_SHIFT 10
-
 #define SPTE_TYPE_SHIFT	52
 #define SPTE_TYPE_BITS		2
 #define SPTE_TYPE_MASK		((BIT_ULL(SPTE_TYPE_BITS) - 1) << SPTE_TYPE_SHIFT)
@@ -62,8 +60,14 @@ static_assert(BIT_ULL(SPTE_TYPE_BITS) >= NR_SPTE_TYPES);
 #define SHADOW_PT_INDEX(addr, level) PT64_INDEX(addr, level)
 
 
-#define SPTE_HOST_WRITEABLE	(1ULL << PT_FIRST_AVAIL_BITS_SHIFT)
-#define SPTE_MMU_WRITEABLE	(1ULL << (PT_FIRST_AVAIL_BITS_SHIFT + 1))
+/*
+ * Use software available bits 10 and 11 to track if a SPTE is writable in the
+ * host (memslots _and_ page tables), and in KVM's MMU respectively.  The MMU
+ * writable bit is used to make a dirty-logged SPTE writable without having to
+ * take mmu_lock.  See the comment above is_writable_pte() for more details.
+ */
+#define SPTE_HOST_WRITEABLE	BIT_ULL(10)
+#define SPTE_MMU_WRITEABLE	BIT_ULL(11)
 
 /*
  * Due to limited space in PTEs, the MMIO generation is a 18 bit subset of
