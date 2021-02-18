@@ -14,13 +14,39 @@
 #define SPTE_PRESENT		BIT_ULL(62)
 
 #define PT_FIRST_AVAIL_BITS_SHIFT 10
-#define PT64_SECOND_AVAIL_BITS_SHIFT 54
 
-/* The mask used to denote Access Tracking SPTEs.  Note, val=3 is available. */
-#define SPTE_ACC_TRACK_MASK (3ULL << 52)
-#define SPTE_AD_ENABLED_MASK (0ULL << 52)
-#define SPTE_AD_DISABLED_MASK (1ULL << 52)
-#define SPTE_AD_WRPROT_ONLY_MASK (2ULL << 52)
+/*
+ * The values and masks used to denote Access Tracking SPTEs.  Two bits are
+ * used to store three possible values.  Access Tracking SPTEs must always be
+ * SPTE_PRESENT, thus these bits can safely collide with MMIO SPTE generation.
+ */
+#define SPTE_ACC_TRACK_SHIFT		52
+#define SPTE_ACC_TRACK_BITS		2
+#define SPTE_ACC_TRACK_MASK		((BIT_ULL(SPTE_ACC_TRACK_BITS) - 1) << \
+					  SPTE_ACC_TRACK_SHIFT)
+enum spte_acc_track_values {
+	SPTE_AD_ENABLED = 0,
+	SPTE_AD_DISABLED,
+	SPTE_AD_DISPTE_AD_WRPROT_ONLY,
+
+	NR_SPTE_ACC_TRACK_VALUES,
+};
+#define SPTE_AD_ENABLED_MASK		((u64)SPTE_AD_ENABLED << SPTE_ACC_TRACK_SHIFT)
+#define SPTE_AD_DISABLED_MASK		((u64)SPTE_AD_DISABLED << SPTE_ACC_TRACK_SHIFT)
+#define SPTE_AD_WRPROT_ONLY_MASK	((u64)SPTE_AD_DISPTE_AD_WRPROT_ONLY << SPTE_ACC_TRACK_SHIFT)
+
+static_assert(BIT_ULL(SPTE_ACC_TRACK_BITS) >= NR_SPTE_ACC_TRACK_VALUES);
+
+/*
+ * The mask/shift to use for saving the original R/X bits when marking the PTE
+ * as not-present for access tracking purposes. We do not save the W bit as the
+ * PTEs being access tracked also need to be dirty tracked, so the W bit will be
+ * restored only when a write is attempted to the page.
+ */
+#define SHADOW_ACC_TRACK_SAVED_BITS_MASK (PT64_EPT_READABLE_MASK | \
+					  PT64_EPT_EXECUTABLE_MASK)
+#define SHADOW_ACC_TRACK_SAVED_BITS_SHIFT (SPTE_ACC_TRACK_SHIFT + \
+					   SPTE_ACC_TRACK_BITS)
 
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
 #define PT64_BASE_ADDR_MASK (physical_mask & ~(u64)(PAGE_SIZE-1))
@@ -124,16 +150,6 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
  * The number of high-order 1 bits to use in the mask above.
  */
 #define SHADOW_NONPRESENT_OR_RSVD_MASK_LEN 5
-
-/*
- * The mask/shift to use for saving the original R/X bits when marking the PTE
- * as not-present for access tracking purposes. We do not save the W bit as the
- * PTEs being access tracked also need to be dirty tracked, so the W bit will be
- * restored only when a write is attempted to the page.
- */
-#define SHADOW_ACC_TRACK_SAVED_BITS_MASK (PT64_EPT_READABLE_MASK | \
-					  PT64_EPT_EXECUTABLE_MASK)
-#define SHADOW_ACC_TRACK_SAVED_BITS_SHIFT PT64_SECOND_AVAIL_BITS_SHIFT
 
 /*
  * If a thread running without exclusive control of the MMU lock must perform a
