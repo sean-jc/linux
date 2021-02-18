@@ -8,11 +8,11 @@
 #define PT_FIRST_AVAIL_BITS_SHIFT 10
 #define PT64_SECOND_AVAIL_BITS_SHIFT 54
 
-/* The mask used to denote Access Tracking SPTEs.  Note, val=3 is available. */
-#define SPTE_SPECIAL_MASK (3ULL << 52)
-#define SPTE_AD_ENABLED_MASK (0ULL << 52)
-#define SPTE_AD_DISABLED_MASK (1ULL << 52)
-#define SPTE_AD_WRPROT_ONLY_MASK (2ULL << 52)
+#define SPTE_TYPE_SHIFT			52
+#define SPTE_TYPE_MASK			(3ULL << SPTE_TYPE_SHIFT)
+#define SPTE_AD_ENABLED_MASK		(0ULL << SPTE_TYPE_SHIFT)
+#define SPTE_AD_DISABLED_MASK		(1ULL << SPTE_TYPE_SHIFT)
+#define SPTE_AD_WRPROT_ONLY_MASK	(2ULL << SPTE_TYPE_SHIFT)
 
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
 #define PT64_BASE_ADDR_MASK (physical_mask & ~(u64)(PAGE_SIZE-1))
@@ -176,13 +176,13 @@ static inline bool sp_ad_disabled(struct kvm_mmu_page *sp)
 static inline bool spte_ad_enabled(u64 spte)
 {
 	MMU_WARN_ON(is_mmio_spte(spte));
-	return (spte & SPTE_SPECIAL_MASK) != SPTE_AD_DISABLED_MASK;
+	return (spte & SPTE_TYPE_MASK) != SPTE_AD_DISABLED_MASK;
 }
 
 static inline bool spte_ad_need_write_protect(u64 spte)
 {
 	MMU_WARN_ON(is_mmio_spte(spte));
-	return (spte & SPTE_SPECIAL_MASK) != SPTE_AD_ENABLED_MASK;
+	return (spte & SPTE_TYPE_MASK) != SPTE_AD_ENABLED_MASK;
 }
 
 static inline u64 spte_shadow_accessed_mask(u64 spte)
