@@ -13,8 +13,6 @@
  */
 #define SPTE_PRESENT		BIT_ULL(62)
 
-#define PT_FIRST_AVAIL_BITS_SHIFT 10
-
 /*
  * The values and masks used to denote Access Tracking SPTEs.  Two bits are
  * used to store three possible values.  Access Tracking SPTEs must always be
@@ -82,8 +80,14 @@ static_assert(BIT_ULL(SPTE_ACC_TRACK_BITS) >= NR_SPTE_ACC_TRACK_VALUES);
 #define SHADOW_PT_INDEX(addr, level) PT64_INDEX(addr, level)
 
 
-#define SPTE_HOST_WRITEABLE	(1ULL << PT_FIRST_AVAIL_BITS_SHIFT)
-#define SPTE_MMU_WRITEABLE	(1ULL << (PT_FIRST_AVAIL_BITS_SHIFT + 1))
+/*
+ * Use software available bits 10 and 11 to track if a SPTE is writable in the
+ * host (memslots *and* page tables), and in KVM's MMU respectively.  The MMU
+ * writable bit is used to make a dirty-logged SPTE writable without having to
+ * take mmu_lock.  See comment above is_writable_pte() for more details.
+ */
+#define SPTE_HOST_WRITEABLE	BIT_ULL(10)
+#define SPTE_MMU_WRITEABLE	BIT_ULL(11)
 
 /*
  * Due to limited space in PTEs, the MMIO generation is a 19 bit subset of
