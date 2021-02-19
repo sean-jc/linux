@@ -7,8 +7,10 @@
 
 #define PT64_UPPER_AVAIL_BITS_SHIFT	52
 
+/* TODO: add comment. */
 #define SPTE_TYPE_SHIFT			10
 #define SPTE_TYPE_MASK			(3ULL << SPTE_TYPE_SHIFT)
+#define SPTE_NOT_PRESENT		(0ULL << SPTE_TYPE_SHIFT)
 #define SPTE_AD_ENABLED_MASK		(1ULL << SPTE_TYPE_SHIFT)
 #define SPTE_AD_DISABLED_MASK		(2ULL << SPTE_TYPE_SHIFT)
 #define SPTE_AD_WRPROT_ONLY_MASK	(3ULL << SPTE_TYPE_SHIFT)
@@ -208,7 +210,13 @@ static inline bool is_access_track_spte(u64 spte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte) && !is_removed_spte(pte);
+	/*
+	 * The "not present" type absolutely must be '0' so that SPTEs that
+	 * have been zeroed, e.g. during initial page table allocation, show up
+	 * as not-present.
+	 */
+	BUILD_BUG_ON(SPTE_NOT_PRESENT != 0);
+	return !!(pte & SPTE_TYPE_MASK);
 }
 
 static inline bool is_large_pte(u64 pte)
