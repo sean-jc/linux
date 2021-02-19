@@ -6,6 +6,15 @@
 #include "mmu_internal.h"
 
 /*
+ * A MMU present SPTE is backed by actual memory and may or may not be present
+ * in hardware.  E.g. MMIO SPTEs are not considered present.  Use bit 11, as it
+ * is ignored by all flavors of SPTEs and checking a low bit often generates
+ * better code than for a high bit, e.g. 56+.  MMU present checks are pervasive
+ * enough that the improved code generation is noticeable in KVM's footprint.
+ */
+#define SPTE_MMU_PRESENT_MASK		BIT_ULL(11)
+
+/*
  * TDP SPTES (more specifically, EPT SPTEs) may not have A/D bits, and may also
  * be restricted to using write-protection (for L2 when CPU dirty logging, i.e.
  * PML, is enabled).  Use bits 52 and 53 to hold the type of A/D tracking that
@@ -202,7 +211,7 @@ static inline bool is_mmio_spte(u64 spte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte) && !is_removed_spte(pte);
+	return !!(pte & SPTE_MMU_PRESENT_MASK);
 }
 
 static inline bool sp_ad_disabled(struct kvm_mmu_page *sp)
