@@ -191,16 +191,25 @@ static inline bool sp_ad_disabled(struct kvm_mmu_page *sp)
 	return sp->role.ad_disabled;
 }
 
+static __always_inline bool is_not_spte_type(u64 spte, u64 type)
+{
+	static const u64 s = SPTE_TYPE_SHIFT;
+	/*
+	 * gcc 
+	 */
+	return ((spte >> s) & (SPTE_TYPE_MASK >> s)) != (type >> s);
+}
+
 static inline bool spte_ad_enabled(u64 spte)
 {
 	MMU_WARN_ON(is_mmio_spte(spte));
-	return (spte & SPTE_TYPE_MASK) != SPTE_AD_DISABLED_MASK;
+	return is_not_spte_type(spte, SPTE_AD_DISABLED_MASK);
 }
 
 static inline bool spte_ad_need_write_protect(u64 spte)
 {
 	MMU_WARN_ON(is_mmio_spte(spte));
-	return (spte & SPTE_TYPE_MASK) != SPTE_AD_ENABLED_MASK;
+	return is_not_spte_type(spte, SPTE_AD_ENABLED_MASK);
 }
 
 static inline u64 spte_shadow_accessed_mask(u64 spte)
@@ -222,7 +231,7 @@ static inline bool is_access_track_spte(u64 spte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte & SPTE_TYPE_MASK) != SPTE_NOT_PRESENT;
+	return is_not_spte_type(pte, SPTE_NOT_PRESENT);
 }
 
 static inline bool is_large_pte(u64 pte)
