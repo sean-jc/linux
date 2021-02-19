@@ -94,6 +94,8 @@ int make_spte(struct kvm_vcpu *vcpu, unsigned int pte_access, int level,
 		spte |= SPTE_AD_DISABLED_MASK;
 	else if (kvm_vcpu_ad_need_write_protect(vcpu))
 		spte |= SPTE_AD_WRPROT_ONLY_MASK;
+	else
+		spte |= SPTE_AD_ENABLED;
 
 	/*
 	 * For the EPT case, shadow_present_mask is 0 if hardware
@@ -177,7 +179,7 @@ u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled)
 	if (ad_disabled)
 		spte |= SPTE_AD_DISABLED_MASK;
 	else
-		spte |= shadow_accessed_mask;
+		spte |= SPTE_AD_ENABLED | shadow_accessed_mask;
 
 	return spte;
 }
