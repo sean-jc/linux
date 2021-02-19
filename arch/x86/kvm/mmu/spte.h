@@ -12,7 +12,8 @@
 #define SPTE_TYPE_MASK		((BIT_ULL(SPTE_TYPE_BITS) - 1) << SPTE_TYPE_SHIFT)
 
 enum kvm_spte_types {
-	SPTE_AD_ENABLED = 1,
+	SPTE_NOT_PRESENT = 0,
+	SPTE_AD_ENABLED,
 	SPTE_AD_DISABLED,
 	SPTE_AD_WRPROT_ONLY,
 
@@ -22,6 +23,7 @@ enum kvm_spte_types {
 #define SPTE_AD_DISABLED_MASK		((u64)SPTE_AD_DISABLED << SPTE_TYPE_SHIFT)
 #define SPTE_AD_WRPROT_ONLY_MASK	((u64)SPTE_AD_WRPROT_ONLY << SPTE_TYPE_SHIFT)
 
+static_assert(SPTE_NOT_PRESENT == 0);
 static_assert(BIT_ULL(SPTE_TYPE_BITS) >= NR_SPTE_TYPES);
 
 #define PT64_SECOND_AVAIL_BITS_SHIFT (SPTE_TYPE_SHIFT + SPTE_TYPE_BITS)
@@ -216,7 +218,7 @@ static inline bool is_access_track_spte(u64 spte)
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte) && !is_removed_spte(pte);
+	return (pte & SPTE_TYPE_MASK) != SPTE_NOT_PRESENT;
 }
 
 static inline bool is_large_pte(u64 pte)
