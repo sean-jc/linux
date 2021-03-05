@@ -15,6 +15,7 @@
 #include <asm/cpu.h>
 #include <asm/spec-ctrl.h>
 #include <asm/smp.h>
+#include <asm/mem_encrypt.h>
 #include <asm/numa.h>
 #include <asm/pci-direct.h>
 #include <asm/delay.h>
@@ -575,9 +576,32 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 	resctrl_cpu_detect(c);
 }
 
+#define SEV_CBIT_MSG "SEV: C-bit (bit %d), overlaps MAXPHYADDR (%d bits).  VMM is buggy or malicious, overriding MAXPHYADDR to %d.\n"
+
 static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
 {
 	u64 msr;
+
+	/*
+	 * When running as an SEV guest of any flavor, update the physical
+	 * address width to account for the C-bit and clear all of the SME/SVE
+	 * feature flags.  As far as the kernel is concerned, the SEV flags
+	 * enumerate what features can be used by the kernel/KVM, not what
+	 * features have been activated by the VMM.
+	 */
+	if (sev_active()) {
+		int c_bit = ilog2(sme_me_mask);
+
+		BUG_ON(!sme_me_mask);
+
+		c->x86_phys_bits -= (cpuid_ebx(0x8000001f) >> 6) & 0x3f;
+
+		if (c_bit < c->x86_phys_bits) {
+			pr_crit_once(SEV_CBIT_MSG, c_bit, c->x86_phys_bits, c_bit);
+			c->x86_phys_bits = c_bit;
+		}
+		goto clear_all;
+	}
 
 	/*
 	 * BIOS support is required for SME and SEV.
@@ -612,13 +636,13 @@ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
 			goto clear_sev;
 
 		return;
+	}
 
 clear_all:
-		setup_clear_cpu_cap(X86_FEATURE_SME);
+	setup_clear_cpu_cap(X86_FEATURE_SME);
 clear_sev:
-		setup_clear_cpu_cap(X86_FEATURE_SEV);
-		setup_clear_cpu_cap(X86_FEATURE_SEV_ES);
-	}
+	setup_clear_cpu_cap(X86_FEATURE_SEV);
+	setup_clear_cpu_cap(X86_FEATURE_SEV_ES);
 }
 
 static void early_init_amd(struct cpuinfo_x86 *c)
