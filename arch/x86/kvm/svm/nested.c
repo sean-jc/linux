@@ -1125,15 +1125,11 @@ int nested_svm_exit_special(struct vcpu_svm *svm)
 	case SVM_EXIT_EXCP_BASE + MC_VECTOR:
 		return NESTED_EXIT_HOST;
 	case SVM_EXIT_EXCP_BASE + DB_VECTOR:
-	case SVM_EXIT_EXCP_BASE + BP_VECTOR: {
+	case SVM_EXIT_EXCP_BASE + BP_VECTOR:
 		/* KVM gets first crack at #DBs and #BPs, if it wants them. */
-		u32 excp_bits = 1 << (exit_code - SVM_EXIT_EXCP_BASE);
-
-		if (svm->vmcb01.ptr->control.intercepts[INTERCEPT_EXCEPTION] &
-		    excp_bits)
+		if (vmcb_is_intercept(&svm->vmcb01.ptr->control, exit_code))
 			return NESTED_EXIT_HOST;
 		break;
-	}
 	case SVM_EXIT_EXCP_BASE + PF_VECTOR:
 		/* Trap async PF even if not shadowing */
 		if (svm->vcpu.arch.apf.host_apf_flags)
