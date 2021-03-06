@@ -926,11 +926,11 @@ static int nested_svm_intercept(struct vcpu_svm *svm)
 	}
 	case SVM_EXIT_EXCP_BASE ... SVM_EXIT_EXCP_BASE + 0x1f: {
 		/*
-		 * Host-intercepted exceptions have been checked already in
-		 * nested_svm_exit_special.  There is nothing to do here,
-		 * the vmexit is injected by svm_check_nested_events.
+		 * Note, KVM may already have snagged exceptions it wants to
+		 * handle even if L1 also wants the exception, e.g. #MC.
 		 */
-		vmexit = NESTED_EXIT_DONE;
+		if (vmcb_is_intercept(&svm->nested.ctl, exit_code))
+			vmexit = NESTED_EXIT_DONE;
 		break;
 	}
 	case SVM_EXIT_ERR: {
@@ -1122,19 +1122,23 @@ int nested_svm_exit_special(struct vcpu_svm *svm)
 	case SVM_EXIT_INTR:
 	case SVM_EXIT_NMI:
 	case SVM_EXIT_NPF:
+	case SVM_EXIT_EXCP_BASE + MC_VECTOR:
 		return NESTED_EXIT_HOST;
-	case SVM_EXIT_EXCP_BASE ... SVM_EXIT_EXCP_BASE + 0x1f: {
+	case SVM_EXIT_EXCP_BASE + DB_VECTOR:
+	case SVM_EXIT_EXCP_BASE + BP_VECTOR: {
+		/* KVM gets first crack at #DBs and #BPs, if it wants them. */
 		u32 excp_bits = 1 << (exit_code - SVM_EXIT_EXCP_BASE);
 
 		if (svm->vmcb01.ptr->control.intercepts[INTERCEPT_EXCEPTION] &
 		    excp_bits)
 			return NESTED_EXIT_HOST;
-		else if (exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR &&
-			 svm->vcpu.arch.apf.host_apf_flags)
-			/* Trap async PF even if not shadowing */
-			return NESTED_EXIT_HOST;
 		break;
 	}
+	case SVM_EXIT_EXCP_BASE + PF_VECTOR:
+		/* Trap async PF even if not shadowing */
+		if (svm->vcpu.arch.apf.host_apf_flags)
+			return NESTED_EXIT_HOST;
+		break;
 	default:
 		break;
 	}
