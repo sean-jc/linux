@@ -746,6 +746,8 @@ extern int usb_lock_device_for_reset(struct usb_device *udev,
 extern int usb_reset_device(struct usb_device *dev);
 extern void usb_queue_reset_device(struct usb_interface *dev);
 
+extern struct device *usb_intf_get_dma_device(struct usb_interface *intf);
+
 #ifdef CONFIG_ACPI
 extern int usb_acpi_set_power_state(struct usb_device *hdev, int index,
 	bool enable);
@@ -1256,8 +1258,6 @@ struct usb_device_driver {
 };
 #define	to_usb_device_driver(d) container_of(d, struct usb_device_driver, \
 		drvwrap.driver)
-
-extern struct bus_type usb_bus_type;
 
 /**
  * struct usb_class_driver - identifies a USB driver that wants to use the USB major number

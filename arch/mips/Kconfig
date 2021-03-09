@@ -26,6 +26,7 @@ config MIPS
 	select GENERIC_ATOMIC64 if !64BIT
 	select GENERIC_CMOS_UPDATE
 	select GENERIC_CPU_AUTOPROBE
+	select GENERIC_FIND_FIRST_BIT
 	select GENERIC_GETTIMEOFDAY
 	select GENERIC_IOMAP
 	select GENERIC_IRQ_PROBE
@@ -712,6 +713,7 @@ config SGI_IP27
 	select ARC_CMDLINE_ONLY
 	select BOOT_ELF64
 	select DEFAULT_SGI_PARTITION
+	select FORCE_PCI
 	select SYS_HAS_EARLY_PRINTK
 	select HAVE_PCI
 	select IRQ_MIPS_CPU
@@ -774,6 +776,7 @@ config SGI_IP30
 	select BOOT_ELF64
 	select CEVT_R4K
 	select CSRC_R4K
+	select FORCE_PCI
 	select SYNC_R4K if SMP
 	select ZONE_DMA32
 	select HAVE_PCI
@@ -2118,7 +2121,7 @@ config CPU_MIPS32
 config CPU_MIPS64
 	bool
 	default y if CPU_MIPS64_R1 || CPU_MIPS64_R2 || CPU_MIPS64_R5 || \
-		     CPU_MIPS64_R6
+		     CPU_MIPS64_R6 || CPU_LOONGSON64 || CPU_CAVIUM_OCTEON
 
 #
 # These indicate the revision of the architecture

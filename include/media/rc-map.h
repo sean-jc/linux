@@ -175,6 +175,13 @@ struct rc_map_list {
 	struct rc_map map;
 };
 
+#ifdef CONFIG_MEDIA_CEC_RC
+/*
+ * rc_map_list from rc-cec.c
+ */
+extern struct rc_map_list cec_map;
+#endif
+
 /* Routines from rc-map.c */
 
 /**
@@ -273,6 +280,7 @@ struct rc_map *rc_map_get(const char *name);
 #define RC_MAP_MEDION_X10                "rc-medion-x10"
 #define RC_MAP_MEDION_X10_DIGITAINER     "rc-medion-x10-digitainer"
 #define RC_MAP_MEDION_X10_OR2X           "rc-medion-x10-or2x"
+#define RC_MAP_MINIX_NEO                 "rc-minix-neo"
 #define RC_MAP_MSI_DIGIVOX_II            "rc-msi-digivox-ii"
 #define RC_MAP_MSI_DIGIVOX_III           "rc-msi-digivox-iii"
 #define RC_MAP_MSI_TVANYWHERE            "rc-msi-tvanywhere"
@@ -331,6 +339,7 @@ struct rc_map *rc_map_get(const char *name);
 #define RC_MAP_WINFAST                   "rc-winfast"
 #define RC_MAP_WINFAST_USBII_DELUXE      "rc-winfast-usbii-deluxe"
 #define RC_MAP_X96MAX                    "rc-x96max"
+#define RC_MAP_XBOX_360                  "rc-xbox-360"
 #define RC_MAP_XBOX_DVD                  "rc-xbox-dvd"
 #define RC_MAP_ZX_IRDEC                  "rc-zx-irdec"
 

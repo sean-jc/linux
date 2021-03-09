@@ -1502,10 +1502,38 @@ static struct dev_pm_opp *_opp_get_next(struct opp_table *opp_table,
 	return opp;
 }
 
+/*
+ * Can't remove the OPP from under the lock, debugfs removal needs to happen
+ * lock less to avoid circular dependency issues. This must be called without
+ * the opp_table->lock held.
+ */
+static int _opp_drain_list(struct opp_table *opp_table, bool dynamic)
+{
+	struct dev_pm_opp *opp, *current_opp = NULL;
+	int count = 0;
+
+	while ((opp = _opp_get_next(opp_table, dynamic))) {
+		if (opp_table->current_opp == opp) {
+			/*
+			 * Reached at current OPP twice, no other OPPs left. The
+			 * last reference to current_opp is dropped from
+			 * _opp_table_kref_release().
+			 */
+			if (current_opp)
+				break;
+
+			current_opp = opp;
+		}
+
+		dev_pm_opp_put(opp);
+		count++;
+	}
+
+	return count;
+}
+
 bool _opp_remove_all_static(struct opp_table *opp_table)
 {
-	struct dev_pm_opp *opp;
-
 	mutex_lock(&opp_table->lock);
 
 	if (!opp_table->parsed_static_opps) {
@@ -1520,13 +1548,7 @@ bool _opp_remove_all_static(struct opp_table *opp_table)
 
 	mutex_unlock(&opp_table->lock);
 
-	/*
-	 * Can't remove the OPP from under the lock, debugfs removal needs to
-	 * happen lock less to avoid circular dependency issues.
-	 */
-	while ((opp = _opp_get_next(opp_table, false)))
-		dev_pm_opp_put(opp);
-
+	_opp_drain_list(opp_table, false);
 	return true;
 }
 
@@ -1539,21 +1561,13 @@ bool _opp_remove_all_static(struct opp_table *opp_table)
 void dev_pm_opp_remove_all_dynamic(struct device *dev)
 {
 	struct opp_table *opp_table;
-	struct dev_pm_opp *opp;
-	int count = 0;
+	int count;
 
 	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table))
 		return;
 
-	/*
-	 * Can't remove the OPP from under the lock, debugfs removal needs to
-	 * happen lock less to avoid circular dependency issues.
-	 */
-	while ((opp = _opp_get_next(opp_table, true))) {
-		dev_pm_opp_put(opp);
-		count++;
-	}
+	count = _opp_drain_list(opp_table, true);
 
 	/* Drop the references taken by dev_pm_opp_add() */
 	while (count--)

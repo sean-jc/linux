@@ -44,6 +44,14 @@
 /* Max number of iovectors we can use off the stack when sending requests. */
 #define CIFS_MAX_IOV_SIZE 8
 
+/*
+ * Min number of credits for a channel to be picked.
+ *
+ * Note that once a channel reaches this threshold it will never be
+ * picked again as no credits can be requested from it.
+ */
+#define CIFS_CHANNEL_MIN_CREDITS 3
+
 void
 cifs_wake_up_task(struct mid_q_entry *mid)
 {
@@ -101,7 +109,7 @@ static void _cifs_mid_q_entry_release(struct kref *refcount)
 	if (midEntry->resp_buf && (midEntry->mid_flags & MID_WAIT_CANCELLED) &&
 	    midEntry->mid_state == MID_RESPONSE_RECEIVED &&
 	    server->ops->handle_cancelled_mid)
-		server->ops->handle_cancelled_mid(midEntry->resp_buf, server);
+		server->ops->handle_cancelled_mid(midEntry, server);
 
 	midEntry->mid_state = MID_FREE;
 	atomic_dec(&midCount);
@@ -1051,20 +1059,53 @@ cifs_cancelled_callback(struct mid_q_entry *mid)
 struct TCP_Server_Info *cifs_pick_channel(struct cifs_ses *ses)
 {
 	uint index = 0;
+	struct TCP_Server_Info *s;
 
 	if (!ses)
 		return NULL;
 
-	if (!ses->binding) {
-		/* round robin */
-		if (ses->chan_count > 1) {
-			index = (uint)atomic_inc_return(&ses->chan_seq);
-			index %= ses->chan_count;
-		}
-		return ses->chans[index].server;
-	} else {
+	if (ses->binding)
 		return cifs_ses_server(ses);
+
+	/*
+	 * Channels are created right after the session is made. The
+	 * count cannot change after that so it is not racy to check.
+	 */
+	if (ses->chan_count == 1)
+		return ses->chans[index].server;
+
+	/* round robin */
+	index = (uint)atomic_inc_return(&ses->chan_seq);
+	index %= ses->chan_count;
+	s = ses->chans[index].server;
+
+	/*
+	 * Checking server credits is racy, but getting a slightly
+	 * stale value should not be an issue here
+	 */
+	if (s->credits <= CIFS_CHANNEL_MIN_CREDITS) {
+		uint i;
+
+		cifs_dbg(VFS, "cannot pick conn_id=0x%llx not enough credits (%u)",
+			 s->conn_id,
+			 s->credits);
+
+		/*
+		 * Look at all other channels starting from the next
+		 * one and pick first possible channel.
+		 */
+		for (i = 1; i < ses->chan_count; i++) {
+			s = ses->chans[(index+i) % ses->chan_count].server;
+			if (s->credits > CIFS_CHANNEL_MIN_CREDITS)
+				return s;
+		}
 	}
+
+	/*
+	 * If none are possible, keep the initially picked one, but
+	 * later on it will block to wait for credits or fail.
+	 */
+	return ses->chans[index].server;
 }
 
 int
@@ -1207,7 +1248,7 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 	}
 	if (rc != 0) {
 		for (; i < num_rqst; i++) {
-			cifs_server_dbg(VFS, "Cancelling wait for mid %llu cmd: %d\n",
+			cifs_server_dbg(FYI, "Cancelling wait for mid %llu cmd: %d\n",
 				 midQ[i]->mid, le16_to_cpu(midQ[i]->command));
 			send_cancel(server, &rqst[i], midQ[i]);
 			spin_lock(&GlobalMid_Lock);
