@@ -547,12 +547,10 @@ bool __oom_reap_task_mm(struct mm_struct *mm)
 						vma, mm, vma->vm_start,
 						vma->vm_end);
 			tlb_gather_mmu(&tlb, mm, range.start, range.end);
-			if (mmu_notifier_invalidate_range_start_nonblock(&range)) {
-				tlb_finish_mmu(&tlb, range.start, range.end);
+			if (!mmu_notifier_invalidate_range_start_nonblock(&range))
+				unmap_page_range(&tlb, vma, range.start, range.end, NULL);
+			else
 				ret = false;
-				continue;
-			}
-			unmap_page_range(&tlb, vma, range.start, range.end, NULL);
 			mmu_notifier_invalidate_range_end(&range);
 			tlb_finish_mmu(&tlb, range.start, range.end);
 		}
