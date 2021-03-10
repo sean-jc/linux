@@ -439,6 +439,27 @@ static inline struct kvm *mmu_notifier_to_kvm(struct mmu_notifier *mn)
 	return container_of(mn, struct kvm, mmu_notifier);
 }
 
+static bool hva_range_in_memslots(struct kvm *kvm, unsigned long start,
+				  unsigned long end)
+{
+	unsigned long overlap_start, overlap_end;
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
+	int as_id;
+
+	for (as_id = 0; as_id < KVM_ADDRESS_SPACE_NUM; as_id++) {
+		slots = __kvm_memslots(kvm, as_id);
+		kvm_for_each_memslot(memslot, slots) {
+			overlap_start = max(start, memslot->userspace_addr);
+			overlap_end = min(end, memslot->userspace_addr +
+					       (memslot->npages << PAGE_SHIFT));
+			if (overlap_start < overlap_end)
+				return true;
+		}
+	}
+	return false;
+}
+
 static void kvm_mmu_notifier_invalidate_range(struct mmu_notifier *mn,
 					      struct mm_struct *mm,
 					      unsigned long start, unsigned long end)
@@ -447,7 +468,8 @@ static void kvm_mmu_notifier_invalidate_range(struct mmu_notifier *mn,
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
-	kvm_arch_mmu_notifier_invalidate_range(kvm, start, end);
+	if (hva_range_in_memslots(kvm, start, end))
+		kvm_arch_mmu_notifier_invalidate_range(kvm, start, end);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
@@ -461,16 +483,21 @@ static void kvm_mmu_notifier_change_pte(struct mmu_notifier *mn,
 
 	idx = srcu_read_lock(&kvm->srcu);
 
-	KVM_MMU_LOCK(kvm);
+	if (hva_range_in_memslots(kvm, address, address + 1)) {
+		KVM_MMU_LOCK(kvm);
 
-	kvm->mmu_notifier_seq++;
+		kvm->mmu_notifier_seq++;
 
-	if (kvm_set_spte_hva(kvm, address, pte))
-		kvm_flush_remote_tlbs(kvm);
+		if (kvm_set_spte_hva(kvm, address, pte))
+			kvm_flush_remote_tlbs(kvm);
 
-	KVM_MMU_UNLOCK(kvm);
+		KVM_MMU_UNLOCK(kvm);
+	}
+
 	srcu_read_unlock(&kvm->srcu, idx);
 }
+
+
 
 static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 					const struct mmu_notifier_range *range)
@@ -479,6 +506,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	int need_tlb_flush = 0, idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
+
 	KVM_MMU_LOCK(kvm);
 	/*
 	 * The count increase must become visible at unlock time as no
@@ -511,6 +539,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 		kvm_flush_remote_tlbs(kvm);
 
 	KVM_MMU_UNLOCK(kvm);
+
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	return 0;
@@ -549,13 +578,17 @@ static int kvm_mmu_notifier_clear_flush_young(struct mmu_notifier *mn,
 	int young, idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
-	KVM_MMU_LOCK(kvm);
 
-	young = kvm_age_hva(kvm, start, end);
-	if (young)
-		kvm_flush_remote_tlbs(kvm);
+	if (hva_range_in_memslots(kvm, start, end)) {
+		KVM_MMU_LOCK(kvm);
 
-	KVM_MMU_UNLOCK(kvm);
+		young = kvm_age_hva(kvm, start, end);
+		if (young)
+			kvm_flush_remote_tlbs(kvm);
+
+		KVM_MMU_UNLOCK(kvm);
+	}
+
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	return young;
@@ -570,22 +603,26 @@ static int kvm_mmu_notifier_clear_young(struct mmu_notifier *mn,
 	int young, idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
-	KVM_MMU_LOCK(kvm);
-	/*
-	 * Even though we do not flush TLB, this will still adversely
-	 * affect performance on pre-Haswell Intel EPT, where there is
-	 * no EPT Access Bit to clear so that we have to tear down EPT
-	 * tables instead. If we find this unacceptable, we can always
-	 * add a parameter to kvm_age_hva so that it effectively doesn't
-	 * do anything on clear_young.
-	 *
-	 * Also note that currently we never issue secondary TLB flushes
-	 * from clear_young, leaving this job up to the regular system
-	 * cadence. If we find this inaccurate, we might come up with a
-	 * more sophisticated heuristic later.
-	 */
-	young = kvm_age_hva(kvm, start, end);
-	KVM_MMU_UNLOCK(kvm);
+
+	if (hva_range_in_memslots(kvm, start, end)) {
+		KVM_MMU_LOCK(kvm);
+		/*
+		* Even though we do not flush TLB, this will still adversely
+		* affect performance on pre-Haswell Intel EPT, where there is
+		* no EPT Access Bit to clear so that we have to tear down EPT
+		* tables instead. If we find this unacceptable, we can always
+		* add a parameter to kvm_age_hva so that it effectively doesn't
+		* do anything on clear_young.
+		*
+		* Also note that currently we never issue secondary TLB flushes
+		* from clear_young, leaving this job up to the regular system
+		* cadence. If we find this inaccurate, we might come up with a
+		* more sophisticated heuristic later.
+		*/
+		young = kvm_age_hva(kvm, start, end);
+		KVM_MMU_UNLOCK(kvm);
+	}
+
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	return young;
@@ -599,9 +636,13 @@ static int kvm_mmu_notifier_test_young(struct mmu_notifier *mn,
 	int young, idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
-	KVM_MMU_LOCK(kvm);
-	young = kvm_test_age_hva(kvm, address);
-	KVM_MMU_UNLOCK(kvm);
+
+	if (hva_range_in_memslots(kvm, address, address + 1)) {
+		KVM_MMU_LOCK(kvm);
+		young = kvm_test_age_hva(kvm, address);
+		KVM_MMU_UNLOCK(kvm);
+	}
+
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	return young;
