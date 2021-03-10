@@ -505,6 +505,25 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 	int need_tlb_flush = 0, idx;
 
+	/*
+	 * Skip the optimized lookup on non-blockable calls, e.g. OOM kill,
+	 * odds are very good this VM is doomed anyways.
+	 */
+	if (mmu_notifier_range_blockable(range)) {
+		/*
+		 * Prevent memslot modification between range_start() and
+		 * range_end() so that hva_range_in_memslots() provides the
+		 * same result in both functions.  Without that guarantee,
+		 * the mmu_notifier_count adjustments will be imbalanced.
+		 *
+		 * Pairs with the unlock in range_end().
+		 */
+		down_read(&kvm->mmu_notifier_slots_lock);
+
+		if (!hva_range_in_memslots(kvm, range->start, range->end))
+			return 0;
+	}
+
 	idx = srcu_read_lock(&kvm->srcu);
 
 	KVM_MMU_LOCK(kvm);
@@ -549,6 +568,17 @@ static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 					const struct mmu_notifier_range *range)
 {
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
+	bool found;
+
+	/* Non-blockable calls always go down the slow path.  See range_start(). */
+	if (mmu_notifier_range_blockable(range)) {
+		found = hva_range_in_memslots(kvm, range->start, range->end);
+
+		/* Pairs with the lock in range_start(). */
+		up_read(&kvm->mmu_notifier_slots_lock);
+		if (!found)
+			return;
+	}
 
 	KVM_MMU_LOCK(kvm);
 	/*
@@ -672,6 +702,8 @@ static const struct mmu_notifier_ops kvm_mmu_notifier_ops = {
 
 static int kvm_init_mmu_notifier(struct kvm *kvm)
 {
+	init_rwsem(&kvm->mmu_notifier_slots_lock);
+
 	kvm->mmu_notifier.ops = &kvm_mmu_notifier_ops;
 	return mmu_notifier_register(&kvm->mmu_notifier, current->mm);
 }
@@ -934,6 +966,15 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	kvm_coalesced_mmio_free(kvm);
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
 	mmu_notifier_unregister(&kvm->mmu_notifier, kvm->mm);
+	/*
+	 * Reset the lock used to prevent memslot updates between MMU notifier
+	 * range_start and range_end.  At this point no more MMU notifiers will
+	 * run, but the lock could still be held if KVM's notifier was removed
+	 * between range_start and range_end.  No threads can be waiting on the
+	 * lock as the last reference on KVM has been dropped.  If the lock is
+	 * still held, freeing memslots will deadlock.
+	 */
+	init_rwsem(&kvm->mmu_notifier_slots_lock);
 #else
 	kvm_arch_flush_shadow_all(kvm);
 #endif
@@ -1185,7 +1226,13 @@ static struct kvm_memslots *install_new_memslots(struct kvm *kvm,
 	WARN_ON(gen & KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS);
 	slots->generation = gen | KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
 
+#if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
+	down_write(&kvm->mmu_notifier_slots_lock);
+#endif
 	rcu_assign_pointer(kvm->memslots[as_id], slots);
+#if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
+	up_write(&kvm->mmu_notifier_slots_lock);
+#endif
 	synchronize_srcu_expedited(&kvm->srcu);
 
 	/*
