@@ -402,6 +402,15 @@ static inline void kvm_machine_check(void)
 #endif
 }
 
+static inline void kvm_vtime_account_guest_exit(bool irqs_handled)
+{
+	if (irqs_handled != vtime_accounting_enabled_this_cpu()) {
+		instrumentation_begin();
+		vtime_account_guest_exit();
+		instrumentation_end();
+	}
+}
+
 void kvm_load_guest_xsave_state(struct kvm_vcpu *vcpu);
 void kvm_load_host_xsave_state(struct kvm_vcpu *vcpu);
 int kvm_spec_ctrl_test_value(u64 value);
