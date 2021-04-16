@@ -842,6 +842,7 @@ int svm_allocate_nested(struct vcpu_svm *svm)
 		goto err_free_vmcb02;
 	svm_vcpu_init_msrpm(&svm->vcpu, svm->nested.msrpm);
 
+	svm->nested.vmcb02.asid_generation = 0;
 	svm->nested.last_vmcb12_asid = 0;
 
 	svm->nested.initialized = true;

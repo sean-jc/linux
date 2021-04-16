@@ -3567,21 +3567,26 @@ static int svm_set_identity_map_addr(struct kvm *kvm, u64 ident_addr)
 	return 0;
 }
 
-void svm_flush_tlb(struct kvm_vcpu *vcpu)
+static void __svm_flush_tlb(struct kvm_vmcb_info *vmcb)
+{
+	if (static_cpu_has(X86_FEATURE_FLUSHBYASID))
+		vmcb->ptr->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
+	else
+		vmcb->asid_generation--;
+}
+
+static void svm_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	/*
-	 * Flush only the current ASID even if the TLB flush was invoked via
-	 * kvm_flush_remote_tlbs().  Although flushing remote TLBs requires all
-	 * ASIDs to be flushed, KVM uses a single ASID for L1 and L2, and
-	 * unconditionally does a TLB flush on both nested VM-Enter and nested
-	 * VM-Exit (via kvm_mmu_reset_context()).
-	 */
-	if (static_cpu_has(X86_FEATURE_FLUSHBYASID))
-		svm->vmcb->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
-	else
-		svm->current_vmcb->asid_generation--;
+	__svm_flush_tlb(&svm->vmcb01);
+	if (svm->nested.initialized)
+		__svm_flush_tlb(&svm->nested.vmcb02);
+}
+
+void svm_flush_tlb(struct kvm_vcpu *vcpu)
+{
+	__svm_flush_tlb(to_svm(vcpu)->current_vmcb);
 }
 
 static void svm_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t gva)
@@ -4519,7 +4524,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.get_rflags = svm_get_rflags,
 	.set_rflags = svm_set_rflags,
 
-	.tlb_flush_all = svm_flush_tlb,
+	.tlb_flush_all = svm_flush_tlb_all,
 	.tlb_flush_current = svm_flush_tlb,
 	.tlb_flush_gva = svm_flush_tlb_gva,
 	.tlb_flush_guest = svm_flush_tlb,
