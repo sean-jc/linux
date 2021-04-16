@@ -482,8 +482,7 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm)
 
 	/* Done at vmrun: asid.  */
 
-	/* Also overwritten later if necessary.  */
-	svm->vmcb->control.tlb_ctl = TLB_CONTROL_DO_NOTHING;
+	/* Don't touch tlb_ctl, i.e. preserve any pending TLB flush for L2. */
 
 	/* nested_cr3.  */
 	if (nested_npt_enabled(svm))
