@@ -1793,7 +1793,7 @@ void pre_sev_run(struct vcpu_svm *svm, int cpu)
 	pre_sev_es_run(svm);
 
 	/* Assign the asid allocated with this SEV guest */
-	svm->asid = asid;
+	svm->vmcb->control.asid = asid;
 
 	/*
 	 * Flush guest TLB:
