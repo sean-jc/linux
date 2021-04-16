@@ -480,9 +480,17 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm)
 	svm->vmcb->control.iopm_base_pa = svm->vmcb01.ptr->control.iopm_base_pa;
 	svm->vmcb->control.msrpm_base_pa = svm->vmcb01.ptr->control.msrpm_base_pa;
 
-	/* Done at vmrun: asid.  */
-
-	/* Don't touch tlb_ctl, i.e. preserve any pending TLB flush for L2. */
+	/*
+	 * Flush L2's ASID if requested by L1.  The actual ASID used for L2
+	 * will be assigned at VMRUN (the real one).  Don't reset tlb_ctl, even
+	 * if this VMRUN doesn't require a flush, as any pending TLB flush for
+	 * L2 needs to be honored.
+	 */
+	if (svm->nested.ctl.asid != svm->nested.last_vmcb12_asid ||
+	    svm->nested.ctl.tlb_ctl != TLB_CONTROL_DO_NOTHING) {
+		svm_flush_tlb(&svm->vcpu);
+		svm->nested.last_vmcb12_asid = svm->nested.ctl.asid;
+	}
 
 	/* nested_cr3.  */
 	if (nested_npt_enabled(svm))
@@ -833,6 +841,8 @@ int svm_allocate_nested(struct vcpu_svm *svm)
 	if (!svm->nested.msrpm)
 		goto err_free_vmcb02;
 	svm_vcpu_init_msrpm(&svm->vcpu, svm->nested.msrpm);
+
+	svm->nested.last_vmcb12_asid = 0;
 
 	svm->nested.initialized = true;
 	return 0;

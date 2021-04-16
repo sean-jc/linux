@@ -95,6 +95,7 @@ struct svm_nested_state {
 	u64 vm_cr_msr;
 	u64 vmcb12_gpa;
 	u64 last_vmcb12_gpa;
+	u32 last_vmcb12_asid;
 
 	/* These are the merged vectors */
 	u32 *msrpm;
