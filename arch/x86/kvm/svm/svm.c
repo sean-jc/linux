@@ -3359,7 +3359,6 @@ static void pre_svm_run(struct kvm_vcpu *vcpu)
 	if (sev_guest(vcpu->kvm))
 		return pre_sev_run(svm, vcpu->cpu);
 
-	/* FIXME: handle wraparound of asid_generation */
 	if (svm->current_vmcb->asid_generation != sd->asid_generation)
 		new_asid(svm, sd);
 }
@@ -3572,7 +3571,7 @@ static void __svm_flush_tlb(struct kvm_vmcb_info *vmcb)
 	if (static_cpu_has(X86_FEATURE_FLUSHBYASID))
 		vmcb->ptr->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
 	else
-		vmcb->asid_generation--;
+		vmcb->asid_generation = 0;
 }
 
 static void svm_flush_tlb_all(struct kvm_vcpu *vcpu)
