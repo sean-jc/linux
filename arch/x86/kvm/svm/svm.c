@@ -910,6 +910,9 @@ static __init void svm_set_cpu_caps(void)
 	if (nested) {
 		kvm_cpu_cap_set(X86_FEATURE_SVM);
 
+		/* Per-ASID flushing is emulated in software. */
+		kvm_cpu_cap_set(X86_FEATURE_FLUSHBYASID);
+
 		if (nrips)
 			kvm_cpu_cap_set(X86_FEATURE_NRIPS);
 
