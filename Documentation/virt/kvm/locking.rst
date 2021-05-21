@@ -168,9 +168,8 @@ the spte is always atomically updated in this case.
 
 3) flush tlbs due to spte updated
 
-If the spte is updated from writable to readonly, we should flush all TLBs,
-otherwise rmap_write_protect will find a read-only spte, even though the
-writable spte might be cached on a CPU's TLB.
+If the spte is updated from writable to readonly, flush all TLBs, to avoid
+leaving a writable spte cached in a CPU's TLB.
 
 As mentioned before, the spte can be updated to writable out of mmu-lock on
 fast page fault path, in order to easily audit the path, we see if TLBs need

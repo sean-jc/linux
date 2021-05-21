@@ -90,9 +90,8 @@ static bool kvm_is_mmio_pfn(kvm_pfn_t pfn)
 }
 
 int make_spte(struct kvm_vcpu *vcpu, unsigned int pte_access, int level,
-		     gfn_t gfn, kvm_pfn_t pfn, u64 old_spte, bool speculative,
-		     bool can_unsync, bool host_writable, bool ad_disabled,
-		     u64 *new_spte)
+	      gfn_t gfn, kvm_pfn_t pfn, u64 old_spte, bool speculative,
+	      bool host_writable, bool ad_disabled, u64 *new_spte)
 {
 	u64 spte = SPTE_MMU_PRESENT_MASK;
 	int ret = 0;
@@ -151,16 +150,7 @@ int make_spte(struct kvm_vcpu *vcpu, unsigned int pte_access, int level,
 	if (pte_access & ACC_WRITE_MASK) {
 		spte |= PT_WRITABLE_MASK | shadow_mmu_writable_mask;
 
-		/*
-		 * Optimization: for pte sync, if spte was writable the hash
-		 * lookup is unnecessary (and expensive). Write protection
-		 * is responsibility of mmu_get_page / kvm_sync_page.
-		 * Same reasoning can be applied to dirty page accounting.
-		 */
-		if (!can_unsync && is_writable_pte(old_spte))
-			goto out;
-
-		if (mmu_need_write_protect(vcpu, gfn, can_unsync)) {
+		if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_WRITE)) {
 			pgprintk("%s: found shadow page for %llx, marking ro\n",
 				 __func__, gfn);
 			ret |= SET_SPTE_WRITE_PROTECTED_PT;
@@ -175,7 +165,6 @@ int make_spte(struct kvm_vcpu *vcpu, unsigned int pte_access, int level,
 	if (speculative)
 		spte = mark_spte_for_access_track(spte);
 
-out:
 	WARN_ON(is_mmio_spte(spte));
 	*new_spte = spte;
 	return ret;

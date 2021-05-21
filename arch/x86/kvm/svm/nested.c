@@ -397,11 +397,11 @@ static int nested_svm_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 	}
 
 	/*
-	 * TODO: optimize unconditional TLB flush/MMU sync here and in
+	 * TODO: optimize unconditional TLB flush here and in
 	 * kvm_init_shadow_npt_mmu().
 	 */
 	if (!nested_npt)
-		kvm_mmu_new_pgd(vcpu, cr3, false, false);
+		kvm_mmu_new_pgd(vcpu, cr3, false);
 
 	vcpu->arch.cr3 = cr3;
 	kvm_register_mark_available(vcpu, VCPU_EXREG_CR3);

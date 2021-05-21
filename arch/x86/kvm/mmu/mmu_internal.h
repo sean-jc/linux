@@ -35,7 +35,6 @@ struct kvm_mmu_page {
 	struct hlist_node hash_link;
 	struct list_head lpage_disallowed_link;
 
-	bool unsync;
 	u8 mmu_valid_gen;
 	bool mmio_cached;
 	bool lpage_disallowed; /* Can't be replaced by an equiv large page */
@@ -55,9 +54,7 @@ struct kvm_mmu_page {
 		int root_count;
 		refcount_t tdp_mmu_root_count;
 	};
-	unsigned int unsync_children;
 	struct kvm_rmap_head parent_ptes; /* rmap pointers to parent sptes */
-	DECLARE_BITMAP(unsync_child_bitmap, 512);
 
 #ifdef CONFIG_X86_32
 	/*
@@ -117,8 +114,6 @@ static inline bool kvm_vcpu_ad_need_write_protect(struct kvm_vcpu *vcpu)
 }
 
 bool is_nx_huge_page_enabled(void);
-bool mmu_need_write_protect(struct kvm_vcpu *vcpu, gfn_t gfn,
-			    bool can_unsync);
 
 void kvm_mmu_gfn_disallow_lpage(struct kvm_memory_slot *slot, gfn_t gfn);
 void kvm_mmu_gfn_allow_lpage(struct kvm_memory_slot *slot, gfn_t gfn);

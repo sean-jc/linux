@@ -252,7 +252,6 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	VM_STAT("mmu_flooded", mmu_flooded),
 	VM_STAT("mmu_recycled", mmu_recycled),
 	VM_STAT("mmu_cache_miss", mmu_cache_miss),
-	VM_STAT("mmu_unsync", mmu_unsync),
 	VM_STAT("remote_tlb_flush", remote_tlb_flush),
 	VM_STAT("largepages", lpages, .mode = 0444),
 	VM_STAT("nx_largepages_splitted", nx_lpage_splits, .mode = 0444),
@@ -1097,10 +1096,8 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 #endif
 
 	if (cr3 == kvm_read_cr3(vcpu) && !pdptrs_changed(vcpu)) {
-		if (!skip_tlb_flush) {
-			kvm_mmu_sync_roots(vcpu);
+		if (!skip_tlb_flush)
 			kvm_make_request(KVM_REQ_TLB_FLUSH_CURRENT, vcpu);
-		}
 		return 0;
 	}
 
@@ -1115,7 +1112,7 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 	if (is_pae_paging(vcpu) && !load_pdptrs(vcpu, vcpu->arch.walk_mmu, cr3))
 		return 1;
 
-	kvm_mmu_new_pgd(vcpu, cr3, skip_tlb_flush, skip_tlb_flush);
+	kvm_mmu_new_pgd(vcpu, cr3, skip_tlb_flush);
 	vcpu->arch.cr3 = cr3;
 	kvm_register_mark_available(vcpu, VCPU_EXREG_CR3);
 
@@ -9137,8 +9134,6 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			if (unlikely(r))
 				goto out;
 		}
-		if (kvm_check_request(KVM_REQ_MMU_SYNC, vcpu))
-			kvm_mmu_sync_roots(vcpu);
 		if (kvm_check_request(KVM_REQ_LOAD_MMU_PGD, vcpu))
 			kvm_mmu_load_pgd(vcpu);
 		if (kvm_check_request(KVM_REQ_TLB_FLUSH, vcpu)) {
@@ -11714,10 +11709,8 @@ int kvm_handle_invpcid(struct kvm_vcpu *vcpu, unsigned long type, gva_t gva)
 			return 1;
 		}
 
-		if (kvm_get_active_pcid(vcpu) == operand.pcid) {
-			kvm_mmu_sync_roots(vcpu);
+		if (kvm_get_active_pcid(vcpu) == operand.pcid)
 			kvm_make_request(KVM_REQ_TLB_FLUSH_CURRENT, vcpu);
-		}
 
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			if (kvm_get_pcid(vcpu, vcpu->arch.mmu->prev_roots[i].pgd)

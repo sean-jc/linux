@@ -12,15 +12,13 @@
 	__field(__u8, mmu_valid_gen)	\
 	__field(__u64, gfn)		\
 	__field(__u32, role)		\
-	__field(__u32, root_count)	\
-	__field(bool, unsync)
+	__field(__u32, root_count)
 
 #define KVM_MMU_PAGE_ASSIGN(sp)				\
 	__entry->mmu_valid_gen = sp->mmu_valid_gen;	\
 	__entry->gfn = sp->gfn;				\
 	__entry->role = sp->role.word;			\
-	__entry->root_count = sp->root_count;		\
-	__entry->unsync = sp->unsync;
+	__entry->root_count = sp->root_count;
 
 #define KVM_MMU_PAGE_PRINTK() ({				        \
 	const char *saved_ptr = trace_seq_buffer_ptr(p);		\
@@ -32,7 +30,7 @@
 	role.word = __entry->role;					\
 									\
 	trace_seq_printf(p, "sp gen %u gfn %llx l%u %u-byte q%u%s %s%s"	\
-			 " %snxe %sad root %u %s%c",			\
+			 " %snxe %sad root %u",			\
 			 __entry->mmu_valid_gen,			\
 			 __entry->gfn, role.level,			\
 			 role.gpte_is_8_bytes ? 8 : 4,			\
@@ -42,8 +40,7 @@
 			 role.invalid ? " invalid" : "",		\
 			 role.nxe ? "" : "!",				\
 			 role.ad_disabled ? "!" : "",			\
-			 __entry->root_count,				\
-			 __entry->unsync ? "unsync" : "sync", 0);	\
+			 __entry->root_count);				\
 	saved_ptr;							\
 		})
 
@@ -180,18 +177,6 @@ DECLARE_EVENT_CLASS(kvm_mmu_page_class,
 	),
 
 	TP_printk("%s", KVM_MMU_PAGE_PRINTK())
-);
-
-DEFINE_EVENT(kvm_mmu_page_class, kvm_mmu_sync_page,
-	TP_PROTO(struct kvm_mmu_page *sp),
-
-	TP_ARGS(sp)
-);
-
-DEFINE_EVENT(kvm_mmu_page_class, kvm_mmu_unsync_page,
-	TP_PROTO(struct kvm_mmu_page *sp),
-
-	TP_ARGS(sp)
 );
 
 DEFINE_EVENT(kvm_mmu_page_class, kvm_mmu_prepare_zap_page,

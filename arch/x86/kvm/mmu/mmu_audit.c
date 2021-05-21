@@ -99,14 +99,6 @@ static void audit_mappings(struct kvm_vcpu *vcpu, u64 *sptep, int level)
 
 	sp = sptep_to_sp(sptep);
 
-	if (sp->unsync) {
-		if (level != PG_LEVEL_4K) {
-			audit_printk(vcpu->kvm, "unsync sp: %p "
-				     "level = %d\n", sp, level);
-			return;
-		}
-	}
-
 	if (!is_shadow_present_pte(*sptep) || !is_last_spte(*sptep, level))
 		return;
 
@@ -163,15 +155,6 @@ static void audit_sptes_have_rmaps(struct kvm_vcpu *vcpu, u64 *sptep, int level)
 		inspect_spte_has_rmap(vcpu->kvm, sptep);
 }
 
-static void audit_spte_after_sync(struct kvm_vcpu *vcpu, u64 *sptep, int level)
-{
-	struct kvm_mmu_page *sp = sptep_to_sp(sptep);
-
-	if (vcpu->kvm->arch.audit_point == AUDIT_POST_SYNC && sp->unsync)
-		audit_printk(vcpu->kvm, "meet unsync sp(%p) after sync "
-			     "root.\n", sp);
-}
-
 static void check_mappings_rmap(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	int i;
@@ -195,7 +178,7 @@ static void audit_write_protection(struct kvm *kvm, struct kvm_mmu_page *sp)
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *slot;
 
-	if (sp->role.direct || sp->unsync || sp->role.invalid)
+	if (sp->role.direct || sp->role.invalid)
 		return;
 
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);

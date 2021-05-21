@@ -233,62 +233,24 @@ Shadow pages contain the following information:
     parent_ptes points at this single spte, otherwise, there exists multiple
     sptes pointing at this page and (parent_ptes & ~0x1) points at a data
     structure with a list of parent sptes.
-  unsync:
-    If true, then the translations in this page may not match the guest's
-    translation.  This is equivalent to the state of the tlb when a pte is
-    changed but before the tlb entry is flushed.  Accordingly, unsync ptes
-    are synchronized when the guest executes invlpg or flushes its tlb by
-    other means.  Valid for leaf pages.
-  unsync_children:
-    How many sptes in the page point at pages that are unsync (or have
-    unsynchronized children).
-  unsync_child_bitmap:
-    A bitmap indicating which sptes in spt point (directly or indirectly) at
-    pages that may be unsynchronized.  Used to quickly locate all unsychronized
-    pages reachable from a given page.
+
   clear_spte_count:
     Only present on 32-bit hosts, where a 64-bit spte cannot be written
     atomically.  The reader uses this while running out of the MMU lock
     to detect in-progress updates and retry them until the writer has
     finished the write.
   write_flooding_count:
-    A guest may write to a page table many times, causing a lot of
-    emulations if the page needs to be write-protected (see "Synchronized
-    and unsynchronized pages" below).  Leaf pages can be unsynchronized
-    so that they do not trigger frequent emulation, but this is not
-    possible for non-leafs.  This field counts the number of emulations
-    since the last time the page table was actually used; if emulation
-    is triggered too frequently on this page, KVM will unmap the page
-    to avoid emulation in the future.
+    A guest may write to a page table many times, causing a lot of emulation
+    if the page needs to be write-protected (shadow paging).  This field
+    counts the number of emulations since the last time the page table was
+    actually used; if emulation is triggered too frequently on this page,
+    KVM will unmap the page to avoid emulation in the future.
 
 Reverse map
 ===========
 
 The mmu maintains a reverse mapping whereby all ptes mapping a page can be
 reached given its gfn.  This is used, for example, when swapping out a page.
-
-Synchronized and unsynchronized pages
-=====================================
-
-The guest uses two events to synchronize its tlb and page tables: tlb flushes
-and page invalidations (invlpg).
-
-A tlb flush means that we need to synchronize all sptes reachable from the
-guest's cr3.  This is expensive, so we keep all guest page tables write
-protected, and synchronize sptes to gptes when a gpte is written.
-
-A special case is when a guest page table is reachable from the current
-guest cr3.  In this case, the guest is obliged to issue an invlpg instruction
-before using the translation.  We take advantage of that by removing write
-protection from the guest page, and allowing the guest to modify it freely.
-We synchronize modified gptes when the guest invokes invlpg.  This reduces
-the amount of emulation we have to do when the guest modifies multiple gptes,
-or when the a guest page is no longer used as a page table and is used for
-random guest data.
-
-As a side effect we have to resynchronize all reachable unsynchronized shadow
-pages on a tlb flush.
-
 
 Reaction to events
 ==================
@@ -337,10 +299,6 @@ Handling a page fault is performed as follows:
    - If this is an mmio request, cache the mmio info to the spte and set some
      reserved bit on the spte (see callers of kvm_mmu_set_mmio_spte_mask)
 
- - try to unsynchronize the page
-
-   - if successful, we can let the guest continue and modify the gpte
-
  - emulate the instruction
 
    - if failed, unshadow the page and let the guest continue
@@ -349,9 +307,7 @@ Handling a page fault is performed as follows:
 
 invlpg handling:
 
-  - walk the shadow page hierarchy and drop affected translations
-  - try to reinstantiate the indicated translation in the hope that the
-    guest will use it in the near future
+  - invalidate the gva->gpa MMIO cache
 
 Guest control register updates:
 
