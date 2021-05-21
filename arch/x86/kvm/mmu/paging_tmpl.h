@@ -782,6 +782,7 @@ FNAME(is_self_change_mapping)(struct kvm_vcpu *vcpu,
  *  Returns: 1 if we need to emulate the instruction, 0 otherwise, or
  *           a negative value on error.
  */
+static atomic_t change_small, change_large;
 static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gpa_t addr, u32 error_code,
 			     bool prefault)
 {
@@ -820,7 +821,20 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gpa_t addr, u32 error_code,
 	}
 
 	if (page_fault_handle_page_track(vcpu, error_code, walker.gfn)) {
+		struct kvm_mmu_page *sp;
+
 		shadow_page_table_clear_flood(vcpu, addr);
+
+		for_each_gfn_indirect_valid_sp(vcpu->kvm, sp, walker.gfn) {
+			if (sp->role.level == PG_LEVEL_4K)
+				atomic_inc(&change_small);
+			else
+				atomic_inc(&change_large);
+		}
+
+		pr_warn_ratelimited("KVM: %s - small: %u, large: %u\n",
+				    __func__, atomic_read(&change_small),
+				    atomic_read(&change_large));
 		return RET_PF_EMULATE;
 	}
 
