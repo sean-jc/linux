@@ -264,7 +264,7 @@ static int sev_es_cpuid_msr_proto(u32 func, u32 subfunc, u32 *eax, u32 *ebx,
 	return 0;
 }
 
-static bool sev_snp_cpuid_active(void)
+static inline bool sev_snp_cpuid_active(void)
 {
 	return sev_snp_cpuid_enabled;
 }
@@ -905,7 +905,7 @@ out_verify:
  * indication that SEV-ES is enabled. Subsequent init levels will check for
  * SEV_SNP feature once available to also take SEV MSR value into account.
  */
-void sev_snp_cpuid_init(struct boot_params *bp)
+void __init sev_snp_cpuid_init(struct boot_params *bp)
 {
 	struct cc_blob_sev_info *cc_info;
 
@@ -941,3 +941,92 @@ void sev_snp_cpuid_init(struct boot_params *bp)
 	if (cpuid_info->count > 0)
 		sev_snp_cpuid_enabled = 1;
 }
+
+#ifndef __BOOT_COMPRESSED
+
+static bool __init early_make_pgtable_enc(unsigned long physaddr)
+{
+	pmdval_t pmd;
+
+	/* early_pmd_flags hasn't been updated with SME bit yet; add it */
+	pmd = (physaddr & PMD_MASK) + early_pmd_flags + sme_get_me_mask();
+
+	return __early_make_pgtable((unsigned long)__va(physaddr), pmd);
+}
+
+/*
+ * This is called when we switch to virtual kernel addresses, before #PF
+ * handler is set up. boot_params have already been parsed at this point,
+ * but CPUID page is no longer identity-mapped so we need to create a
+ * virtual mapping.
+ */
+void __init sev_snp_cpuid_init_virtual(void)
+{
+	/*
+	 * We rely on sev_snp_cpuid_init() to do initial parsing of bootparams
+	 * and initial setup. If that didn't enable the feature then don't try
+	 * to enable it here.
+	 */
+	if (!sev_snp_cpuid_active())
+		return;
+
+	/*
+	 * Either boot_params/EFI advertised the feature even though SNP isn't
+	 * enabled, or something else went wrong. Bail out.
+	 */
+	if (!sev_feature_enabled(SEV_SNP))
+		sev_es_terminate(1, GHCB_TERM_CPUID);
+
+	/* If feature is enabled, but we can't map CPUID info, we're hosed */
+	if (!early_make_pgtable_enc(sev_snp_cpuid_pa))
+		sev_es_terminate(1, GHCB_TERM_CPUID);
+
+	cpuid_info = (const struct sev_snp_cpuid_info *)__va(sev_snp_cpuid_pa);
+}
+
+/* Called after early_ioremap_init() */
+void __init sev_snp_cpuid_init_remap_early(void)
+{
+	if (!sev_snp_cpuid_active())
+		return;
+
+	/*
+	 * This really shouldn't be possible at this point.
+	 */
+	if (!sev_feature_enabled(SEV_SNP))
+		sev_es_terminate(1, GHCB_TERM_CPUID);
+
+	cpuid_info = early_memremap(sev_snp_cpuid_pa, sev_snp_cpuid_sz);
+}
+
+/* Final switch to run-time mapping */
+static int __init sev_snp_cpuid_init_remap(void)
+{
+	if (!sev_snp_cpuid_active())
+		return 0;
+
+	/*
+	 * This really shouldn't be possible at this point either.
+	 */
+	if (!sev_feature_enabled(SEV_SNP))
+		sev_es_terminate(1, GHCB_TERM_CPUID);
+
+	/* Clean up earlier mapping. */
+	if (cpuid_info)
+		early_memunmap((void *)cpuid_info, sev_snp_cpuid_sz);
+
+	/*
+	 * We need ioremap_encrypted() to get an encrypted mapping, but this
+	 * is normal RAM so can be accessed directly.
+	 */
+	cpuid_info = (__force void *)ioremap_encrypted(sev_snp_cpuid_pa,
+						       sev_snp_cpuid_sz);
+	if (!cpuid_info)
+		return -EIO;
+
+	return 0;
+}
+
+arch_initcall(sev_snp_cpuid_init_remap);
+
+#endif /* __BOOT_COMPRESSED */

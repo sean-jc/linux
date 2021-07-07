@@ -218,7 +218,10 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 
 	/* Setup and Load IDT */
 	pushq	%rsi
-	call	early_setup_idt
+	movq	%rsi, %rdi
+	movq	initial_idt_setup(%rip), %rax
+	ANNOTATE_RETPOLINE_SAFE
+	call	*%rax
 	popq	%rsi
 
 	/* Check if nx is implemented */
@@ -341,6 +344,7 @@ SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data))
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)
 #endif
+SYM_DATA(initial_idt_setup,	.quad early_setup_idt)
 
 /*
  * The FRAME_SIZE gap is a convention which helps the in-kernel unwinder

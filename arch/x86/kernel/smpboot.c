@@ -1041,6 +1041,8 @@ static int do_boot_cpu(int apicid, int cpu, struct task_struct *idle,
 	early_gdt_descr.address = (unsigned long)get_cpu_gdt_rw(cpu);
 	initial_code = (unsigned long)start_secondary;
 	initial_stack  = idle->thread.sp;
+	/* don't repeat IDT setup work specific to the BSP */
+	initial_idt_setup = (unsigned long)early_setup_idt_common;
 
 	/* Enable the espfix hack for this CPU */
 	init_espfix_ap(cpu);

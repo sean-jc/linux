@@ -48,6 +48,7 @@
 #include <asm/thermal.h>
 #include <asm/unwind.h>
 #include <asm/vsyscall.h>
+#include <asm/sev.h>
 #include <linux/vmalloc.h>
 
 /*
@@ -1074,6 +1075,8 @@ void __init setup_arch(char **cmdline_p)
 	reserve_real_mode();
 
 	init_mem_mapping();
+
+	sev_snp_cpuid_init_remap_early();
 
 	idt_setup_early_pf();
 

@@ -63,6 +63,7 @@ extern unsigned long initial_stack;
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 extern unsigned long initial_vc_handler;
 #endif
+extern unsigned long initial_idt_setup;
 
 extern unsigned char real_mode_blob[];
 extern unsigned char real_mode_relocs[];

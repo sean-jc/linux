@@ -567,7 +567,7 @@ static void set_bringup_idt_handler(gate_desc *idt, int n, void *handler)
 }
 
 /* This runs while still in the direct mapping */
-static void startup_64_load_idt(unsigned long physbase)
+static void startup_64_load_idt(unsigned long physbase, struct boot_params *bp)
 {
 	struct desc_ptr *desc = fixup_pointer(&bringup_idt_descr, physbase);
 	gate_desc *idt = fixup_pointer(bringup_idt_table, physbase);
@@ -577,6 +577,7 @@ static void startup_64_load_idt(unsigned long physbase)
 		void *handler;
 
 		/* VMM Communication Exception */
+		sev_snp_cpuid_init(bp); /* used by #VC handler */
 		handler = fixup_pointer(vc_no_ghcb, physbase);
 		set_bringup_idt_handler(idt, X86_TRAP_VC, handler);
 	}
@@ -585,8 +586,8 @@ static void startup_64_load_idt(unsigned long physbase)
 	native_load_idt(desc);
 }
 
-/* This is used when running on kernel addresses */
-void early_setup_idt(void)
+/* Used for all CPUs */
+void early_setup_idt_common(void *rmode)
 {
 	/* VMM Communication Exception */
 	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT))
@@ -596,10 +597,20 @@ void early_setup_idt(void)
 	native_load_idt(&bringup_idt_descr);
 }
 
+/* This is used by boot processor when running on kernel addresses */
+void __init early_setup_idt(void *rmode)
+{
+	/* SEV-SNP CPUID setup for use by #VC handler */
+	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT))
+		sev_snp_cpuid_init_virtual();
+
+	early_setup_idt_common(rmode);
+}
+
 /*
  * Setup boot CPU state needed before kernel switches to virtual addresses.
  */
-void __head startup_64_setup_env(unsigned long physbase)
+void __head startup_64_setup_env(unsigned long physbase, struct boot_params *bp)
 {
 	u64 gs_area = (u64)fixup_pointer(startup_gs_area, physbase);
 
@@ -623,5 +634,5 @@ void __head startup_64_setup_env(unsigned long physbase)
 	 */
 	native_wrmsr(MSR_GS_BASE, gs_area, gs_area >> 32);
 
-	startup_64_load_idt(physbase);
+	startup_64_load_idt(physbase, bp);
 }
