@@ -59,6 +59,23 @@
 #define GHCB_MSR_HV_FT_REQ			0x080
 #define GHCB_MSR_HV_FT_RESP			0x081
 
+/* SNP Page State Change */
+#define GHCB_MSR_PSC_REQ		0x014
+#define SNP_PAGE_STATE_PRIVATE		1
+#define SNP_PAGE_STATE_SHARED		2
+#define GHCB_MSR_PSC_GFN_POS		12
+#define GHCB_MSR_PSC_GFN_MASK		GENMASK_ULL(39, 0)
+#define GHCB_MSR_PSC_OP_POS		52
+#define GHCB_MSR_PSC_OP_MASK		0xf
+#define GHCB_MSR_PSC_REQ_GFN(gfn, op)	\
+	(((unsigned long)((op) & GHCB_MSR_PSC_OP_MASK) << GHCB_MSR_PSC_OP_POS) | \
+	((unsigned long)((gfn) & GHCB_MSR_PSC_GFN_MASK) << GHCB_MSR_PSC_GFN_POS) | \
+	GHCB_MSR_PSC_REQ)
+
+#define GHCB_MSR_PSC_RESP		0x015
+#define GHCB_MSR_PSC_ERROR_POS		32
+#define GHCB_MSR_PSC_RESP_VAL(val)	((val) >> GHCB_MSR_PSC_ERROR_POS)
+
 /* GHCB Hypervisor Feature Request */
 #define GHCB_MSR_HV_FT_REQ	0x080
 #define GHCB_MSR_HV_FT_RESP	0x081
