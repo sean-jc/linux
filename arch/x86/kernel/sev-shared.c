@@ -820,7 +820,6 @@ static enum es_result vc_handle_rdtsc(struct ghcb *ghcb,
 	return ES_OK;
 }
 
-#ifdef BOOT_COMPRESSED
 static struct setup_data *get_cc_setup_data(struct boot_params *bp)
 {
 	struct setup_data *hdr = (struct setup_data *)bp->hdr.setup_data;
@@ -840,6 +839,16 @@ static struct setup_data *get_cc_setup_data(struct boot_params *bp)
  *   1) Search for CC blob in the following order/precedence:
  *      - via linux boot protocol / setup_data entry
  *      - via EFI configuration table
+ *   2) If found, initialize boot_params->cc_blob_address to point to the
+ *      blob so that uncompressed kernel can easily access it during very
+ *      early boot without the need to re-parse EFI config table
+ *   3) Return a pointer to the CC blob, NULL otherwise.
+ *
+ * For run-time/uncompressed kernel:
+ *
+ *   1) Search for CC blob in the following order/precedence:
+ *      - via linux boot protocol / setup_data entry
+ *      - via boot_params->cc_blob_address
  *   2) Return a pointer to the CC blob, NULL otherwise.
  */
 static struct cc_blob_sev_info *sev_snp_probe_cc_blob(struct boot_params *bp)
@@ -857,27 +866,34 @@ static struct cc_blob_sev_info *sev_snp_probe_cc_blob(struct boot_params *bp)
 		goto out_verify;
 	}
 
+#ifdef __BOOT_COMPRESSED
 	/* CC blob isn't in setup_data, see if it's in the EFI config table */
 	(void)efi_bp_find_vendor_table(bp, EFI_CC_BLOB_GUID,
 				       (unsigned long *)&cc_info);
+#else
+	/*
+	 * CC blob isn't in setup_data, see if boot kernel passed it via
+	 * boot_params.
+	 */
+	if (bp->cc_blob_address)
+		cc_info = (struct cc_blob_sev_info *)(unsigned long)bp->cc_blob_address;
+#endif
 
 out_verify:
 	/* CC blob should be either valid or not present. Fail otherwise. */
 	if (cc_info && cc_info->magic != CC_BLOB_SEV_HDR_MAGIC)
 		sev_es_terminate(1, GHCB_SNP_UNSUPPORTED);
 
+#ifdef __BOOT_COMPRESSED
+	/*
+	 * Pass run-time kernel a pointer to CC info via boot_params for easier
+	 * access during early boot.
+	 */
+	bp->cc_blob_address = (u32)(unsigned long)cc_info;
+#endif
+
 	return cc_info;
 }
-#else
-/*
- * Probing for CC blob for run-time kernel will be enabled in a subsequent
- * patch. For now we need to stub this out.
- */
-static struct cc_blob_sev_info *sev_snp_probe_cc_blob(struct boot_params *bp)
-{
-	return NULL;
-}
-#endif
 
 /*
  * Initial set up of CPUID table when running identity-mapped.
