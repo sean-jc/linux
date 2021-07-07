@@ -19,6 +19,7 @@
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_crash_gracefully_on_page_fault()*/
 #include <linux/mm_types.h>
+#include <linux/sev.h>			/* snp_lookup_page_in_rmptable() */
 
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
@@ -502,6 +503,81 @@ static void show_ldttss(const struct desc_ptr *gdt, const char *name, u16 index)
 		 name, index, addr, (desc.limit0 | (desc.limit1 << 16)));
 }
 
+static void dump_rmpentry(unsigned long address)
+{
+	struct rmpentry *e;
+	unsigned long pfn;
+	pgd_t *pgd;
+	pte_t *pte;
+	int level;
+
+	pgd = __va(read_cr3_pa());
+	pgd += pgd_index(address);
+
+	pte = lookup_address_in_pgd(pgd, address, &level);
+	if (unlikely(!pte))
+		return;
+
+	switch (level) {
+	case PG_LEVEL_4K: {
+		pfn = pte_pfn(*pte);
+		break;
+	}
+	case PG_LEVEL_2M: {
+		pfn = pmd_pfn(*(pmd_t *)pte);
+		break;
+	}
+	case PG_LEVEL_1G: {
+		pfn = pud_pfn(*(pud_t *)pte);
+		break;
+	}
+	case PG_LEVEL_512G: {
+		pfn = p4d_pfn(*(p4d_t *)pte);
+		break;
+	}
+	default:
+		return;
+	}
+
+	e = snp_lookup_page_in_rmptable(pfn_to_page(pfn), &level);
+	if (unlikely(!e))
+		return;
+
+	/*
+	 * If the RMP entry at the faulting address was not assigned, then
+	 * dump may not provide any useful debug information. Iterate
+	 * through the entire 2MB region, and dump the RMP entries if one
+	 * of the bit in the RMP entry is set.
+	 */
+	if (rmpentry_assigned(e)) {
+		pr_alert("RMPEntry paddr 0x%lx [assigned=%d immutable=%d pagesize=%d gpa=0x%lx"
+			" asid=%d vmsa=%d validated=%d]\n", pfn << PAGE_SHIFT,
+			rmpentry_assigned(e), rmpentry_immutable(e), rmpentry_pagesize(e),
+			rmpentry_gpa(e), rmpentry_asid(e), rmpentry_vmsa(e),
+			rmpentry_validated(e));
+
+		pr_alert("RMPEntry paddr 0x%lx %016llx %016llx\n", pfn << PAGE_SHIFT,
+			e->high, e->low);
+	} else {
+		unsigned long pfn_end;
+
+		pfn = pfn & ~0x1ff;
+		pfn_end = pfn + PTRS_PER_PMD;
+
+		while (pfn < pfn_end) {
+			e = snp_lookup_page_in_rmptable(pfn_to_page(pfn), &level);
+
+			if (unlikely(!e))
+				return;
+
+			if (e->low || e->high)
+				pr_alert("RMPEntry paddr 0x%lx: %016llx %016llx\n",
+					pfn << PAGE_SHIFT, e->high, e->low);
+			pfn++;
+		}
+	}
+}
+
 static void
 show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address)
 {
@@ -578,6 +654,9 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 	}
 
 	dump_pagetable(address);
+
+	if (error_code & X86_PF_RMP)
+		dump_rmpentry(address);
 }
 
 static noinline void
