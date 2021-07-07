@@ -2671,6 +2671,7 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 	case SVM_VMGEXIT_AP_JUMP_TABLE:
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
 	case SVM_VMGEXIT_HV_FT:
+	case SVM_VMGEXIT_PSC:
 		break;
 	default:
 		goto vmgexit_err;
@@ -2919,7 +2920,8 @@ static int snp_make_page_private(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t pfn
 static int __snp_handle_psc(struct kvm_vcpu *vcpu, int op, gpa_t gpa, int level)
 {
 	struct kvm *kvm = vcpu->kvm;
-	int rc, tdp_level;
+	int rc = PSC_UNDEF_ERR;
+	int tdp_level;
 	kvm_pfn_t pfn;
 	gpa_t gpa_end;
 
@@ -2954,8 +2956,11 @@ static int __snp_handle_psc(struct kvm_vcpu *vcpu, int op, gpa_t gpa, int level)
 		case SNP_PAGE_STATE_PRIVATE:
 			rc = snp_make_page_private(vcpu, gpa, pfn, level);
 			break;
+		case SNP_PAGE_STATE_PSMASH:
+		case SNP_PAGE_STATE_UNSMASH:
+			/* TODO: Add support to handle it */
 		default:
-			rc = -EINVAL;
+			rc = PSC_INVALID_ENTRY;
 			break;
 		}
 
@@ -2972,6 +2977,68 @@ static int __snp_handle_psc(struct kvm_vcpu *vcpu, int op, gpa_t gpa, int level)
 
 out:
 	return rc;
+}
+
+static inline unsigned long map_to_psc_vmgexit_code(int rc)
+{
+	switch (rc) {
+	case PSC_INVALID_HDR:
+		return ((1ul << 32) | 1);
+	case PSC_INVALID_ENTRY:
+		return ((1ul << 32) | 2);
+	case RMPUPDATE_FAIL_OVERLAP:
+		return ((3ul << 32) | 2);
+	default: return (4ul << 32);
+	}
+}
+
+static unsigned long snp_handle_psc(struct vcpu_svm *svm, struct ghcb *ghcb)
+{
+	struct kvm_vcpu *vcpu = &svm->vcpu;
+	int level, op, rc = PSC_UNDEF_ERR;
+	struct snp_psc_desc *info;
+	struct psc_entry *entry;
+	gpa_t gpa;
+
+	if (!sev_snp_guest(vcpu->kvm))
+		goto out;
+
+	if (!setup_vmgexit_scratch(svm, true, sizeof(ghcb->save.sw_scratch))) {
+		pr_err("vmgexit: scratch area is not setup.\n");
+		rc = PSC_INVALID_HDR;
+		goto out;
+	}
+
+	info = (struct snp_psc_desc *)svm->ghcb_sa;
+	entry = &info->entries[info->hdr.cur_entry];
+
+	if ((info->hdr.cur_entry >= VMGEXIT_PSC_MAX_ENTRY) ||
+	    (info->hdr.end_entry >= VMGEXIT_PSC_MAX_ENTRY) ||
+	    (info->hdr.cur_entry > info->hdr.end_entry)) {
+		rc = PSC_INVALID_ENTRY;
+		goto out;
+	}
+
+	while (info->hdr.cur_entry <= info->hdr.end_entry) {
+		entry = &info->entries[info->hdr.cur_entry];
+		gpa = gfn_to_gpa(entry->gfn);
+		level = RMP_TO_X86_PG_LEVEL(entry->pagesize);
+		op = entry->operation;
+
+		if (!IS_ALIGNED(gpa, page_level_size(level))) {
+			rc = PSC_INVALID_ENTRY;
+			goto out;
+		}
+
+		rc = __snp_handle_psc(vcpu, op, gpa, level);
+		if (rc)
+			goto out;
+
+		info->hdr.cur_entry++;
+	}
+
+out:
+	return rc ? map_to_psc_vmgexit_code(rc) : 0;
 }
 
 static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
@@ -3216,6 +3283,15 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		ghcb_set_sw_exit_info_2(ghcb, GHCB_HV_FT_SUPPORTED);
 
 		ret = 1;
+		break;
+	}
+	case SVM_VMGEXIT_PSC: {
+		unsigned long rc;
+
+		ret = 1;
+
+		rc = snp_handle_psc(svm, ghcb);
+		ghcb_set_sw_exit_info_2(ghcb, rc);
 		break;
 	}
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:

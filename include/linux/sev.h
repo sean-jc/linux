@@ -57,6 +57,9 @@ struct rmpupdate {
  */
 #define FAIL_INUSE              3
 
+/* RMUPDATE detected 4K page and 2MB page overlap. */
+#define RMPUPDATE_FAIL_OVERLAP	7
+
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 struct rmpentry *snp_lookup_page_in_rmptable(struct page *page, int *level);
 int psmash(struct page *page);
