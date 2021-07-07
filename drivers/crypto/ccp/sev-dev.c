@@ -1060,6 +1060,7 @@ static int __sev_snp_init_locked(int *error)
 	dev_dbg(sev->dev, "SEV-SNP firmware initialized\n");
 
 	sev_es_tmr_size = SEV_SNP_ES_TMR_SIZE;
+	sev->snp_plat_status_page = __snp_alloc_firmware_pages(GFP_KERNEL_ACCOUNT, 0, true);
 
 	return rc;
 }
@@ -1086,6 +1087,9 @@ static int __sev_snp_shutdown_locked(int *error)
 
 	if (!sev->snp_inited)
 		return 0;
+
+	/* Free the status page */
+	__snp_free_firmware_pages(sev->snp_plat_status_page, 0, true);
 
 	/* SHUTDOWN requires the DF_FLUSH */
 	wbinvd_on_all_cpus();
@@ -1349,6 +1353,30 @@ e_free_pdh:
 	return ret;
 }
 
+static int sev_ioctl_snp_platform_status(struct sev_issue_cmd *argp)
+{
+	struct sev_device *sev = psp_master->sev_data;
+	struct sev_data_snp_platform_status_buf buf;
+	int ret;
+
+	if (!sev->snp_inited || !argp->data)
+		return -EINVAL;
+
+	if (!sev->snp_plat_status_page)
+		return -ENOMEM;
+
+	buf.status_paddr = __psp_pa(page_address(sev->snp_plat_status_page));
+	ret = __sev_do_cmd_locked(SEV_CMD_SNP_PLATFORM_STATUS, &buf, &argp->error);
+	if (ret)
+		return ret;
+
+	if (copy_to_user((void __user *)argp->data, page_address(sev->snp_plat_status_page),
+			sizeof(struct sev_user_data_snp_status)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static long sev_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
@@ -1399,6 +1427,9 @@ static long sev_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		break;
 	case SEV_GET_ID2:
 		ret = sev_ioctl_do_get_id2(&input);
+		break;
+	case SNP_PLATFORM_STATUS:
+		ret = sev_ioctl_snp_platform_status(&input);
 		break;
 	default:
 		ret = -EINVAL;
