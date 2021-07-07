@@ -25,6 +25,7 @@
 
 struct ghcb boot_ghcb_page __aligned(PAGE_SIZE);
 struct ghcb *boot_ghcb;
+static u64 msr_sev_status;
 
 /*
  * Copy a version of this function here - insn-eval.c can't be used in
@@ -119,10 +120,31 @@ static enum es_result vc_read_mem(struct es_em_ctxt *ctxt,
 /* Include code for early handlers */
 #include "../../kernel/sev-shared.c"
 
-static bool early_setup_sev_es(void)
+static inline bool sev_snp_enabled(void)
+{
+	unsigned long low, high;
+
+	if (!msr_sev_status) {
+		asm volatile("rdmsr\n"
+			     : "=a" (low), "=d" (high)
+			     : "c" (MSR_AMD64_SEV));
+		msr_sev_status = (high << 32) | low;
+	}
+
+	return msr_sev_status & MSR_AMD64_SEV_SNP_ENABLED;
+}
+
+static bool do_early_sev_setup(void)
 {
 	if (!sev_es_negotiate_protocol())
 		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_PROT_UNSUPPORTED);
+
+	/*
+	 * If SEV-SNP is enabled, then check if the hypervisor supports the SEV-SNP
+	 * features.
+	 */
+	if (sev_snp_enabled() && !(sev_hv_features & GHCB_HV_FT_SNP))
+		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SNP_UNSUPPORTED);
 
 	if (set_page_decrypted((unsigned long)&boot_ghcb_page))
 		return false;
@@ -174,7 +196,7 @@ void do_boot_stage2_vc(struct pt_regs *regs, unsigned long exit_code)
 	struct es_em_ctxt ctxt;
 	enum es_result result;
 
-	if (!boot_ghcb && !early_setup_sev_es())
+	if (!boot_ghcb && !do_early_sev_setup())
 		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
 
 	vc_ghcb_invalidate(boot_ghcb);
