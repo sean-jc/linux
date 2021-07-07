@@ -218,6 +218,15 @@ struct __attribute__ ((__packed__)) vmcb_control_area {
 #define SVM_NESTED_CTL_SEV_ENABLE	BIT(1)
 #define SVM_NESTED_CTL_SEV_ES_ENABLE	BIT(2)
 
+#define SVM_SEV_FEATURES_SNP_ACTIVE		BIT(0)
+#define SVM_SEV_FEATURES_VTOM			BIT(1)
+#define SVM_SEV_FEATURES_REFLECT_VC		BIT(2)
+#define SVM_SEV_FEATURES_RESTRICTED_INJECTION	BIT(3)
+#define SVM_SEV_FEATURES_ALTERNATE_INJECTION	BIT(4)
+#define SVM_SEV_FEATURES_DEBUG_SWAP		BIT(5)
+#define SVM_SEV_FEATURES_PREVENT_HOST_IBS	BIT(6)
+#define SVM_SEV_FEATURES_BTB_ISOLATION		BIT(7)
+
 struct vmcb_seg {
 	u16 selector;
 	u16 attrib;
@@ -236,7 +245,8 @@ struct vmcb_save_area {
 	struct vmcb_seg ldtr;
 	struct vmcb_seg idtr;
 	struct vmcb_seg tr;
-	u8 reserved_1[43];
+	u8 reserved_1[42];
+	u8 vmpl;
 	u8 cpl;
 	u8 reserved_2[4];
 	u64 efer;
@@ -301,7 +311,8 @@ struct vmcb_save_area {
 	u64 sw_exit_info_1;
 	u64 sw_exit_info_2;
 	u64 sw_scratch;
-	u8 reserved_11[56];
+	u64 sev_features;
+	u8 reserved_11[48];
 	u64 xcr0;
 	u8 valid_bitmap[16];
 	u64 x87_state_gpa;
