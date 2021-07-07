@@ -160,6 +160,14 @@ __weak void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 {
 }
 
+__weak void kvm_arch_write_gfn_begin(struct kvm *kvm, struct kvm_memory_slot *slot, gfn_t gfn)
+{
+}
+
+__weak void kvm_arch_write_gfn_end(struct kvm *kvm, struct kvm_memory_slot *slot, gfn_t gfn)
+{
+}
+
 bool kvm_is_zone_device_pfn(kvm_pfn_t pfn)
 {
 	/*
@@ -2445,7 +2453,8 @@ static void kvm_cache_gfn_to_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
 	cache->generation = gen;
 }
 
-static int __kvm_map_gfn(struct kvm_memslots *slots, gfn_t gfn,
+static int __kvm_map_gfn(struct kvm *kvm,
+			 struct kvm_memslots *slots, gfn_t gfn,
 			 struct kvm_host_map *map,
 			 struct gfn_to_pfn_cache *cache,
 			 bool atomic)
@@ -2497,20 +2506,22 @@ static int __kvm_map_gfn(struct kvm_memslots *slots, gfn_t gfn,
 	map->pfn = pfn;
 	map->gfn = gfn;
 
+	kvm_arch_write_gfn_begin(kvm, slot, map->gfn);
+
 	return 0;
 }
 
 int kvm_map_gfn(struct kvm_vcpu *vcpu, gfn_t gfn, struct kvm_host_map *map,
 		struct gfn_to_pfn_cache *cache, bool atomic)
 {
-	return __kvm_map_gfn(kvm_memslots(vcpu->kvm), gfn, map,
+	return __kvm_map_gfn(vcpu->kvm, kvm_memslots(vcpu->kvm), gfn, map,
 			cache, atomic);
 }
 EXPORT_SYMBOL_GPL(kvm_map_gfn);
 
 int kvm_vcpu_map(struct kvm_vcpu *vcpu, gfn_t gfn, struct kvm_host_map *map)
 {
-	return __kvm_map_gfn(kvm_vcpu_memslots(vcpu), gfn, map,
+	return __kvm_map_gfn(vcpu->kvm, kvm_vcpu_memslots(vcpu), gfn, map,
 		NULL, false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_map);
@@ -2547,6 +2558,8 @@ static void __kvm_unmap_gfn(struct kvm *kvm,
 		cache->dirty |= dirty;
 	else
 		kvm_release_pfn(map->pfn, dirty, NULL);
+
+	kvm_arch_write_gfn_end(kvm, memslot, map->gfn);
 
 	map->hva = NULL;
 	map->page = NULL;
@@ -2748,7 +2761,9 @@ static int __kvm_write_guest_page(struct kvm *kvm,
 	addr = gfn_to_hva_memslot(memslot, gfn);
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
+	kvm_arch_write_gfn_begin(kvm, memslot, gfn);
 	r = __copy_to_user((void __user *)addr + offset, data, len);
+	kvm_arch_write_gfn_end(kvm, memslot, gfn);
 	if (r)
 		return -EFAULT;
 	mark_page_dirty_in_slot(kvm, memslot, gfn);

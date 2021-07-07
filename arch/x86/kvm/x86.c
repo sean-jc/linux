@@ -9344,6 +9344,48 @@ void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 		kvm_make_all_cpus_request(kvm, KVM_REQ_APIC_PAGE_RELOAD);
 }
 
+static void update_gfn_track(struct kvm_memory_slot *slot, gfn_t gfn,
+			     enum kvm_page_track_mode mode, short count)
+{
+	int index, val;
+
+	index = gfn_to_index(gfn, slot->base_gfn, PG_LEVEL_4K);
+
+	val = slot->arch.host_write_track[mode][index];
+
+	if (WARN_ON(val + count < 0 || val + count > USHRT_MAX))
+		return;
+
+	slot->arch.host_write_track[mode][index] += count;
+}
+
+bool kvm_host_write_track_is_active(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot;
+	int index;
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot)
+		return false;
+
+	index = gfn_to_index(gfn, slot->base_gfn, PG_LEVEL_4K);
+	return !!READ_ONCE(slot->arch.host_write_track[KVM_PAGE_TRACK_WRITE][index]);
+}
+EXPORT_SYMBOL_GPL(kvm_host_write_track_is_active);
+
+void kvm_arch_write_gfn_begin(struct kvm *kvm, struct kvm_memory_slot *slot, gfn_t gfn)
+{
+	update_gfn_track(slot, gfn, KVM_PAGE_TRACK_WRITE, 1);
+
+	if (kvm_x86_ops.write_page_begin)
+		kvm_x86_ops.write_page_begin(kvm, slot, gfn);
+}
+
+void kvm_arch_write_gfn_end(struct kvm *kvm, struct kvm_memory_slot *slot, gfn_t gfn)
+{
+	update_gfn_track(slot, gfn, KVM_PAGE_TRACK_WRITE, -1);
+}
+
 void kvm_vcpu_reload_apic_access_page(struct kvm_vcpu *vcpu)
 {
 	if (!lapic_in_kernel(vcpu))
@@ -11282,6 +11324,36 @@ static void memslot_rmap_free(struct kvm_memory_slot *slot)
 	}
 }
 
+static void kvm_write_page_track_free_memslot(struct kvm_memory_slot *slot)
+{
+	int i;
+
+	for (i = 0; i < KVM_PAGE_TRACK_MAX; i++) {
+		kvfree(slot->arch.host_write_track[i]);
+		slot->arch.host_write_track[i] = NULL;
+	}
+}
+
+static int kvm_write_page_track_create_memslot(struct kvm_memory_slot *slot,
+					       unsigned long npages)
+{
+	int  i;
+
+	for (i = 0; i < KVM_PAGE_TRACK_MAX; i++) {
+		slot->arch.host_write_track[i] =
+			kvcalloc(npages, sizeof(*slot->arch.host_write_track[i]),
+				 GFP_KERNEL_ACCOUNT);
+		if (!slot->arch.host_write_track[i])
+			goto track_free;
+	}
+
+	return 0;
+
+track_free:
+	kvm_write_page_track_free_memslot(slot);
+	return -ENOMEM;
+}
+
 void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
 	int i;
@@ -11417,7 +11489,13 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 	if (kvm_page_track_create_memslot(slot, npages))
 		goto out_free;
 
+	if (kvm_write_page_track_create_memslot(slot, npages))
+		goto e_free_page_track;
+
 	return 0;
+
+e_free_page_track:
+	kvm_page_track_free_memslot(slot);
 
 out_free:
 	memslot_rmap_free(slot);

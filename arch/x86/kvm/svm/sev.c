@@ -2893,6 +2893,19 @@ static int snp_make_page_shared(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t pfn,
 	return rmpupdate(pfn_to_page(pfn), &val);
 }
 
+static inline bool kvm_host_write_track_gpa_range_is_active(struct kvm *kvm,
+							    gpa_t start, gpa_t end)
+{
+	while (start < end) {
+		if (kvm_host_write_track_is_active(kvm, gpa_to_gfn(start)))
+			return 1;
+
+		start += PAGE_SIZE;
+	}
+
+	return false;
+}
+
 static int snp_make_page_private(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t pfn, int level)
 {
 	struct kvm_sev_info *sev = &to_kvm_svm(vcpu->kvm)->sev_info;
@@ -2903,6 +2916,14 @@ static int snp_make_page_private(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t pfn
 	e = snp_lookup_page_in_rmptable(pfn_to_page(pfn), &rmp_level);
 	if (!e)
 		return -EINVAL;
+
+	/*
+	 * If the GPA is tracked for the write access then do not change the
+	 * page state from shared to private.
+	 */
+	if (kvm_host_write_track_gpa_range_is_active(vcpu->kvm,
+		gpa, gpa + page_level_size(level)))
+		return -EBUSY;
 
 	/* Log if the entry is validated */
 	if (rmpentry_validated(e))
@@ -3476,4 +3497,34 @@ int sev_get_tdp_max_page_level(struct kvm_vcpu *vcpu, gpa_t gpa, int max_level)
 		return max_level;
 
 	return min_t(uint32_t, level, max_level);
+}
+
+void sev_snp_write_page_begin(struct kvm *kvm, struct kvm_memory_slot *slot, gfn_t gfn)
+{
+	struct rmpentry *e;
+	int level, rc;
+	kvm_pfn_t pfn;
+
+	if (!sev_snp_guest(kvm))
+		return;
+
+	pfn = gfn_to_pfn(kvm, gfn);
+	if (is_error_noslot_pfn(pfn))
+		return;
+
+	e = snp_lookup_page_in_rmptable(pfn_to_page(pfn), &level);
+	if (unlikely(!e))
+		return;
+
+	/*
+	 * A hypervisor should never write to the guest private page. A write to the
+	 * guest private will cause an RMP violation. If the guest page is private,
+	 * then make it shared.
+	 */
+	if (rmpentry_assigned(e)) {
+		pr_err("SEV-SNP: write to guest private gfn %llx\n", gfn);
+		rc = snp_make_page_shared(kvm_get_vcpu(kvm, 0),
+				gfn << PAGE_SHIFT, pfn, PG_LEVEL_4K);
+		BUG_ON(rc != 0);
+	}
 }
