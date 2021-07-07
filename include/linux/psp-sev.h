@@ -749,6 +749,20 @@ struct sev_data_snp_init_ex {
 int sev_platform_init(int *error);
 
 /**
+ * sev_snp_init - perform SEV SNP_INIT command
+ *
+ * @error: SEV command return code
+ *
+ * Returns:
+ * 0 if the SEV successfully processed the command
+ * -%ENODEV    if the SEV device is not available
+ * -%ENOTSUPP  if the SEV does not support SEV
+ * -%ETIMEDOUT if the SEV command timed out
+ * -%EIO       if the SEV returned a non-zero return code
+ */
+int sev_snp_init(int *error);
+
+/**
  * sev_platform_status - perform SEV PLATFORM_STATUS command
  *
  * @status: sev_user_data_status structure to be processed
@@ -854,6 +868,8 @@ static inline int
 sev_platform_status(struct sev_user_data_status *status, int *error) { return -ENODEV; }
 
 static inline int sev_platform_init(int *error) { return -ENODEV; }
+
+static inline int sev_snp_init(int *error) { return -ENODEV; }
 
 static inline int
 sev_guest_deactivate(struct sev_data_deactivate *data, int *error) { return -ENODEV; }
