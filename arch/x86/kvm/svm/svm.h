@@ -198,6 +198,8 @@ struct vcpu_svm {
 	bool ghcb_sa_free;
 
 	bool guest_state_loaded;
+
+	u64 ghcb_registered_gpa;
 };
 
 struct svm_cpu_data {
@@ -256,6 +258,11 @@ static inline bool sev_snp_guest(struct kvm *kvm)
 #else
 	return false;
 #endif
+}
+
+static inline bool ghcb_gpa_is_registered(struct vcpu_svm *svm, u64 val)
+{
+	return svm->ghcb_registered_gpa == val;
 }
 
 static inline void vmcb_mark_all_dirty(struct vmcb *vmcb)
