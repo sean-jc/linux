@@ -134,6 +134,36 @@ static inline bool sev_snp_enabled(void)
 	return msr_sev_status & MSR_AMD64_SEV_SNP_ENABLED;
 }
 
+static bool is_vmpl0(void)
+{
+	u64 attrs, va;
+	int err;
+
+	/*
+	 * There is no straightforward way to query the current VMPL level. The
+	 * simplest method is to use the RMPADJUST instruction to change a page
+	 * permission to a VMPL level-1, and if the guest kernel is launched at
+	 * at a level <= 1, then RMPADJUST instruction will return an error.
+	 */
+	attrs = 1;
+
+	/*
+	 * Any page aligned virtual address is sufficent to test the VMPL level.
+	 * The boot_ghcb_page is page aligned memory, so lets use for the test.
+	 */
+	va = (u64)&boot_ghcb_page;
+
+	/* Instruction mnemonic supported in binutils versions v2.36 and later */
+	asm volatile (".byte 0xf3,0x0f,0x01,0xfe\n\t"
+		      : "=a" (err)
+		      : "a" (va), "c" (RMP_PG_SIZE_4K), "d" (attrs)
+		      : "memory", "cc");
+	if (err)
+		return false;
+
+	return true;
+}
+
 static bool do_early_sev_setup(void)
 {
 	if (!sev_es_negotiate_protocol())
@@ -141,10 +171,15 @@ static bool do_early_sev_setup(void)
 
 	/*
 	 * If SEV-SNP is enabled, then check if the hypervisor supports the SEV-SNP
-	 * features.
+	 * features and is launched at VMPL-0 level.
 	 */
-	if (sev_snp_enabled() && !(sev_hv_features & GHCB_HV_FT_SNP))
-		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SNP_UNSUPPORTED);
+	if (sev_snp_enabled()) {
+		if (!sev_hv_features & GHCB_HV_FT_SNP)
+			sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SNP_UNSUPPORTED);
+
+		if (!is_vmpl0())
+			sev_es_terminate(SEV_TERM_SET_LINUX, GHCB_TERM_NOT_VMPL0);
+	}
 
 	if (set_page_decrypted((unsigned long)&boot_ghcb_page))
 		return false;
