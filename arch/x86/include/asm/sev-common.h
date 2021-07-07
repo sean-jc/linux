@@ -59,6 +59,15 @@
 #define GHCB_MSR_HV_FT_REQ			0x080
 #define GHCB_MSR_HV_FT_RESP			0x081
 
+/* GHCB Hypervisor Feature Request */
+#define GHCB_MSR_HV_FT_REQ	0x080
+#define GHCB_MSR_HV_FT_RESP	0x081
+#define GHCB_MSR_HV_FT_POS	12
+#define GHCB_MSR_HV_FT_MASK	GENMASK_ULL(51, 0)
+
+#define GHCB_MSR_HV_FT_RESP_VAL(v)	\
+	(((unsigned long)((v) >> GHCB_MSR_HV_FT_POS) & GHCB_MSR_HV_FT_MASK))
+
 #define GHCB_MSR_TERM_REQ		0x100
 #define GHCB_MSR_TERM_REASON_SET_POS	12
 #define GHCB_MSR_TERM_REASON_SET_MASK	0xf
