@@ -128,6 +128,10 @@ void snp_set_memory_shared(unsigned long vaddr, unsigned int npages);
 void snp_set_memory_private(unsigned long vaddr, unsigned int npages);
 void snp_set_wakeup_secondary_cpu(void);
 
+#ifdef __BOOT_COMPRESSED
+bool sev_snp_enabled(void);
+#endif
+
 void sev_snp_cpuid_init(struct boot_params *bp);
 #else
 static inline void sev_es_ist_enter(struct pt_regs *regs) { }
@@ -144,6 +148,10 @@ static inline void __init snp_prep_memory(unsigned long paddr, unsigned int sz, 
 static inline void snp_set_memory_shared(unsigned long vaddr, unsigned int npages) { }
 static inline void snp_set_memory_private(unsigned long vaddr, unsigned int npages) { }
 static inline void snp_set_wakeup_secondary_cpu(void) { }
+
+#ifdef __BOOT_COMPRESSED
+static inline bool sev_snp_enabled { return false; }
+#endif
 
 static inline void sev_snp_cpuid_init(struct boot_params *bp) { }
 #endif

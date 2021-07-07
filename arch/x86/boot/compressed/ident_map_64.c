@@ -37,6 +37,9 @@
 #include <asm/setup.h>	/* For COMMAND_LINE_SIZE */
 #undef _SETUP
 
+#define __BOOT_COMPRESSED
+#include <asm/sev.h> /* For sev_snp_active() + ConfidentialComputing blob */
+
 extern unsigned long get_cmd_line_ptr(void);
 
 /* Used by PAGE_KERN* macros: */
@@ -162,6 +165,21 @@ void initialize_identity_maps(void *rmode)
 	add_identity_map((unsigned long)boot_params, (unsigned long)(boot_params + 1));
 	cmdline = get_cmd_line_ptr();
 	add_identity_map(cmdline, cmdline + COMMAND_LINE_SIZE);
+
+	/*
+	 * The ConfidentialComputing blob is used very early in uncompressed
+	 * kernel to find CPUID memory to handle cpuid instructions. Make sure
+	 * an identity-mapping exists so they can be accessed after switchover.
+	 */
+	if (sev_snp_enabled()) {
+		struct cc_blob_sev_info *cc_info =
+			(void *)(unsigned long)boot_params->cc_blob_address;
+
+		add_identity_map((unsigned long)cc_info,
+				 (unsigned long)cc_info + sizeof(*cc_info));
+		add_identity_map((unsigned long)cc_info->cpuid_phys,
+				 (unsigned long)cc_info->cpuid_phys + cc_info->cpuid_len);
+	}
 
 	/* Load the new page-table. */
 	sev_verify_cbit(top_level_pgt);
