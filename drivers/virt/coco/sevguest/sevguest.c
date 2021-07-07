@@ -39,6 +39,7 @@ struct snp_guest_dev {
 	struct device *dev;
 	struct miscdevice misc;
 
+	void *certs_data;
 	struct snp_guest_crypto *crypto;
 	struct snp_guest_msg *request, *response;
 };
@@ -348,6 +349,117 @@ e_free:
 	return rc;
 }
 
+static int get_ext_report(struct snp_guest_dev *snp_dev, struct snp_user_guest_request *arg)
+{
+	struct snp_guest_crypto *crypto = snp_dev->crypto;
+	struct snp_guest_request_data input = {};
+	struct snp_ext_report_req req;
+	int ret, npages = 0, resp_len;
+	struct snp_report_resp *resp;
+	struct snp_report_req *rreq;
+	unsigned long fw_err = 0;
+
+	if (!arg->req_data || !arg->resp_data)
+		return -EINVAL;
+
+	/* Copy the request payload from the userspace */
+	if (copy_from_user(&req, (void __user *)arg->req_data, sizeof(req)))
+		return -EFAULT;
+
+	rreq = &req.data;
+
+	/* Message version must be non-zero */
+	if (!rreq->msg_version)
+		return -EINVAL;
+
+	if (req.certs_len) {
+		if ((req.certs_len > SEV_FW_BLOB_MAX_SIZE) ||
+		    !IS_ALIGNED(req.certs_len, PAGE_SIZE))
+			return -EINVAL;
+	}
+
+	if (req.certs_address && req.certs_len) {
+		if (!access_ok(req.certs_address, req.certs_len))
+			return -EFAULT;
+
+		/*
+		 * Initialize the intermediate buffer with all zero's. This buffer
+		 * is used in the guest request message to get the certs blob from
+		 * the host. If host does not supply any certs in it, then we copy
+		 * zeros to indicate that certificate data was not provided.
+		 */
+		memset(snp_dev->certs_data, 0, req.certs_len);
+
+		input.data_gpa = __pa(snp_dev->certs_data);
+		npages = req.certs_len >> PAGE_SHIFT;
+	}
+
+	/*
+	 * The intermediate response buffer is used while decrypting the
+	 * response payload. Make sure that it has enough space to cover the
+	 * authtag.
+	 */
+	resp_len = sizeof(resp->data) + crypto->a_len;
+	resp = kzalloc(resp_len, GFP_KERNEL_ACCOUNT);
+	if (!resp)
+		return -ENOMEM;
+
+	if (copy_from_user(resp, (void __user *)arg->resp_data, sizeof(*resp))) {
+		ret = -EFAULT;
+		goto e_free;
+	}
+
+	/* Encrypt the userspace provided payload */
+	ret = enc_payload(snp_dev, rreq->msg_version, SNP_MSG_REPORT_REQ,
+			  &rreq->user_data, sizeof(rreq->user_data));
+	if (ret)
+		goto e_free;
+
+	/* Call firmware to process the request */
+	input.req_gpa = __pa(snp_dev->request);
+	input.resp_gpa = __pa(snp_dev->response);
+	input.data_npages = npages;
+	memset(snp_dev->response, 0, sizeof(*snp_dev->response));
+	ret = snp_issue_guest_request(EXT_GUEST_REQUEST, &input, &fw_err);
+
+	/* Popogate any firmware error to the userspace */
+	arg->fw_err = fw_err;
+
+	/* If certs length is invalid then copy the returned length */
+	if (arg->fw_err == SNP_GUEST_REQ_INVALID_LEN) {
+		req.certs_len = input.data_npages << PAGE_SHIFT;
+
+		if (copy_to_user((void __user *)arg->req_data, &req, sizeof(req)))
+			ret = -EFAULT;
+
+		goto e_free;
+	}
+
+	if (ret)
+		goto e_free;
+
+	/* Decrypt the response payload */
+	ret = verify_and_dec_payload(snp_dev, resp->data, resp_len);
+	if (ret)
+		goto e_free;
+
+	/* Copy the certificate data blob to userspace */
+	if (req.certs_address &&
+	    copy_to_user((void __user *)req.certs_address, snp_dev->certs_data,
+		    req.certs_len)) {
+		ret = -EFAULT;
+		goto e_free;
+	}
+
+	/* Copy the response payload to userspace */
+	if (copy_to_user((void __user *)arg->resp_data, resp, sizeof(*resp)))
+		ret = -EFAULT;
+
+e_free:
+	kfree(resp);
+	return ret;
+}
+
 static long snp_guest_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	struct snp_guest_dev *snp_dev = to_snp_dev(file);
@@ -367,6 +479,10 @@ static long snp_guest_ioctl(struct file *file, unsigned int ioctl, unsigned long
 	}
 	case SNP_GET_DERIVED_KEY: {
 		ret = get_derived_key(snp_dev, &input);
+		break;
+	}
+	case SNP_GET_EXT_REPORT: {
+		ret = get_ext_report(snp_dev, &input);
 		break;
 	}
 	default:
@@ -454,12 +570,21 @@ static int __init snp_guest_probe(struct platform_device *pdev)
 		goto e_free_req;
 	}
 
+	snp_dev->certs_data = alloc_shared_pages(SEV_FW_BLOB_MAX_SIZE);
+	if (IS_ERR(snp_dev->certs_data)) {
+		ret = PTR_ERR(snp_dev->certs_data);
+		goto e_free_resp;
+	}
+
 	misc = &snp_dev->misc;
 	misc->minor = MISC_DYNAMIC_MINOR;
 	misc->name = DEVICE_NAME;
 	misc->fops = &snp_guest_fops;
 
 	return misc_register(misc);
+
+e_free_resp:
+	free_shared_pages(snp_dev->response, sizeof(struct snp_guest_msg));
 
 e_free_req:
 	free_shared_pages(snp_dev->request, sizeof(struct snp_guest_msg));
@@ -476,6 +601,7 @@ static int __exit snp_guest_remove(struct platform_device *pdev)
 
 	free_shared_pages(snp_dev->request, sizeof(struct snp_guest_msg));
 	free_shared_pages(snp_dev->response, sizeof(struct snp_guest_msg));
+	free_shared_pages(snp_dev->certs_data, SEV_FW_BLOB_MAX_SIZE);
 	deinit_crypto(snp_dev->crypto);
 	misc_deregister(&snp_dev->misc);
 
