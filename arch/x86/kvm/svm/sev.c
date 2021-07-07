@@ -3528,3 +3528,60 @@ void sev_snp_write_page_begin(struct kvm *kvm, struct kvm_memory_slot *slot, gfn
 		BUG_ON(rc != 0);
 	}
 }
+
+int snp_handle_rmp_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t pfn,
+			      int level, u64 error_code)
+{
+	struct rmpentry *e;
+	int rlevel, rc = 0;
+	bool private;
+	gfn_t gfn;
+
+	e = snp_lookup_page_in_rmptable(pfn_to_page(pfn), &rlevel);
+	if (!e)
+		return 1;
+
+	private = !!(error_code & PFERR_GUEST_ENC_MASK);
+
+	/*
+	 * See APM section 15.36.11 on how to handle the RMP fault for the large pages.
+	 *
+	 *  npt	     rmp    access      action
+	 *  --------------------------------------------------
+	 *  4k       2M     C=1       psmash
+	 *  x        x      C=1       if page is not private then add a new RMP entry
+	 *  x        x      C=0       if page is private then make it shared
+	 *  2M       4k     C=x       zap
+	 */
+	if ((error_code & PFERR_GUEST_SIZEM_MASK) ||
+	    ((level == PG_LEVEL_4K) && (rlevel == PG_LEVEL_2M) && private)) {
+		rc = snp_rmptable_psmash(vcpu, pfn);
+		goto zap_gfn;
+	}
+
+	/*
+	 * If it's a private access, and the page is not assigned in the RMP table, create a
+	 * new private RMP entry.
+	 */
+	if (!rmpentry_assigned(e) && private) {
+		rc = snp_make_page_private(vcpu, gpa, pfn, PG_LEVEL_4K);
+		goto zap_gfn;
+	}
+
+	/*
+	 * If it's a shared access, then make the page shared in the RMP table.
+	 */
+	if (rmpentry_assigned(e) && !private)
+		rc = snp_make_page_shared(vcpu, gpa, pfn, PG_LEVEL_4K);
+
+zap_gfn:
+	/*
+	 * Now that we have updated the RMP pagesize, zap the existing rmaps for
+	 * large entry ranges so that nested page table gets rebuilt with the updated RMP
+	 * pagesize.
+	 */
+	gfn = gpa_to_gfn(gpa) & ~(KVM_PAGES_PER_HPAGE(PG_LEVEL_2M) - 1);
+	kvm_zap_gfn_range(vcpu->kvm, gfn, gfn + 512);
+
+	return 0;
+}

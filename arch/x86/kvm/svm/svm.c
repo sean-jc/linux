@@ -4615,6 +4615,8 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.get_tdp_max_page_level = sev_get_tdp_max_page_level,
 
 	.write_page_begin = sev_snp_write_page_begin,
+
+	.handle_rmp_page_fault = snp_handle_rmp_page_fault,
 };
 
 static struct kvm_x86_init_ops svm_init_ops __initdata = {
