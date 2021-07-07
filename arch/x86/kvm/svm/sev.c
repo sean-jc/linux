@@ -1949,6 +1949,45 @@ find_enc_region(struct kvm *kvm, struct kvm_enc_region *range)
 static void __unregister_enc_region_locked(struct kvm *kvm,
 					   struct enc_region *region)
 {
+	struct rmpupdate val = {};
+	unsigned long i, pfn;
+	struct rmpentry *e;
+	int level, rc;
+
+	/*
+	 * The guest memory pages are assigned in the RMP table. Unassign it
+	 * before releasing the memory.
+	 */
+	if (sev_snp_guest(kvm)) {
+		for (i = 0; i < region->npages; i++) {
+			pfn = page_to_pfn(region->pages[i]);
+
+			if (need_resched())
+				schedule();
+
+			e = snp_lookup_page_in_rmptable(region->pages[i], &level);
+			if (unlikely(!e))
+				continue;
+
+			/* If its not a guest assigned page then skip it. */
+			if (!rmpentry_assigned(e))
+				continue;
+
+			/* Is the page part of a 2MB RMP entry? */
+			if (level == PG_LEVEL_2M) {
+				val.pagesize = RMP_PG_SIZE_2M;
+				pfn &= ~(KVM_PAGES_PER_HPAGE(PG_LEVEL_2M) - 1);
+			} else {
+				val.pagesize = RMP_PG_SIZE_4K;
+			}
+
+			/* Transition the page to hypervisor owned. */
+			rc = rmpupdate(pfn_to_page(pfn), &val);
+			if (rc)
+				pr_err("Failed to release pfn 0x%lx ret=%d\n", pfn, rc);
+		}
+	}
+
 	sev_unpin_memory(kvm, region->pages, region->npages);
 	list_del(&region->list);
 	kfree(region);
