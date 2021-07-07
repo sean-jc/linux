@@ -694,6 +694,166 @@ void __init snp_prep_memory(unsigned long paddr, unsigned int sz, int op)
 		WARN(1, "invalid memory op %d\n", op);
 }
 
+static int vmgexit_psc(struct snp_psc_desc *desc)
+{
+	int cur_entry, end_entry, ret;
+	struct snp_psc_desc *data;
+	struct ghcb_state state;
+	struct ghcb *ghcb;
+	struct psc_hdr *hdr;
+	unsigned long flags;
+
+	local_irq_save(flags);
+
+	ghcb = __sev_get_ghcb(&state);
+	if (unlikely(!ghcb))
+		panic("SEV-SNP: Failed to get GHCB\n");
+
+	/* Copy the input desc into GHCB shared buffer */
+	data = (struct snp_psc_desc *)ghcb->shared_buffer;
+	memcpy(ghcb->shared_buffer, desc, sizeof(*desc));
+
+	hdr = &data->hdr;
+	cur_entry = hdr->cur_entry;
+	end_entry = hdr->end_entry;
+
+	/*
+	 * As per the GHCB specification, the hypervisor can resume the guest
+	 * before processing all the entries. Checks whether all the entries
+	 * are processed. If not, then keep retrying.
+	 *
+	 * The stragtegy here is to wait for the hypervisor to change the page
+	 * state in the RMP table before guest access the memory pages. If the
+	 * page state was not successful, then later memory access will result
+	 * in the crash.
+	 */
+	while (hdr->cur_entry <= hdr->end_entry) {
+		ghcb_set_sw_scratch(ghcb, (u64)__pa(data));
+
+		ret = sev_es_ghcb_hv_call(ghcb, NULL, SVM_VMGEXIT_PSC, 0, 0);
+
+		/*
+		 * Page State Change VMGEXIT can pass error code through
+		 * exit_info_2.
+		 */
+		if (WARN(ret || ghcb->save.sw_exit_info_2,
+			 "SEV-SNP: page state change failed ret=%d exit_info_2=%llx\n",
+			 ret, ghcb->save.sw_exit_info_2))
+			return 1;
+
+		/*
+		 * Lets do some sanity check that entry processing is not going
+		 * backward. This will happen only if hypervisor is tricking us.
+		 */
+		if (WARN((hdr->end_entry > end_entry) || (cur_entry > hdr->cur_entry),
+			"SEV-SNP: page state change processing going backward, end_entry "
+			"(expected %d got %d) cur_entry (expected %d got %d)\n",
+			end_entry, hdr->end_entry, cur_entry, hdr->cur_entry))
+			return 1;
+
+		/* Lets verify that reserved bit is not set in the header*/
+		if (WARN(hdr->reserved, "Reserved bit is set in the PSC header\n"))
+			return 1;
+	}
+
+	__sev_put_ghcb(&state);
+	local_irq_restore(flags);
+
+	return 0;
+}
+
+static void __set_page_state(struct snp_psc_desc *data, unsigned long vaddr,
+			     unsigned long vaddr_end, int op)
+{
+	struct psc_hdr *hdr;
+	struct psc_entry *e;
+	unsigned long pfn;
+	int i;
+
+	hdr = &data->hdr;
+	e = data->entries;
+
+	memset(data, 0, sizeof(*data));
+	i = 0;
+
+	while (vaddr < vaddr_end) {
+		if (is_vmalloc_addr((void *)vaddr))
+			pfn = vmalloc_to_pfn((void *)vaddr);
+		else
+			pfn = __pa(vaddr) >> PAGE_SHIFT;
+
+		e->gfn = pfn;
+		e->operation = op;
+		hdr->end_entry = i;
+
+		/*
+		 * The GHCB specification provides the flexibility to
+		 * use either 4K or 2MB page size in the RMP table.
+		 * The current SNP support does not keep track of the
+		 * page size used in the RMP table. To avoid the
+		 * overlap request, use the 4K page size in the RMP
+		 * table.
+		 */
+		e->pagesize = RMP_PG_SIZE_4K;
+
+		vaddr = vaddr + PAGE_SIZE;
+		e++;
+		i++;
+	}
+
+	/* Terminate the guest on page state change failure. */
+	if (vmgexit_psc(data))
+		sev_es_terminate(1, GHCB_TERM_PSC);
+}
+
+static void set_page_state(unsigned long vaddr, unsigned int npages, int op)
+{
+	unsigned long vaddr_end, next_vaddr;
+	struct snp_psc_desc *desc;
+
+	vaddr = vaddr & PAGE_MASK;
+	vaddr_end = vaddr + (npages << PAGE_SHIFT);
+
+	desc = kmalloc(sizeof(*desc), GFP_KERNEL_ACCOUNT);
+	if (!desc)
+		panic("failed to allocate memory");
+
+	while (vaddr < vaddr_end) {
+		/*
+		 * Calculate the last vaddr that can be fit in one
+		 * struct snp_psc_desc.
+		 */
+		next_vaddr = min_t(unsigned long, vaddr_end,
+				(VMGEXIT_PSC_MAX_ENTRY * PAGE_SIZE) + vaddr);
+
+		__set_page_state(desc, vaddr, next_vaddr, op);
+
+		vaddr = next_vaddr;
+	}
+
+	kfree(desc);
+}
+
+void snp_set_memory_shared(unsigned long vaddr, unsigned int npages)
+{
+	if (!sev_feature_enabled(SEV_SNP))
+		return;
+
+	pvalidate_pages(vaddr, npages, 0);
+
+	set_page_state(vaddr, npages, SNP_PAGE_STATE_SHARED);
+}
+
+void snp_set_memory_private(unsigned long vaddr, unsigned int npages)
+{
+	if (!sev_feature_enabled(SEV_SNP))
+		return;
+
+	set_page_state(vaddr, npages, SNP_PAGE_STATE_PRIVATE);
+
+	pvalidate_pages(vaddr, npages, 1);
+}
+
 int sev_es_setup_ap_jump_table(struct real_mode_header *rmh)
 {
 	u16 startup_cs, startup_ip;

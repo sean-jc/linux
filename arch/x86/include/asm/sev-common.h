@@ -74,6 +74,8 @@
 #define GHCB_MSR_PSC_REQ		0x014
 #define SNP_PAGE_STATE_PRIVATE		1
 #define SNP_PAGE_STATE_SHARED		2
+#define SNP_PAGE_STATE_PSMASH		3
+#define SNP_PAGE_STATE_UNSMASH		4
 #define GHCB_MSR_PSC_GFN_POS		12
 #define GHCB_MSR_PSC_GFN_MASK		GENMASK_ULL(39, 0)
 #define GHCB_MSR_PSC_OP_POS		52
@@ -97,6 +99,28 @@
 	(((unsigned long)((v) >> GHCB_MSR_HV_FT_POS) & GHCB_MSR_HV_FT_MASK))
 
 #define GHCB_HV_FT_SNP			BIT_ULL(0)
+
+/* SNP Page State Change NAE event */
+#define VMGEXIT_PSC_MAX_ENTRY		253
+
+struct __packed psc_hdr {
+	u16 cur_entry;
+	u16 end_entry;
+	u32 reserved;
+};
+
+struct __packed psc_entry {
+	u64	cur_page	: 12,
+		gfn		: 40,
+		operation	: 4,
+		pagesize	: 1,
+		reserved	: 7;
+};
+
+struct __packed snp_psc_desc {
+	struct psc_hdr hdr;
+	struct psc_entry entries[VMGEXIT_PSC_MAX_ENTRY];
+};
 
 #define GHCB_MSR_TERM_REQ		0x100
 #define GHCB_MSR_TERM_REASON_SET_POS	12
