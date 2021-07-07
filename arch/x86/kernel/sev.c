@@ -21,6 +21,7 @@
 #include <linux/cpumask.h>
 #include <linux/log2.h>
 #include <linux/efi.h>
+#include <linux/sev-guest.h>
 
 #include <asm/cpu_entry_area.h>
 #include <asm/stacktrace.h>
@@ -2024,3 +2025,59 @@ fail:
 	while (true)
 		halt();
 }
+
+int snp_issue_guest_request(int type, struct snp_guest_request_data *input, unsigned long *fw_err)
+{
+	struct ghcb_state state;
+	unsigned long id, flags;
+	struct ghcb *ghcb;
+	int ret;
+
+	if (!sev_feature_enabled(SEV_SNP))
+		return -ENODEV;
+
+
+	local_irq_save(flags);
+
+	ghcb = __sev_get_ghcb(&state);
+	if (!ghcb)
+		return -ENODEV;
+
+	vc_ghcb_invalidate(ghcb);
+
+	if (type == GUEST_REQUEST) {
+		id = SVM_VMGEXIT_GUEST_REQUEST;
+	} else if (type == EXT_GUEST_REQUEST) {
+		id = SVM_VMGEXIT_EXT_GUEST_REQUEST;
+		ghcb_set_rax(ghcb, input->data_gpa);
+		ghcb_set_rbx(ghcb, input->data_npages);
+	} else {
+		ret = -EINVAL;
+		goto e_put;
+	}
+
+
+	ret = sev_es_ghcb_hv_call(ghcb, NULL, id, input->req_gpa, input->resp_gpa);
+	if (ret)
+		goto e_put;
+
+	if (ghcb->save.sw_exit_info_2) {
+
+		/* Number of expected pages are returned in RBX */
+		if (id == EXT_GUEST_REQUEST)
+			input->data_npages = ghcb_get_rbx(ghcb);
+
+		if (fw_err)
+			*fw_err = ghcb->save.sw_exit_info_2;
+
+		ret = -EIO;
+		goto e_put;
+	}
+
+e_put:
+	__sev_put_ghcb(&state);
+	local_irq_restore(flags);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(snp_issue_guest_request);
