@@ -4612,6 +4612,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.vcpu_deliver_sipi_vector = svm_vcpu_deliver_sipi_vector,
 
 	.alloc_apic_backing_page = svm_alloc_apic_backing_page,
+	.get_tdp_max_page_level = sev_get_tdp_max_page_level,
 };
 
 static struct kvm_x86_init_ops svm_init_ops __initdata = {
