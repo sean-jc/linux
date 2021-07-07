@@ -441,6 +441,7 @@ SYM_CODE_START(startup_64)
 .Lon_kernel_cs:
 
 	pushq	%rsi
+	movq	%rsi, %rdi		/* real mode address */
 	call	load_stage1_idt
 	popq	%rsi
 

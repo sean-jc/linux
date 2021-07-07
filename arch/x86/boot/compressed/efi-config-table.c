@@ -178,3 +178,47 @@ efi_bp_get_conf_table(struct boot_params *boot_params,
 
 	return 0;
 }
+
+/*
+ * Given boot_params, locate EFI system/config table from it and search for
+ * physical for the vendor table associated with GUID.
+ *
+ * @boot_params:       pointer to boot_params
+ * @guid:              GUID of vendor table
+ * @vendor_table_pa:   location to store physical address of vendor table
+ *
+ * Returns 0 on success. On error, return params are left unchanged.
+ */
+int
+efi_bp_find_vendor_table(struct boot_params *boot_params, efi_guid_t guid,
+			 unsigned long *vendor_table_pa)
+{
+	unsigned long conf_table_pa = 0;
+	unsigned int conf_table_len = 0;
+	unsigned int i;
+	bool efi_64;
+	int ret;
+
+	ret = efi_bp_get_conf_table(boot_params, &conf_table_pa,
+				    &conf_table_len, &efi_64);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < conf_table_len; i++) {
+		unsigned long vendor_table_pa_tmp;
+		efi_guid_t vendor_table_guid;
+		int ret;
+
+		if (get_vendor_table((void *)conf_table_pa, i,
+				     &vendor_table_pa_tmp,
+				     &vendor_table_guid, efi_64))
+			return -EINVAL;
+
+		if (!efi_guidcmp(guid, vendor_table_guid)) {
+			*vendor_table_pa = vendor_table_pa_tmp;
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}

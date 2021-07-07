@@ -20,6 +20,9 @@
 #include <asm/fpu/xcr.h>
 #include <asm/ptrace.h>
 #include <asm/svm.h>
+#include <asm/cpuid-indexed.h>
+#include <linux/efi.h>
+#include <linux/log2.h>
 
 #include "error.h"
 

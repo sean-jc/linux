@@ -3,6 +3,7 @@
 #include <asm/segment.h>
 #include <asm/trapnr.h>
 #include "misc.h"
+#include <asm/sev.h>
 
 static void set_idt_entry(int vector, void (*handler)(void))
 {
@@ -28,13 +29,15 @@ static void load_boot_idt(const struct desc_ptr *dtr)
 }
 
 /* Setup IDT before kernel jumping to  .Lrelocated */
-void load_stage1_idt(void)
+void load_stage1_idt(void *rmode)
 {
 	boot_idt_desc.address = (unsigned long)boot_idt;
 
 
-	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT))
+	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT)) {
+		sev_snp_cpuid_init(rmode);
 		set_idt_entry(X86_TRAP_VC, boot_stage1_vc);
+	}
 
 	load_boot_idt(&boot_idt_desc);
 }

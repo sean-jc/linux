@@ -193,6 +193,10 @@ int efi_bp_get_conf_table(struct boot_params *boot_params,
 			  unsigned long *conf_table_pa,
 			  unsigned int *conf_table_len,
 			  bool *is_efi_64);
+
+int efi_bp_find_vendor_table(struct boot_params *boot_params, efi_guid_t guid,
+			     unsigned long *vendor_table_pa);
+
 #else
 static inline int
 efi_foreach_conf_entry(void *conf_table, unsigned int conf_table_len,
@@ -219,6 +223,12 @@ efi_bp_get_conf_table(struct boot_params *boot_params,
 		      unsigned long *conf_table_pa,
 		      unsigned int *conf_table_len,
 		      bool *is_efi_64)
+{
+	return -ENOENT;
+}
+
+int efi_bp_find_vendor_table(struct boot_params *boot_params, efi_guid_t guid,
+			     unsigned long *vendor_table_pa);
 {
 	return -ENOENT;
 }
