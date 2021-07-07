@@ -58,6 +58,14 @@ static int psp_timeout;
 #define SEV_ES_TMR_SIZE		(1024 * 1024)
 static void *sev_es_tmr;
 
+/* When SEV-SNP is enabled the TMR need to be 2MB aligned and 2MB size. */
+#define SEV_SNP_ES_TMR_SIZE	(2 * 1024 * 1024)
+
+static size_t sev_es_tmr_size = SEV_ES_TMR_SIZE;
+
+static int __sev_do_cmd_locked(int cmd, void *data, int *psp_ret);
+static int sev_do_cmd(int cmd, void *data, int *psp_ret);
+
 static inline bool sev_version_greater_or_equal(u8 maj, u8 min)
 {
 	struct sev_device *sev = psp_master->sev_data;
@@ -154,6 +162,112 @@ static int sev_cmd_buffer_len(int cmd)
 
 	return 0;
 }
+
+static int snp_reclaim_page(struct page *page, bool locked)
+{
+	struct sev_data_snp_page_reclaim data = {};
+	int ret, err;
+
+	data.paddr = page_to_pfn(page) << PAGE_SHIFT;
+
+	if (locked)
+		ret = __sev_do_cmd_locked(SEV_CMD_SNP_PAGE_RECLAIM, &data, &err);
+	else
+		ret = sev_do_cmd(SEV_CMD_SNP_PAGE_RECLAIM, &data, &err);
+
+	return ret;
+}
+
+static int snp_set_rmptable_state(unsigned long paddr, int npages,
+				  struct rmpupdate *val, bool locked, bool need_reclaim)
+{
+	unsigned long pfn = __sme_clr(paddr) >> PAGE_SHIFT;
+	unsigned long pfn_end = pfn + npages;
+	struct psp_device *psp = psp_master;
+	struct sev_device *sev;
+	int rc;
+
+	if (!psp || !psp->sev_data)
+		return 0;
+
+	/* If SEV-SNP is initialized then add the page in RMP table. */
+	sev = psp->sev_data;
+	if (!sev->snp_inited)
+		return 0;
+
+	while (pfn < pfn_end) {
+		if (need_reclaim)
+			if (snp_reclaim_page(pfn_to_page(pfn), locked))
+				return -EFAULT;
+
+		rc = rmpupdate(pfn_to_page(pfn), val);
+		if (rc)
+			return rc;
+
+		pfn++;
+	}
+
+	return 0;
+}
+
+static struct page *__snp_alloc_firmware_pages(gfp_t gfp_mask, int order, bool locked)
+{
+	struct rmpupdate val = {};
+	unsigned long paddr;
+	struct page *page;
+
+	page = alloc_pages(gfp_mask, order);
+	if (!page)
+		return NULL;
+
+	val.assigned = 1;
+	val.immutable = 1;
+	paddr = __pa((unsigned long)page_address(page));
+
+	if (snp_set_rmptable_state(paddr, 1 << order, &val, locked, false)) {
+		pr_warn("Failed to set page state (leaking it)\n");
+		return NULL;
+	}
+
+	return page;
+}
+
+void *snp_alloc_firmware_page(gfp_t gfp_mask)
+{
+	struct page *page;
+
+	page = __snp_alloc_firmware_pages(gfp_mask, 0, false);
+
+	return page ? page_address(page) : NULL;
+}
+EXPORT_SYMBOL_GPL(snp_alloc_firmware_page);
+
+static void __snp_free_firmware_pages(struct page *page, int order, bool locked)
+{
+	struct rmpupdate val = {};
+	unsigned long paddr;
+
+	if (!page)
+		return;
+
+	paddr = __pa((unsigned long)page_address(page));
+
+	if (snp_set_rmptable_state(paddr, 1 << order, &val, locked, true)) {
+		pr_warn("Failed to set page state (leaking it)\n");
+		return;
+	}
+
+	__free_pages(page, order);
+}
+
+void snp_free_firmware_page(void *addr)
+{
+	if (!addr)
+		return;
+
+	__snp_free_firmware_pages(virt_to_page(addr), 0, false);
+}
+EXPORT_SYMBOL(snp_free_firmware_page);
 
 static int __sev_do_cmd_locked(int cmd, void *data, int *psp_ret)
 {
@@ -277,7 +391,7 @@ static int __sev_platform_init_locked(int *error)
 
 		data.flags |= SEV_INIT_FLAGS_SEV_ES;
 		data.tmr_address = tmr_pa;
-		data.tmr_len = SEV_ES_TMR_SIZE;
+		data.tmr_len = sev_es_tmr_size;
 	}
 
 	rc = __sev_do_cmd_locked(SEV_CMD_INIT, &data, error);
@@ -633,6 +747,8 @@ static int __sev_snp_init_locked(int *error)
 
 	sev->snp_inited = true;
 	dev_dbg(sev->dev, "SEV-SNP firmware initialized\n");
+
+	sev_es_tmr_size = SEV_SNP_ES_TMR_SIZE;
 
 	return rc;
 }
@@ -1157,8 +1273,10 @@ static void sev_firmware_shutdown(struct sev_device *sev)
 		/* The TMR area was encrypted, flush it from the cache */
 		wbinvd_on_all_cpus();
 
-		free_pages((unsigned long)sev_es_tmr,
-			   get_order(SEV_ES_TMR_SIZE));
+
+		__snp_free_firmware_pages(virt_to_page(sev_es_tmr),
+					  get_order(sev_es_tmr_size),
+					  false);
 		sev_es_tmr = NULL;
 	}
 
@@ -1208,16 +1326,6 @@ void sev_pci_init(void)
 	    sev_update_firmware(sev->dev) == 0)
 		sev_get_api_version();
 
-	/* Obtain the TMR memory area for SEV-ES use */
-	tmr_page = alloc_pages(GFP_KERNEL, get_order(SEV_ES_TMR_SIZE));
-	if (tmr_page) {
-		sev_es_tmr = page_address(tmr_page);
-	} else {
-		sev_es_tmr = NULL;
-		dev_warn(sev->dev,
-			 "SEV: TMR allocation failed, SEV-ES support unavailable\n");
-	}
-
 	/*
 	 * If boot CPU supports the SNP, then first attempt to initialize
 	 * the SNP firmware.
@@ -1231,6 +1339,16 @@ void sev_pci_init(void)
 			 */
 			dev_err(sev->dev, "SEV-SNP: failed to INIT error %#x\n", error);
 		}
+	}
+
+	/* Obtain the TMR memory area for SEV-ES use */
+	tmr_page = __snp_alloc_firmware_pages(GFP_KERNEL, get_order(sev_es_tmr_size), false);
+	if (tmr_page) {
+		sev_es_tmr = page_address(tmr_page);
+	} else {
+		sev_es_tmr = NULL;
+		dev_warn(sev->dev,
+			 "SEV: TMR allocation failed, SEV-ES support unavailable\n");
 	}
 
 	/* Initialize the platform */
