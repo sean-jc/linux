@@ -17,6 +17,7 @@
 #include <linux/misc_cgroup.h>
 #include <linux/processor.h>
 #include <linux/trace_events.h>
+#include <linux/sev.h>
 #include <asm/fpu/internal.h>
 
 #include <asm/pkru.h>
@@ -1633,6 +1634,144 @@ e_free_context:
 	return rc;
 }
 
+static struct kvm_memory_slot *hva_to_memslot(struct kvm *kvm, unsigned long hva)
+{
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	struct kvm_memory_slot *memslot;
+
+	kvm_for_each_memslot(memslot, slots) {
+		if (hva >= memslot->userspace_addr &&
+		    hva < memslot->userspace_addr + (memslot->npages << PAGE_SHIFT))
+			return memslot;
+	}
+
+	return NULL;
+}
+
+static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
+{
+	struct kvm_memory_slot *memslot;
+	gpa_t gpa_offset;
+
+	memslot = hva_to_memslot(kvm, hva);
+	if (!memslot)
+		return false;
+
+	gpa_offset = hva - memslot->userspace_addr;
+	*gpa = ((memslot->base_gfn << PAGE_SHIFT) + gpa_offset);
+
+	return true;
+}
+
+static int snp_page_reclaim(struct page *page, int rmppage_size)
+{
+	struct sev_data_snp_page_reclaim data = {};
+	struct rmpupdate e = {};
+	int rc, err;
+
+	data.paddr = __sme_page_pa(page) | rmppage_size;
+	rc = snp_guest_page_reclaim(&data, &err);
+	if (rc)
+		return rc;
+
+	return rmpupdate(page, &e);
+}
+
+static int snp_launch_update(struct kvm *kvm, struct kvm_sev_cmd *argp)
+{
+	unsigned long npages, vaddr, vaddr_end, i, next_vaddr;
+	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct sev_data_snp_launch_update data = {};
+	struct kvm_sev_snp_launch_update params;
+	int *error = &argp->error;
+	struct kvm_vcpu *vcpu;
+	struct page **inpages;
+	struct rmpupdate e;
+	int ret;
+
+	if (!sev_snp_guest(kvm))
+		return -ENOTTY;
+
+	if (!sev->snp_context)
+		return -EINVAL;
+
+	if (copy_from_user(&params, (void __user *)(uintptr_t)argp->data, sizeof(params)))
+		return -EFAULT;
+
+	data.gctx_paddr = __psp_pa(sev->snp_context);
+
+	/* Lock the user memory. */
+	inpages = sev_pin_memory(kvm, params.uaddr, params.len, &npages, 1);
+	if (!inpages)
+		return -ENOMEM;
+
+	vcpu = kvm_get_vcpu(kvm, 0);
+	vaddr = params.uaddr;
+	vaddr_end = vaddr + params.len;
+
+	for (i = 0; vaddr < vaddr_end; vaddr = next_vaddr, i++) {
+		unsigned long psize, pmask;
+		int level = PG_LEVEL_4K;
+		gpa_t gpa;
+
+		if (!hva_to_gpa(kvm, vaddr, &gpa)) {
+			ret = -EINVAL;
+			goto e_unpin;
+		}
+
+		psize = page_level_size(level);
+		pmask = page_level_mask(level);
+		gpa = gpa & pmask;
+
+		/* Transition the page state to pre-guest */
+		memset(&e, 0, sizeof(e));
+		e.assigned = 1;
+		e.gpa = gpa;
+		e.asid = sev_get_asid(kvm);
+		e.immutable = true;
+		e.pagesize = X86_TO_RMP_PG_LEVEL(level);
+		ret = rmpupdate(inpages[i], &e);
+		if (ret) {
+			ret = -EFAULT;
+			goto e_unpin;
+		}
+
+		data.address = __sme_page_pa(inpages[i]);
+		data.page_size = e.pagesize;
+		data.page_type = params.page_type;
+		data.vmpl3_perms = params.vmpl3_perms;
+		data.vmpl2_perms = params.vmpl2_perms;
+		data.vmpl1_perms = params.vmpl1_perms;
+		ret = __sev_issue_cmd(argp->sev_fd, SEV_CMD_SNP_LAUNCH_UPDATE, &data, error);
+		if (ret) {
+			snp_page_reclaim(inpages[i], e.pagesize);
+			goto e_unpin;
+		}
+
+		next_vaddr = (vaddr & pmask) + psize;
+	}
+
+e_unpin:
+	/* Content of memory is updated, mark pages dirty */
+	memset(&e, 0, sizeof(e));
+	for (i = 0; i < npages; i++) {
+		set_page_dirty_lock(inpages[i]);
+		mark_page_accessed(inpages[i]);
+
+		/*
+		 * If its an error, then update RMP entry to change page ownership
+		 * to the hypervisor.
+		 */
+		if (ret)
+			rmpupdate(inpages[i], &e);
+	}
+
+	/* Unlock the user pages */
+	sev_unpin_memory(kvm, inpages, npages);
+
+	return ret;
+}
+
 int svm_mem_enc_op(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_sev_cmd sev_cmd;
@@ -1724,6 +1863,9 @@ int svm_mem_enc_op(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_SEV_SNP_LAUNCH_START:
 		r = snp_launch_start(kvm, &sev_cmd);
+		break;
+	case KVM_SEV_SNP_LAUNCH_UPDATE:
+		r = snp_launch_update(kvm, &sev_cmd);
 		break;
 	default:
 		r = -EINVAL;
