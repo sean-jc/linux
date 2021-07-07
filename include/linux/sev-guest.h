@@ -68,6 +68,11 @@ struct snp_guest_request_data {
 	unsigned int data_npages;
 };
 
+struct snp_guest_platform_data {
+	u8 vmpck_id;
+	char vmpck[VMPCK_KEY_LEN];
+};
+
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 int snp_issue_guest_request(int vmgexit_type, struct snp_guest_request_data *input,
 			    unsigned long *fw_err);
