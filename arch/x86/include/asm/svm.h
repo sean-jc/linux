@@ -226,6 +226,9 @@ struct __attribute__ ((__packed__)) vmcb_control_area {
 #define SVM_SEV_FEATURES_DEBUG_SWAP		BIT(5)
 #define SVM_SEV_FEATURES_PREVENT_HOST_IBS	BIT(6)
 #define SVM_SEV_FEATURES_BTB_ISOLATION		BIT(7)
+#define SVM_SEV_FEATURES_INT_INJ_MODES			\
+	(SVM_SEV_FEATURES_RESTRICTED_INJECTION |	\
+	 SVM_SEV_FEATURES_ALTERNATE_INJECTION)
 
 struct vmcb_seg {
 	u16 selector;

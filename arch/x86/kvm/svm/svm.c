@@ -1328,7 +1328,10 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	svm->spec_ctrl = 0;
 	svm->virt_spec_ctrl = 0;
 
-	if (!init_event) {
+	if (init_event && svm->snp_vmsa_update_on_init) {
+		svm->snp_vmsa_update_on_init = false;
+		sev_snp_update_protected_guest_state(vcpu);
+	} else {
 		vcpu->arch.apic_base = APIC_DEFAULT_PHYS_BASE |
 				       MSR_IA32_APICBASE_ENABLE;
 		if (kvm_vcpu_is_reset_bsp(vcpu))
@@ -4624,6 +4627,8 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.write_page_begin = sev_snp_write_page_begin,
 
 	.handle_rmp_page_fault = snp_handle_rmp_page_fault,
+
+	.update_protected_guest_state = sev_snp_update_protected_guest_state,
 };
 
 static struct kvm_x86_init_ops svm_init_ops __initdata = {
