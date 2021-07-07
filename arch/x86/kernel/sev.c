@@ -49,6 +49,8 @@
 #define DR7_RESET_VALUE        0x400
 
 #define RMPTABLE_ENTRIES_OFFSET        0x4000
+#define RMPENTRY_SHIFT			8
+#define rmptable_page_offset(x)	(RMPTABLE_ENTRIES_OFFSET + (((unsigned long)x) >> RMPENTRY_SHIFT))
 
 /* For early boot hypervisor communication in SEV-ES enabled guests */
 static struct ghcb boot_ghcb_page __bss_decrypted __aligned(PAGE_SIZE);
@@ -2371,3 +2373,27 @@ static int __init snp_rmptable_init(void)
  * passthough state, and it is available after subsys_initcall().
  */
 fs_initcall(snp_rmptable_init);
+
+struct rmpentry *snp_lookup_page_in_rmptable(struct page *page, int *level)
+{
+	unsigned long phys = page_to_pfn(page) << PAGE_SHIFT;
+	struct rmpentry *entry, *large_entry;
+	unsigned long vaddr;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
+		return NULL;
+
+	vaddr = rmptable_start + rmptable_page_offset(phys);
+	if (unlikely(vaddr > rmptable_end))
+		return NULL;
+
+	entry = (struct rmpentry *)vaddr;
+
+	/* Read a large RMP entry to get the correct page level used in RMP entry. */
+	vaddr = rmptable_start + rmptable_page_offset(phys & PMD_MASK);
+	large_entry = (struct rmpentry *)vaddr;
+	*level = RMP_TO_X86_PG_LEVEL(rmpentry_pagesize(large_entry));
+
+	return entry;
+}
+EXPORT_SYMBOL_GPL(snp_lookup_page_in_rmptable);

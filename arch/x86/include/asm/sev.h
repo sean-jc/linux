@@ -9,6 +9,7 @@
 #define __ASM_ENCRYPTED_STATE_H
 
 #include <linux/types.h>
+#include <linux/sev.h>
 #include <asm/insn.h>
 #include <asm/sev-common.h>
 #include <asm/bootparam.h>
@@ -74,9 +75,6 @@ extern bool handle_vc_boot_ghcb(struct pt_regs *regs);
 
 /* Software defined (when rFlags.CF = 1) */
 #define PVALIDATE_FAIL_NOUPDATE		255
-
-/* RMP page size */
-#define RMP_PG_SIZE_4K			0
 
 #define RMPADJUST_VMSA_PAGE_BIT		BIT(16)
 
