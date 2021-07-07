@@ -2427,6 +2427,12 @@ int rmpupdate(struct page *page, struct rmpupdate *val)
 	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
 		return -ENXIO;
 
+	ret = set_memory_4k((unsigned long)page_to_virt(page), 1);
+	if (ret) {
+		pr_err("Failed to split physical address 0x%lx (%d)\n", spa, ret);
+		return ret;
+	}
+
 	/* Retry if another processor is modifying the RMP entry. */
 	do {
 		/* Binutils version 2.36 supports the RMPUPDATE mnemonic. */
