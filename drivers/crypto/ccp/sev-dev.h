@@ -67,6 +67,9 @@ struct sev_device {
 	bool snp_inited;
 	struct snp_host_map snp_host_map[MAX_SNP_HOST_MAP_BUFS];
 	struct page *snp_plat_status_page;
+	void *snp_certs_data;
+	u32 snp_certs_len;
+	struct sev_user_data_snp_config snp_config;
 };
 
 int sev_dev_init(struct psp_device *psp);
