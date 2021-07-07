@@ -1403,8 +1403,15 @@ static int svm_create_vcpu(struct kvm_vcpu *vcpu)
 	svm->vmcb01.ptr = page_address(vmcb01_page);
 	svm->vmcb01.pa = __sme_set(page_to_pfn(vmcb01_page) << PAGE_SHIFT);
 
-	if (vmsa_page)
+	if (vmsa_page) {
 		svm->vmsa = page_address(vmsa_page);
+
+		/*
+		 * Do not include the encryption mask on the VMSA physical
+		 * address since hardware will access it using the guest key.
+		 */
+		svm->vmsa_pa = __pa(svm->vmsa);
+	}
 
 	svm->guest_state_loaded = false;
 
