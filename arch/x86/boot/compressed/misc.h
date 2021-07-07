@@ -21,6 +21,7 @@
 #include <linux/screen_info.h>
 #include <linux/elf.h>
 #include <linux/io.h>
+#include <linux/efi.h>
 #include <asm/page.h>
 #include <asm/boot.h>
 #include <asm/bootparam.h>
@@ -173,5 +174,54 @@ void boot_stage1_vc(void);
 void boot_stage2_vc(void);
 
 unsigned long sev_verify_cbit(unsigned long cr3);
+
+#ifdef CONFIG_EFI
+/* helpers for early EFI config table access */
+int efi_foreach_conf_entry(void *conf_table, unsigned int conf_table_len,
+			   bool efi_64,
+			   bool (*fn)(efi_guid_t guid,
+				      unsigned long vendor_table_pa,
+				      bool efi_64,
+				      void *opaque),
+			   void *opaque);
+
+int efi_bp_get_system_table(struct boot_params *boot_params,
+			    unsigned long *sys_table_pa,
+			    bool *is_efi_64);
+
+int efi_bp_get_conf_table(struct boot_params *boot_params,
+			  unsigned long *conf_table_pa,
+			  unsigned int *conf_table_len,
+			  bool *is_efi_64);
+#else
+static inline int
+efi_foreach_conf_entry(void *conf_table, unsigned int conf_table_len,
+		       bool efi_64,
+		       bool (*fn)(efi_guid_t guid,
+				  unsigned long vendor_table_pa,
+				  bool efi_64,
+				  void *opaque),
+		       void *opaque);
+{
+	return -ENOENT;
+}
+
+static inline int
+efi_bp_get_system_table(struct boot_params *boot_params,
+			unsigned long *sys_table_pa,
+			bool *is_efi_64)
+{
+	return -ENOENT;
+}
+
+static inline int
+efi_bp_get_conf_table(struct boot_params *boot_params,
+		      unsigned long *conf_table_pa,
+		      unsigned int *conf_table_len,
+		      bool *is_efi_64)
+{
+	return -ENOENT;
+}
+#endif /* CONFIG_EFI */
 
 #endif /* BOOT_COMPRESSED_MISC_H */
