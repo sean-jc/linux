@@ -74,6 +74,9 @@ static struct desc_struct startup_gdt[GDT_ENTRIES] = {
 	[GDT_ENTRY_KERNEL_DS]           = GDT_ENTRY_INIT(0xc093, 0, 0xfffff),
 };
 
+/* For use by stack protector code before switching to virtual addresses */
+static char startup_gs_area[64];
+
 /*
  * Address needs to be set at runtime because it references the startup_gdt
  * while the kernel still uses a direct mapping.
@@ -598,6 +601,8 @@ void early_setup_idt(void)
  */
 void __head startup_64_setup_env(unsigned long physbase)
 {
+	u64 gs_area = (u64)fixup_pointer(startup_gs_area, physbase);
+
 	/* Load GDT */
 	startup_gdt_descr.address = (unsigned long)fixup_pointer(startup_gdt, physbase);
 	native_load_gdt(&startup_gdt_descr);
@@ -605,7 +610,18 @@ void __head startup_64_setup_env(unsigned long physbase)
 	/* New GDT is live - reload data segment registers */
 	asm volatile("movl %%eax, %%ds\n"
 		     "movl %%eax, %%ss\n"
-		     "movl %%eax, %%es\n" : : "a"(__KERNEL_DS) : "memory");
+		     "movl %%eax, %%es\n"
+		     "movl %%eax, %%gs\n" : : "a"(__KERNEL_DS) : "memory");
+
+	/*
+	 * GCC stack protection needs a place to store canary values. The
+	 * default is %gs:0x28, which is what the kernel currently uses.
+	 * Point GS base to a buffer that can be used for this purpose.
+	 * Note that newer GCCs now allow this location to be configured,
+	 * so if we change from the default in the future we need to ensure
+	 * that this buffer overlaps whatever address ends up being used.
+	 */
+	native_wrmsr(MSR_GS_BASE, gs_area, gs_area >> 32);
 
 	startup_64_load_idt(physbase);
 }
