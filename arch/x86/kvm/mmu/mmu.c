@@ -2594,6 +2594,8 @@ static void kvm_unsync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
  */
 int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
 {
+	bool tdp_mmu = is_tdp_mmu_enabled(vcpu->kvm);
+	bool locked = !tdp_mmu;
 	struct kvm_mmu_page *sp;
 
 	/*
@@ -2617,9 +2619,19 @@ int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
 		if (sp->unsync)
 			continue;
 
+		if (!locked) {
+			locked = true;
+			spin_lock(&vcpu->kvm->arch.tdp_mmu_unsync_pages_lock);
+
+			if (READ_ONCE(sp->unsync))
+				continue;
+		}
+
 		WARN_ON(sp->role.level != PG_LEVEL_4K);
 		kvm_unsync_page(vcpu, sp);
 	}
+	if (tdp_mmu && locked)
+		spin_unlock(&vcpu->kvm->arch.tdp_mmu_unsync_pages_lock);
 
 	/*
 	 * We need to ensure that the marking of unsync pages is visible

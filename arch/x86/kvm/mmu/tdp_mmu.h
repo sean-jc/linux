@@ -120,6 +120,7 @@ static inline void kvm_mmu_uninit_tdp_mmu(struct kvm *kvm) {}
 static inline bool is_tdp_mmu_enabled(struct kvm *kvm) { return false; }
 static inline bool is_tdp_mmu_page(struct kvm_mmu_page *sp) { return false; }
 static inline bool is_tdp_mmu(struct kvm_mmu *mmu) { return false; }
+static inline void kvm_tdp_mmu_lock_unsync(struct kvm *kvm) { }
 #endif
 
 #endif /* __KVM_X86_MMU_TDP_MMU_H */

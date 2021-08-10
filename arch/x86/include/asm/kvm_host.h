@@ -1179,6 +1179,12 @@ struct kvm_arch {
 #endif /* CONFIG_X86_64 */
 
 	/*
+	 * Protects marking pages unsync if the VM is using the TDP MMU.
+	 * Always exists to avoid additional ifdeffery.
+	 */
+	spinlock_t tdp_mmu_unsync_pages_lock;
+
+	/*
 	 * If set, rmaps have been allocated for all memslots and should be
 	 * allocated for any newly created or modified memslots.
 	 */
