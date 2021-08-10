@@ -2592,9 +2592,11 @@ static void kvm_unsync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
  * were marked unsync (or if there is no shadow page), -EPERM if the SPTE must
  * be write-protected.
  */
-int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
+int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync,
+			    spinlock_t *unsync_lock)
 {
 	struct kvm_mmu_page *sp;
+	bool locked = false;
 
 	/*
 	 * Force write-protection if the page is being tracked.  Note, the page
@@ -2617,9 +2619,21 @@ int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
 		if (sp->unsync)
 			continue;
 
+		if (!locked && unsync_lock) {
+			locked = true;
+			spin_lock(unsync_lock);
+
+			if (READ_ONCE(sp->unsync))
+				continue;
+		} else {
+			lockdep_assert_held_write(&vcpu->kvm->mmu_lock);
+		}
+
 		WARN_ON(sp->role.level != PG_LEVEL_4K);
 		kvm_unsync_page(vcpu, sp);
 	}
+	if (locked)
+		spin_unlock(unsync_lock);
 
 	/*
 	 * We need to ensure that the marking of unsync pages is visible
@@ -2675,7 +2689,7 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 	sp = sptep_to_sp(sptep);
 
 	ret = make_spte(vcpu, pte_access, level, gfn, pfn, *sptep, speculative,
-			can_unsync, host_writable, sp_ad_disabled(sp), &spte);
+			can_unsync, host_writable, sp_ad_disabled(sp), &spte, NULL);
 
 	if (spte & PT_WRITABLE_MASK)
 		kvm_vcpu_mark_page_dirty(vcpu, gfn);
