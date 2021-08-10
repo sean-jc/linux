@@ -2586,6 +2586,9 @@ static void kvm_unsync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 	kvm_mmu_mark_parents_unsync(sp);
 }
 
+static atomic_t unsync_elided_cnt;
+static unsigned long unsync_lock_cnt;
+
 /*
  * Attempt to unsync any shadow pages that can be reached by the specified gfn,
  * KVM is creating a writable mapping for said gfn.  Returns 0 if all pages
@@ -2616,12 +2619,16 @@ int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
 		if (!can_unsync)
 			return -EPERM;
 
-		if (sp->unsync)
+		if (sp->unsync) {
+			atomic_inc(&unsync_elided_cnt);
 			continue;
+		}
 
 		if (!locked) {
 			locked = true;
 			spin_lock(&vcpu->kvm->arch.tdp_mmu_unsync_pages_lock);
+
+			unsync_lock_cnt++;
 
 			if (READ_ONCE(sp->unsync))
 				continue;
@@ -2630,8 +2637,11 @@ int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, gfn_t gfn, bool can_unsync)
 		WARN_ON(sp->role.level != PG_LEVEL_4K);
 		kvm_unsync_page(vcpu, sp);
 	}
-	if (tdp_mmu && locked)
+	if (tdp_mmu && locked) {
+		pr_warn_ratelimited("KVM: unsync locks: %lu, elided: %u\n",
+				    unsync_lock_cnt, atomic_read(&unsync_elided_cnt));
 		spin_unlock(&vcpu->kvm->arch.tdp_mmu_unsync_pages_lock);
+	}
 
 	/*
 	 * We need to ensure that the marking of unsync pages is visible
