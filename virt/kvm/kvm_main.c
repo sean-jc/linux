@@ -3499,7 +3499,10 @@ static vm_fault_t kvm_vcpu_fault(struct vm_fault *vmf)
 		    &vcpu->dirty_ring,
 		    vmf->pgoff - KVM_DIRTY_LOG_PAGE_OFFSET);
 	else
-		return kvm_arch_vcpu_fault(vcpu, vmf);
+		page = kvm_arch_vcpu_fault(vcpu, vmf);
+	if (!page)
+		return VM_FAULT_SIGBUS;
+
 	get_page(page);
 	vmf->page = page;
 	return 0;
