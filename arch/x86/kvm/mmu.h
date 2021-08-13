@@ -127,6 +127,9 @@ struct kvm_page_fault {
 	const bool rsvd;
 	const bool user;
 
+	/* Guest private, derived from error_code (SNP) or gfn (TDX). */
+	const bool private;
+
 	/* Derived from mmu and global state.  */
 	const bool is_tdp;
 	const bool nx_huge_page_workaround_enabled;

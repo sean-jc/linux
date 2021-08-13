@@ -1810,10 +1810,11 @@ enum {
 #define HF_SMM_INSIDE_NMI_MASK	(1 << 7)
 
 #define __KVM_VCPU_MULTIPLE_ADDRESS_SPACE
-#define KVM_ADDRESS_SPACE_NUM 2
+#define KVM_ADDRESS_SPACE_NUM 3
 
-#define kvm_arch_vcpu_memslots_id(vcpu) ((vcpu)->arch.hflags & HF_SMM_MASK ? 1 : 0)
-#define kvm_memslots_for_spte_role(kvm, role) __kvm_memslots(kvm, (role).smm)
+#define kvm_arch_vcpu_memslots_id(vcpu, private)	\
+	(((vcpu)->arch.hflags & HF_SMM_MASK) ? 1 : (!!private) << 1)
+#define kvm_memslots_for_spte_role(kvm, role) __kvm_memslots(kvm, (role).smm | (role).private << 1)
 
 #define KVM_ARCH_WANT_MMU_NOTIFIER
 

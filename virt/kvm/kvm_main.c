@@ -1583,7 +1583,19 @@ static int kvm_set_memslot(struct kvm *kvm,
 		kvm_copy_memslots(slots, __kvm_memslots(kvm, as_id));
 	}
 
+#ifdef KVM_PRIVATE_ADDRESS_SPACE
+	if (change == KVM_MR_CREATE && as_id == KVM_PRIVATE_ADDRESS_SPACE) {
+		r = kvm_register_private_memslot(kvm, mem, old, new);
+		if (r)
+			goto out_slots;
+	}
+#endif
+
 	r = kvm_arch_prepare_memory_region(kvm, new, mem, change);
+#ifdef KVM_PRIVATE_ADDRESS_SPACE
+	if ((r || change == KVM_MR_DELETE) && as_id == KVM_PRIVATE_ADDRESS_SPACE)
+		kvm_unregister_private_memslot(kvm, mem, old, new);
+#endif
 	if (r)
 		goto out_slots;
 
@@ -1706,6 +1718,12 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		new.dirty_bitmap = NULL;
 		memset(&new.arch, 0, sizeof(new.arch));
 	} else { /* Modify an existing slot. */
+#ifdef KVM_PRIVATE_ADDRESS_SPACE
+		/* Private memslots are immutable, they can only be deleted. */
+		if (as_id == KVM_PRIVATE_ADDRESS_SPACE)
+			return -EINVAL;
+#endif
+
 		if ((new.userspace_addr != old.userspace_addr) ||
 		    (new.npages != old.npages) ||
 		    ((new.flags ^ old.flags) & KVM_MEM_READONLY))
@@ -2059,9 +2077,10 @@ struct kvm_memory_slot *gfn_to_memslot(struct kvm *kvm, gfn_t gfn)
 }
 EXPORT_SYMBOL_GPL(gfn_to_memslot);
 
-struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn)
+struct kvm_memory_slot *__kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu,
+						  gfn_t gfn, bool private)
 {
-	struct kvm_memslots *slots = kvm_vcpu_memslots(vcpu);
+	struct kvm_memslots *slots = __kvm_vcpu_memslots(vcpu, private);
 	struct kvm_memory_slot *slot;
 	int slot_index;
 
@@ -2081,6 +2100,12 @@ struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn
 	}
 
 	return NULL;
+}
+EXPORT_SYMBOL_GPL(__kvm_vcpu_gfn_to_memslot);
+
+struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	return __kvm_vcpu_gfn_to_memslot(vcpu, gfn, false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_gfn_to_memslot);
 
@@ -2428,8 +2453,12 @@ kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
 			       bool atomic, bool *async, bool write_fault,
 			       bool *writable, hva_t *hva)
 {
-	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
+	unsigned long addr;
 
+	if (memslot_is_private(slot))
+		return slot->private_ops->gfn_to_pfn(...);
+
+	addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
 	if (hva)
 		*hva = addr;
 
@@ -2624,8 +2653,7 @@ EXPORT_SYMBOL_GPL(kvm_map_gfn);
 
 int kvm_vcpu_map(struct kvm_vcpu *vcpu, gfn_t gfn, struct kvm_host_map *map)
 {
-	return __kvm_map_gfn(kvm_vcpu_memslots(vcpu), gfn, map,
-		NULL, false);
+	return __kvm_map_gfn(kvm_vcpu_memslots(vcpu), gfn, map, NULL, false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_map);
 

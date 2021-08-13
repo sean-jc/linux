@@ -2896,6 +2896,9 @@ int kvm_mmu_max_mapping_level(struct kvm *kvm,
 	if (max_level == PG_LEVEL_4K)
 		return PG_LEVEL_4K;
 
+	if (memslot_is_private(slot))
+		return slot->private_ops->pfn_mapping_level(...);
+
 	host_level = host_pfn_mapping_level(kvm, gfn, pfn, slot);
 	return min(host_level, max_level);
 }
@@ -3835,8 +3838,10 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 
 static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault, int *r)
 {
-	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
+	struct kvm_memory_slot *slot;
 	bool async;
+
+	slot = __kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn, fault->private);
 
 	/*
 	 * Retry the page fault if the gfn hit a memslot that is being deleted
@@ -3846,8 +3851,19 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 	if (slot && (slot->flags & KVM_MEMSLOT_INVALID))
 		goto out_retry;
 
+	/*
+	 * Exit to userspace to map the requested private/shared memory region
+	 * if there is no memslot and (a) the access is private or (b) there is
+	 * an existing private memslot.  Emulated MMIO must be accessed through
+	 * shared GPAs, thus a memslot miss on a private GPA is always handled
+	 * as an implicit conversion "request".
+	 */
+	if (!slot &&
+	    (fault->private || __kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn, true)))
+		goto out_convert;
+
 	if (!kvm_is_visible_memslot(slot)) {
-		/* Don't expose private memslots to L2. */
+		/* Don't expose KVM's internal memslots to L2. */
 		if (is_guest_mode(vcpu)) {
 			fault->pfn = KVM_PFN_NOSLOT;
 			fault->map_writable = false;
@@ -3889,6 +3905,12 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 
 out_retry:
 	*r = RET_PF_RETRY;
+	return true;
+
+out_convert:
+	vcpu->run->exit_reason = KVM_EXIT_MAP_MEMORY;
+	/* TODO: fill vcpu->run with more info. */
+	*r = 0;
 	return true;
 }
 

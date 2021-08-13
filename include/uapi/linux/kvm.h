@@ -101,6 +101,9 @@ struct kvm_userspace_memory_region {
 	__u64 guest_phys_addr;
 	__u64 memory_size; /* bytes */
 	__u64 userspace_addr; /* start of the userspace allocated memory */
+#ifdef KVM_PRIVATE_ADDRESS_SPACE
+	__u32 fd; /* valid iff memslot is guest private memory */
+#endif
 };
 
 /*
@@ -269,6 +272,7 @@ struct kvm_xen_exit {
 #define KVM_EXIT_AP_RESET_HOLD    32
 #define KVM_EXIT_X86_BUS_LOCK     33
 #define KVM_EXIT_XEN              34
+#define KVM_EXIT_MEMORY_ERROR	  35
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */

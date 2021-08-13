@@ -434,6 +434,7 @@ struct kvm_memory_slot {
 	u32 flags;
 	short id;
 	u16 as_id;
+	struct guest_private_memory_ops *private_ops;
 };
 
 static inline bool kvm_slot_dirty_track_enabled(struct kvm_memory_slot *slot)
@@ -514,7 +515,7 @@ struct kvm_irq_routing_table {
 #define KVM_USER_MEM_SLOTS (KVM_MEM_SLOTS_NUM - KVM_PRIVATE_MEM_SLOTS)
 
 #ifndef __KVM_VCPU_MULTIPLE_ADDRESS_SPACE
-static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu)
+static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu, bool private)
 {
 	return 0;
 }
@@ -785,11 +786,17 @@ static inline struct kvm_memslots *kvm_memslots(struct kvm *kvm)
 	return __kvm_memslots(kvm, 0);
 }
 
-static inline struct kvm_memslots *kvm_vcpu_memslots(struct kvm_vcpu *vcpu)
+static inline struct kvm_memslots *__kvm_vcpu_memslots(struct kvm_vcpu *vcpu,
+						       bool private)
 {
-	int as_id = kvm_arch_vcpu_memslots_id(vcpu);
+	int as_id = kvm_arch_vcpu_memslots_id(vcpu, private);
 
 	return __kvm_memslots(vcpu->kvm, as_id);
+}
+
+static inline struct kvm_memslots *kvm_vcpu_memslots(struct kvm_vcpu *vcpu)
+{
+	return __kvm_vcpu_memslots(vcpu, false);
 }
 
 static inline
@@ -805,6 +812,15 @@ struct kvm_memory_slot *id_to_memslot(struct kvm_memslots *slots, int id)
 
 	WARN_ON(slot->id != id);
 	return slot;
+}
+
+static inline bool memslot_is_private(struct kvm_memory_slot *slot)
+{
+#ifdef KVM_PRIVATE_ADDRESS_SPACE
+	return slot && slot->as_id == KVM_PRIVATE_ADDRESS_SPACE;
+#else
+	return false;
+#endif
 }
 
 /*
@@ -946,6 +962,8 @@ void mark_page_dirty_in_slot(struct kvm *kvm, struct kvm_memory_slot *memslot, g
 void mark_page_dirty(struct kvm *kvm, gfn_t gfn);
 
 struct kvm_memslots *kvm_vcpu_memslots(struct kvm_vcpu *vcpu);
+struct kvm_memory_slot *__kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu,
+						  gfn_t gfn, bool private);
 struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn);
 kvm_pfn_t kvm_vcpu_gfn_to_pfn_atomic(struct kvm_vcpu *vcpu, gfn_t gfn);
 kvm_pfn_t kvm_vcpu_gfn_to_pfn(struct kvm_vcpu *vcpu, gfn_t gfn);
