@@ -1241,6 +1241,14 @@ extern void perf_event_bpf_event(struct bpf_prog *prog,
 				 u16 flags);
 
 extern struct perf_guest_info_callbacks *perf_guest_cbs;
+static inline struct perf_guest_info_callbacks *perf_get_guest_cbs(void)
+{
+	/* Reg/unreg perf_guest_cbs waits for readers via synchronize_rcu(). */
+	lockdep_assert_preemption_disabled();
+
+	/* Prevent reloading between a !NULL check and dereferences. */
+	return READ_ONCE(perf_guest_cbs);
+}
 extern int perf_register_guest_info_callbacks(struct perf_guest_info_callbacks *callbacks);
 extern int perf_unregister_guest_info_callbacks(struct perf_guest_info_callbacks *callbacks);
 

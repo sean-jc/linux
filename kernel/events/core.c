@@ -6530,14 +6530,26 @@ struct perf_guest_info_callbacks *perf_guest_cbs;
 
 int perf_register_guest_info_callbacks(struct perf_guest_info_callbacks *cbs)
 {
-	perf_guest_cbs = cbs;
+	if (WARN_ON_ONCE(perf_guest_cbs))
+		return -EBUSY;
+
+	/*
+	 * Ensure pending stores/changes to the callback pointers are visible
+	 * before a non-NULL perf_guest_cbs is visible to readers.  Pairs with
+	 * the READ_ONCE() in perf_get_guest_cbs().
+	 */
+	smp_store_release(&perf_guest_cbs, cbs);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(perf_register_guest_info_callbacks);
 
 int perf_unregister_guest_info_callbacks(struct perf_guest_info_callbacks *cbs)
 {
-	perf_guest_cbs = NULL;
+	if (WARN_ON_ONCE(perf_guest_cbs != cbs))
+		return -EINVAL;
+
+	WRITE_ONCE(perf_guest_cbs, NULL);
+	synchronize_rcu();
 	return 0;
 }
 EXPORT_SYMBOL_GPL(perf_unregister_guest_info_callbacks);
