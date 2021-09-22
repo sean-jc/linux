@@ -6522,6 +6522,7 @@ static void perf_pending_event(struct irq_work *entry)
 }
 
 struct perf_guest_info_callbacks *perf_guest_cbs;
+
 void perf_register_guest_info_callbacks(struct perf_guest_info_callbacks *cbs)
 {
 	if (WARN_ON_ONCE(perf_guest_cbs))
