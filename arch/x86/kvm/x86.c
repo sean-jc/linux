@@ -10941,9 +10941,9 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 
 void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
+	struct kvm_cpuid_entry2 *cpuid_0x1;
 	unsigned long old_cr0 = kvm_read_cr0(vcpu);
 	unsigned long new_cr0;
-	u32 eax, dummy;
 
 	/*
 	 * Several of the "set" flows, e.g. ->set_cr0(), read other registers
@@ -11025,12 +11025,11 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	 * if no CPUID match is found.  Note, it's impossible to get a match at
 	 * RESET since KVM emulates RESET before exposing the vCPU to userspace,
 	 * i.e. it'simpossible for kvm_cpuid() to find a valid entry on RESET.
-	 * But, go through the motions in case that's ever remedied.
+	 * But, go through the motions in case that's ever remedied.  Note, the
+	 * index for CPUID.0x1 is not significant, arbitrarily specify '0'.
 	 */
-	eax = 1;
-	if (!kvm_cpuid(vcpu, &eax, &dummy, &dummy, &dummy, true))
-		eax = 0x600;
-	kvm_rdx_write(vcpu, eax);
+	cpuid_0x1 = kvm_find_cpuid_entry(vcpu, 1, 0);
+	kvm_rdx_write(vcpu, cpuid_0x1 ? cpuid_0x1->eax : 0x600);
 
 	vcpu->arch.ia32_xss = 0;
 
