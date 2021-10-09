@@ -3166,6 +3166,8 @@ bool kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	struct rcuwait *wait = kvm_arch_vcpu_get_wait(vcpu);
 	bool waited = false;
 
+	vcpu->stat.generic.blocking = 1;
+
 	kvm_arch_vcpu_blocking(vcpu);
 
 	prepare_to_rcuwait(wait);
@@ -3181,6 +3183,8 @@ bool kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	finish_rcuwait(wait);
 
 	kvm_arch_vcpu_unblocking(vcpu);
+
+	vcpu->stat.generic.blocking = 0;
 
 	return waited;
 }
