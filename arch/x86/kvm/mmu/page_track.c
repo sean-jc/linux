@@ -50,8 +50,7 @@ int kvm_page_track_create_memslot(struct kvm *kvm,
 			continue;
 
 		slot->arch.gfn_track[i] =
-			kvcalloc(npages, sizeof(*slot->arch.gfn_track[i]),
-				 GFP_KERNEL_ACCOUNT);
+			vcalloc(npages, sizeof(*slot->arch.gfn_track[i]));
 		if (!slot->arch.gfn_track[i])
 			goto track_free;
 	}
@@ -92,8 +91,10 @@ int kvm_page_track_enable_mmu_write_tracking(struct kvm *kvm)
 		slots = __kvm_memslots(kvm, i);
 		kvm_for_each_memslot(slot, slots) {
 			gfn_track = slot->arch.gfn_track + KVM_PAGE_TRACK_WRITE;
-			*gfn_track = kvcalloc(slot->npages, sizeof(*gfn_track),
-					      GFP_KERNEL_ACCOUNT);
+			if (*gfn_track)
+				continue;
+
+			*gfn_track = vcalloc(slot->npages, sizeof(**gfn_track));
 			if (*gfn_track == NULL) {
 				mutex_unlock(&kvm->slots_arch_lock);
 				return -ENOMEM;
