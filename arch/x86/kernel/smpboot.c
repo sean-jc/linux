@@ -1115,9 +1115,19 @@ static int do_boot_cpu(int apicid, int cpu, struct task_struct *idle,
 	unsigned long boot_error = 0;
 
 	idle->thread.sp = (unsigned long)task_pt_regs(idle);
-	early_gdt_descr.address = (unsigned long)get_cpu_gdt_rw(cpu);
 	initial_code = (unsigned long)start_secondary;
-	initial_stack  = idle->thread.sp;
+
+	if (IS_ENABLED(CONFIG_X86_32)) {
+		early_gdt_descr.address = (unsigned long)get_cpu_gdt_rw(cpu);
+		initial_stack  = idle->thread.sp;
+	} else if (boot_cpu_data.cpuid_level < 0x0B) {
+		/* Anything with X2APIC should have CPUID leaf 0x0B */
+		if (WARN_ON_ONCE(x2apic_mode) && apicid > 0xffff)
+			return -EIO;
+		smpboot_control = apicid | STARTUP_USE_APICID;
+	} else {
+		smpboot_control = STARTUP_USE_CPUID_0B;
+	}
 
 	/* Enable the espfix hack for this CPU */
 	init_espfix_ap(cpu);
