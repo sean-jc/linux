@@ -261,6 +261,33 @@ void fpu_free_guest_fpstate(struct fpu_guest *gfpu)
 }
 EXPORT_SYMBOL_GPL(fpu_free_guest_fpstate);
 
+/*
+ * fpu_update_guest_perm_features - Enable xfeatures according to guest perm
+ * @guest_fpu:		Pointer to the guest FPU container
+ *
+ * Enable all dynamic xfeatures according to guest perm. Invoked if the
+ * caller wants to conservatively expand fpstate buffer instead of waiting
+ * until XCR0 or XFD MSR is written.
+ *
+ * Return: 0 on success, error code otherwise
+ */
+int fpu_update_guest_perm_features(struct fpu_guest *guest_fpu)
+{
+	u64 expand;
+
+	lockdep_assert_preemption_enabled();
+
+	if (!IS_ENABLED(CONFIG_X86_64))
+		return 0;
+
+	expand = guest_fpu->perm & ~guest_fpu->xfeatures;
+	if (!expand)
+		return 0;
+
+	return __xfd_enable_feature(expand, guest_fpu);
+}
+EXPORT_SYMBOL_GPL(fpu_update_guest_perm_features);
+
 int fpu_swap_kvm_fpstate(struct fpu_guest *guest_fpu, bool enter_guest)
 {
 	struct fpstate *guest_fps = guest_fpu->fpstate;
