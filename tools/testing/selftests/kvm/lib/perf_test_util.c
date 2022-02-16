@@ -17,8 +17,8 @@ struct perf_test_args perf_test_args;
 static uint64_t guest_test_virt_mem = DEFAULT_GUEST_TEST_MEM;
 
 struct vcpu_thread {
-	/* The id of the vCPU. */
-	int vcpu_id;
+	/* The index of the vCPU. */
+	int vcpu_idx;
 
 	/* The pthread backing the vCPU. */
 	pthread_t thread;
@@ -36,23 +36,25 @@ static void (*vcpu_thread_fn)(struct perf_test_vcpu_args *);
 /* Set to true once all vCPU threads are up and running. */
 static bool all_vcpu_threads_running;
 
+static struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
+
 /*
  * Continuously write to the first 8 bytes of each page in the
  * specified region.
  */
-static void guest_code(uint32_t vcpu_id)
+static void guest_code(uint32_t vcpu_idx)
 {
 	struct perf_test_args *pta = &perf_test_args;
-	struct perf_test_vcpu_args *vcpu_args = &pta->vcpu_args[vcpu_id];
+	struct perf_test_vcpu_args *vcpu_args = &pta->vcpu_args[vcpu_idx];
 	uint64_t gva;
 	uint64_t pages;
 	int i;
 
-	/* Make sure vCPU args data structure is not corrupt. */
-	GUEST_ASSERT(vcpu_args->vcpu_id == vcpu_id);
-
 	gva = vcpu_args->gva;
 	pages = vcpu_args->pages;
+
+	/* Make sure vCPU args data structure is not corrupt. */
+	GUEST_ASSERT(vcpu_args->vcpu_idx == vcpu_idx);
 
 	while (true) {
 		for (i = 0; i < pages; i++) {
@@ -68,40 +70,43 @@ static void guest_code(uint32_t vcpu_id)
 	}
 }
 
-void perf_test_setup_vcpus(struct kvm_vm *vm, int vcpus,
+void perf_test_setup_vcpus(struct kvm_vm *vm, int nr_vcpus,
+			   struct kvm_vcpu *vcpus[],
 			   uint64_t vcpu_memory_bytes,
 			   bool partition_vcpu_memory_access)
 {
 	struct perf_test_args *pta = &perf_test_args;
 	struct perf_test_vcpu_args *vcpu_args;
-	int vcpu_id;
+	int i;
 
-	for (vcpu_id = 0; vcpu_id < vcpus; vcpu_id++) {
-		vcpu_args = &pta->vcpu_args[vcpu_id];
+	for (i = 0; i < nr_vcpus; i++) {
+		vcpu_args = &pta->vcpu_args[i];
 
-		vcpu_args->vcpu_id = vcpu_id;
+		vcpu_args->vcpu = vcpus[i];
+		vcpu_args->vcpu_idx = i;
+
 		if (partition_vcpu_memory_access) {
 			vcpu_args->gva = guest_test_virt_mem +
-					 (vcpu_id * vcpu_memory_bytes);
+					 (i * vcpu_memory_bytes);
 			vcpu_args->pages = vcpu_memory_bytes /
 					   pta->guest_page_size;
-			vcpu_args->gpa = pta->gpa + (vcpu_id * vcpu_memory_bytes);
+			vcpu_args->gpa = pta->gpa + (i * vcpu_memory_bytes);
 		} else {
 			vcpu_args->gva = guest_test_virt_mem;
-			vcpu_args->pages = (vcpus * vcpu_memory_bytes) /
+			vcpu_args->pages = (nr_vcpus * vcpu_memory_bytes) /
 					   pta->guest_page_size;
 			vcpu_args->gpa = pta->gpa;
 		}
 
-		vcpu_args_set(vm, vcpu_id, 1, vcpu_id);
+		vcpu_args_set(vm, vcpus[i]->id, 1, i);
 
 		pr_debug("Added VCPU %d with test mem gpa [%lx, %lx)\n",
-			 vcpu_id, vcpu_args->gpa, vcpu_args->gpa +
+			 i, vcpu_args->gpa, vcpu_args->gpa +
 			 (vcpu_args->pages * pta->guest_page_size));
 	}
 }
 
-struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int vcpus,
+struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int nr_vcpus,
 				   uint64_t vcpu_memory_bytes, int slots,
 				   enum vm_mem_backing_src_type backing_src,
 				   bool partition_vcpu_memory_access)
@@ -124,7 +129,7 @@ struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int vcpus,
 	pta->guest_page_size = vm_guest_mode_params[mode].page_size;
 
 	guest_num_pages = vm_adjust_num_guest_pages(mode,
-				(vcpus * vcpu_memory_bytes) / pta->guest_page_size);
+				(nr_vcpus * vcpu_memory_bytes) / pta->guest_page_size);
 
 	TEST_ASSERT(vcpu_memory_bytes % getpagesize() == 0,
 		    "Guest memory size is not host page size aligned.");
@@ -139,8 +144,8 @@ struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int vcpus,
 	 * The memory is also added to memslot 0, but that's a benign side
 	 * effect as KVM allows aliasing HVAs in meslots.
 	 */
-	vm = __vm_create_with_vcpus(mode, vcpus, DEFAULT_GUEST_PHY_PAGES,
-				    guest_num_pages, 0, guest_code, NULL);
+	vm = __vm_create_with_vcpus(mode, nr_vcpus, DEFAULT_GUEST_PHY_PAGES,
+				    guest_num_pages, 0, guest_code, vcpus);
 
 	pta->vm = vm;
 
@@ -151,8 +156,8 @@ struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int vcpus,
 	TEST_ASSERT(guest_num_pages < vm_get_max_gfn(vm),
 		    "Requested more guest memory than address space allows.\n"
 		    "    guest pages: %" PRIx64 " max gfn: %" PRIx64
-		    " vcpus: %d wss: %" PRIx64 "]\n",
-		    guest_num_pages, vm_get_max_gfn(vm), vcpus,
+		    " nr_vcpus: %d wss: %" PRIx64 "]\n",
+		    guest_num_pages, vm_get_max_gfn(vm), nr_vcpus,
 		    vcpu_memory_bytes);
 
 	pta->gpa = (vm_get_max_gfn(vm) - guest_num_pages) * pta->guest_page_size;
@@ -176,7 +181,8 @@ struct kvm_vm *perf_test_create_vm(enum vm_guest_mode mode, int vcpus,
 	/* Do mapping for the demand paging memory slot */
 	virt_map(vm, guest_test_virt_mem, pta->gpa, guest_num_pages);
 
-	perf_test_setup_vcpus(vm, vcpus, vcpu_memory_bytes, partition_vcpu_memory_access);
+	perf_test_setup_vcpus(vm, nr_vcpus, vcpus, vcpu_memory_bytes,
+			      partition_vcpu_memory_access);
 
 	ucall_init(vm, NULL);
 
@@ -213,39 +219,40 @@ static void *vcpu_thread_main(void *data)
 	while (!READ_ONCE(all_vcpu_threads_running))
 		;
 
-	vcpu_thread_fn(&perf_test_args.vcpu_args[vcpu->vcpu_id]);
+	vcpu_thread_fn(&perf_test_args.vcpu_args[vcpu->vcpu_idx]);
 
 	return NULL;
 }
 
-void perf_test_start_vcpu_threads(int vcpus, void (*vcpu_fn)(struct perf_test_vcpu_args *))
+void perf_test_start_vcpu_threads(int nr_vcpus,
+				  void (*vcpu_fn)(struct perf_test_vcpu_args *))
 {
-	int vcpu_id;
+	int i;
 
 	vcpu_thread_fn = vcpu_fn;
 	WRITE_ONCE(all_vcpu_threads_running, false);
 
-	for (vcpu_id = 0; vcpu_id < vcpus; vcpu_id++) {
-		struct vcpu_thread *vcpu = &vcpu_threads[vcpu_id];
+	for (i = 0; i < nr_vcpus; i++) {
+		struct vcpu_thread *vcpu = &vcpu_threads[i];
 
-		vcpu->vcpu_id = vcpu_id;
+		vcpu->vcpu_idx = i;
 		WRITE_ONCE(vcpu->running, false);
 
 		pthread_create(&vcpu->thread, NULL, vcpu_thread_main, vcpu);
 	}
 
-	for (vcpu_id = 0; vcpu_id < vcpus; vcpu_id++) {
-		while (!READ_ONCE(vcpu_threads[vcpu_id].running))
+	for (i = 0; i < nr_vcpus; i++) {
+		while (!READ_ONCE(vcpu_threads[i].running))
 			;
 	}
 
 	WRITE_ONCE(all_vcpu_threads_running, true);
 }
 
-void perf_test_join_vcpu_threads(int vcpus)
+void perf_test_join_vcpu_threads(int nr_vcpus)
 {
-	int vcpu_id;
+	int i;
 
-	for (vcpu_id = 0; vcpu_id < vcpus; vcpu_id++)
-		pthread_join(vcpu_threads[vcpu_id].thread, NULL);
+	for (i = 0; i < nr_vcpus; i++)
+		pthread_join(vcpu_threads[i].thread, NULL);
 }
