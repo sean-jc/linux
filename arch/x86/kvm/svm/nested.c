@@ -498,7 +498,7 @@ static int nested_svm_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 	kvm_init_mmu(vcpu);
 
 	if (!nested_npt)
-		kvm_mmu_update_root(vcpu);
+		kvm_make_request(KVM_REQ_MMU_UPDATE_ROOT, vcpu);
 
 	return 0;
 }

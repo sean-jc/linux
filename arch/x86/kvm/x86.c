@@ -1188,7 +1188,7 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 		return 1;
 
 	if (cr3 != kvm_read_cr3(vcpu))
-		kvm_mmu_update_root(vcpu);
+		kvm_make_request(KVM_REQ_MMU_UPDATE_ROOT, vcpu);
 
 	vcpu->arch.cr3 = cr3;
 	kvm_register_mark_dirty(vcpu, VCPU_EXREG_CR3);
@@ -9840,8 +9840,15 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 				goto out;
 			}
 		}
-		if (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu))
+		if (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu)) {
 			kvm_mmu_unload(vcpu);
+
+			/*
+			 * Dropping all roots leaves no hope for loading a cached
+			 * one.  Let kvm_mmu_reload build a new one.
+			 */
+			kvm_clear_request(KVM_REQ_MMU_UPDATE_ROOT, vcpu);
+		}
 		if (kvm_check_request(KVM_REQ_MIGRATE_TIMER, vcpu))
 			__kvm_migrate_timers(vcpu);
 		if (kvm_check_request(KVM_REQ_MASTERCLOCK_UPDATE, vcpu))
@@ -9853,6 +9860,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			if (unlikely(r))
 				goto out;
 		}
+		if (kvm_check_request(KVM_REQ_MMU_UPDATE_ROOT, vcpu))
+			kvm_mmu_update_root(vcpu);
 		if (kvm_check_request(KVM_REQ_MMU_SYNC, vcpu))
 			kvm_mmu_sync_roots(vcpu);
 		if (kvm_check_request(KVM_REQ_LOAD_MMU_PGD, vcpu))
