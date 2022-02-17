@@ -116,6 +116,19 @@ static inline void kvm_mmu_load_pgd(struct kvm_vcpu *vcpu)
 					  vcpu->arch.mmu->shadow_root_level);
 }
 
+static inline gpa_t __kvm_mmu_get_guest_pgd(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
+{
+	if (!mmu->get_guest_pgd)
+		return kvm_read_cr3(vcpu);
+	else
+		return mmu->get_guest_pgd(vcpu);
+}
+
+static inline gpa_t kvm_mmu_get_guest_pgd(struct kvm_vcpu *vcpu)
+{
+	return __kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
+}
+
 struct kvm_page_fault {
 	/* arguments to kvm_mmu_do_page_fault.  */
 	const gpa_t addr;
