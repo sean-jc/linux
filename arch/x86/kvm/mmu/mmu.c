@@ -5090,6 +5090,7 @@ void kvm_mmu_unload(struct kvm_vcpu *vcpu)
 {
 	__kvm_mmu_unload(vcpu->kvm, &vcpu->arch.root_mmu);
 	__kvm_mmu_unload(vcpu->kvm, &vcpu->arch.guest_mmu);
+	vcpu_clear_mmio_info(vcpu, MMIO_GVA_ANY);
 }
 
 static bool need_remote_flush(u64 old, u64 new)
