@@ -56,11 +56,11 @@ static void mmu_spte_walk(struct kvm_vcpu *vcpu, inspect_spte_fn fn)
 	int i;
 	struct kvm_mmu_page *sp;
 
-	if (!VALID_PAGE(vcpu->arch.mmu->root_hpa))
+	if (!VALID_PAGE(vcpu->arch.mmu->root.hpa))
 		return;
 
 	if (vcpu->arch.mmu->root_level >= PT64_ROOT_4LEVEL) {
-		hpa_t root = vcpu->arch.mmu->root_hpa;
+		hpa_t root = vcpu->arch.mmu->root.hpa;
 
 		sp = to_shadow_page(root);
 		__mmu_spte_walk(vcpu, sp, fn, vcpu->arch.mmu->root_level);
