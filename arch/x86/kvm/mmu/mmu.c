@@ -5086,12 +5086,21 @@ out:
 	return r;
 }
 
+static void __kvm_mmu_unload(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
+{
+	int i;
+	kvm_mmu_free_roots(vcpu, mmu, KVM_MMU_ROOTS_ALL);
+	WARN_ON(VALID_PAGE(mmu->root_hpa));
+	if (mmu->pae_root) {
+		for (i = 0; i < 4; ++i)
+			WARN_ON(IS_VALID_PAE_ROOT(mmu->pae_root[i]));
+	}
+}
+
 void kvm_mmu_unload(struct kvm_vcpu *vcpu)
 {
-	kvm_mmu_free_roots(vcpu, &vcpu->arch.root_mmu, KVM_MMU_ROOTS_ALL);
-	WARN_ON(VALID_PAGE(vcpu->arch.root_mmu.root_hpa));
-	kvm_mmu_free_roots(vcpu, &vcpu->arch.guest_mmu, KVM_MMU_ROOTS_ALL);
-	WARN_ON(VALID_PAGE(vcpu->arch.guest_mmu.root_hpa));
+	__kvm_mmu_unload(vcpu, &vcpu->arch.root_mmu);
+	__kvm_mmu_unload(vcpu, &vcpu->arch.guest_mmu);
 }
 
 static bool need_remote_flush(u64 old, u64 new)
