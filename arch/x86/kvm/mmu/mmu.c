@@ -4168,7 +4168,7 @@ static bool fast_pgd_switch(struct kvm *kvm, struct kvm_mmu *mmu,
 		return cached_root_find_without_current(kvm, mmu, new_pgd, new_role);
 }
 
-void kvm_mmu_new_pgd(struct kvm_vcpu *vcpu, gpa_t new_pgd)
+static void __kvm_mmu_update_root(struct kvm_vcpu *vcpu, gpa_t new_pgd)
 {
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
 	union kvm_mmu_page_role new_role = mmu->mmu_role.base;
@@ -4207,7 +4207,14 @@ void kvm_mmu_new_pgd(struct kvm_vcpu *vcpu, gpa_t new_pgd)
 		__clear_sp_write_flooding_count(
 				to_shadow_page(vcpu->arch.mmu->root.hpa));
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_new_pgd);
+
+void kvm_mmu_update_root(struct kvm_vcpu *vcpu)
+{
+	gpa_t new_pgd = kvm_mmu_get_guest_pgd(vcpu);
+
+	__kvm_mmu_update_root(vcpu, new_pgd);
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_update_root);
 
 static bool sync_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, gfn_t gfn,
 			   unsigned int access)
@@ -4871,7 +4878,7 @@ void kvm_init_shadow_npt_mmu(struct kvm_vcpu *vcpu, unsigned long cr0,
 	new_role = kvm_calc_shadow_npt_root_page_role(vcpu, &regs);
 
 	shadow_mmu_init_context(vcpu, context, &regs, new_role);
-	kvm_mmu_new_pgd(vcpu, nested_cr3);
+	__kvm_mmu_update_root(vcpu, nested_cr3);
 }
 EXPORT_SYMBOL_GPL(kvm_init_shadow_npt_mmu);
 
@@ -4927,7 +4934,7 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 		reset_ept_shadow_zero_bits_mask(context, execonly);
 	}
 
-	kvm_mmu_new_pgd(vcpu, new_eptp);
+	__kvm_mmu_update_root(vcpu, new_eptp);
 }
 EXPORT_SYMBOL_GPL(kvm_init_shadow_ept_mmu);
 
