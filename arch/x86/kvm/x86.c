@@ -10735,7 +10735,7 @@ static bool kvm_is_valid_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 }
 
 static int __set_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs,
-		int *mmu_reset_needed, bool update_pdptrs)
+			      int update_pdptrs)
 {
 	struct msr_data apic_base_msr;
 	int idx;
@@ -10760,29 +10760,31 @@ static int __set_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs,
 	static_call(kvm_x86_set_gdt)(vcpu, &dt);
 
 	vcpu->arch.cr2 = sregs->cr2;
-	*mmu_reset_needed |= kvm_read_cr3(vcpu) != sregs->cr3;
+
+	if (vcpu->arch.efer != sregs->efer ||
+	    kvm_read_cr0(vcpu) != sregs->cr0 ||
+	    vcpu->arch.cr3 != sregs->cr3 || !update_pdptrs ||
+	    kvm_read_cr4(vcpu) != sregs->cr4)
+		kvm_mmu_unload(vcpu);
+
 	vcpu->arch.cr3 = sregs->cr3;
 	kvm_register_mark_dirty(vcpu, VCPU_EXREG_CR3);
 	static_call_cond(kvm_x86_post_set_cr3)(vcpu, sregs->cr3);
 
 	kvm_set_cr8(vcpu, sregs->cr8);
 
-	*mmu_reset_needed |= vcpu->arch.efer != sregs->efer;
 	static_call(kvm_x86_set_efer)(vcpu, sregs->efer);
 
-	*mmu_reset_needed |= kvm_read_cr0(vcpu) != sregs->cr0;
 	static_call(kvm_x86_set_cr0)(vcpu, sregs->cr0);
 	vcpu->arch.cr0 = sregs->cr0;
 
-	*mmu_reset_needed |= kvm_read_cr4(vcpu) != sregs->cr4;
 	static_call(kvm_x86_set_cr4)(vcpu, sregs->cr4);
 
+	kvm_init_mmu(vcpu);
 	if (update_pdptrs) {
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
-		if (is_pae_paging(vcpu)) {
+		if (is_pae_paging(vcpu))
 			load_pdptrs(vcpu, kvm_read_cr3(vcpu));
-			*mmu_reset_needed = 1;
-		}
 		srcu_read_unlock(&vcpu->kvm->srcu, idx);
 	}
 
@@ -10810,14 +10812,10 @@ static int __set_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs,
 static int __set_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 {
 	int pending_vec, max_bits;
-	int mmu_reset_needed = 0;
-	int ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
+	int ret = __set_sregs_common(vcpu, sregs, true);
 
 	if (ret)
 		return ret;
-
-	if (mmu_reset_needed)
-		kvm_mmu_reset_context(vcpu);
 
 	max_bits = KVM_NR_INTERRUPTS;
 	pending_vec = find_first_bit(
@@ -10833,7 +10831,6 @@ static int __set_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 
 static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2)
 {
-	int mmu_reset_needed = 0;
 	bool valid_pdptrs = sregs2->flags & KVM_SREGS2_FLAGS_PDPTRS_VALID;
 	bool pae = (sregs2->cr0 & X86_CR0_PG) && (sregs2->cr4 & X86_CR4_PAE) &&
 		!(sregs2->efer & EFER_LMA);
@@ -10845,8 +10842,7 @@ static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2)
 	if (valid_pdptrs && (!pae || vcpu->arch.guest_state_protected))
 		return -EINVAL;
 
-	ret = __set_sregs_common(vcpu, (struct kvm_sregs *)sregs2,
-				 &mmu_reset_needed, !valid_pdptrs);
+	ret = __set_sregs_common(vcpu, (struct kvm_sregs *)sregs2, !valid_pdptrs);
 	if (ret)
 		return ret;
 
@@ -10855,11 +10851,9 @@ static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2)
 			kvm_pdptr_write(vcpu, i, sregs2->pdptrs[i]);
 
 		kvm_register_mark_dirty(vcpu, VCPU_EXREG_PDPTR);
-		mmu_reset_needed = 1;
 		vcpu->arch.pdptrs_from_userspace = true;
+		/* kvm_mmu_reload will be called on the next entry.  */
 	}
-	if (mmu_reset_needed)
-		kvm_mmu_reset_context(vcpu);
 	return 0;
 }
 
