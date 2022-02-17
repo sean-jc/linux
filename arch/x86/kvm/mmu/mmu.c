@@ -5022,8 +5022,8 @@ EXPORT_SYMBOL_GPL(kvm_init_mmu);
 void kvm_mmu_after_set_cpuid(struct kvm_vcpu *vcpu)
 {
 	/*
-	 * Invalidate all MMU roles to force them to reinitialize as CPUID
-	 * information is factored into reserved bit calculations.
+	 * Invalidate all MMU roles and roots to force them to reinitialize,
+	 * as CPUID information is factored into reserved bit calculations.
 	 *
 	 * Correctly handling multiple vCPU models with respect to paging and
 	 * physical address properties) in a single VM would require tracking
@@ -5036,6 +5036,7 @@ void kvm_mmu_after_set_cpuid(struct kvm_vcpu *vcpu)
 	vcpu->arch.root_mmu.mmu_role.ext.valid = 0;
 	vcpu->arch.guest_mmu.mmu_role.ext.valid = 0;
 	vcpu->arch.nested_mmu.mmu_role.ext.valid = 0;
+	kvm_mmu_unload(vcpu);
 	kvm_mmu_reset_context(vcpu);
 
 	/*
@@ -5047,8 +5048,8 @@ void kvm_mmu_after_set_cpuid(struct kvm_vcpu *vcpu)
 
 void kvm_mmu_reset_context(struct kvm_vcpu *vcpu)
 {
-	kvm_mmu_unload(vcpu);
 	kvm_init_mmu(vcpu);
+	kvm_make_request(KVM_REQ_MMU_UPDATE_ROOT, vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_reset_context);
 
