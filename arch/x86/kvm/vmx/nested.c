@@ -1296,6 +1296,15 @@ vmx_restore_control_msr(struct vcpu_vmx *vmx, u32 msr_index, u64 data)
 	vmx_get_control_msr(&vmx->nested.msrs, msr_index, &lowp, &highp);
 	*lowp = data;
 	*highp = data >> 32;
+
+	/*
+	 * To preserve an old, kludgy ABI, ensure KVM fiddling with the "true"
+	 * entry/exit controls MSRs is preserved after userspace modifications.
+	 */
+	if (msr_index == MSR_IA32_VMX_TRUE_ENTRY_CTLS ||
+	    msr_index == MSR_IA32_VMX_TRUE_EXIT_CTLS)
+		nested_vmx_entry_exit_ctls_update(&vmx->vcpu);
+
 	return 0;
 }
 
