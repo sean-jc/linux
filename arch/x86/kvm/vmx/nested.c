@@ -1301,8 +1301,9 @@ vmx_restore_control_msr(struct vcpu_vmx *vmx, u32 msr_index, u64 data)
 	 * To preserve an old, kludgy ABI, ensure KVM fiddling with the "true"
 	 * entry/exit controls MSRs is preserved after userspace modifications.
 	 */
-	if (msr_index == MSR_IA32_VMX_TRUE_ENTRY_CTLS ||
-	    msr_index == MSR_IA32_VMX_TRUE_EXIT_CTLS)
+	if ((msr_index == MSR_IA32_VMX_TRUE_ENTRY_CTLS ||
+	     msr_index == MSR_IA32_VMX_TRUE_EXIT_CTLS) &&
+	    kvm_check_has_quirk(vmx->vcpu.kvm, KVM_X86_QUIRK_TWEAK_VMX_MSRS))
 		nested_vmx_entry_exit_ctls_update(&vmx->vcpu);
 
 	return 0;

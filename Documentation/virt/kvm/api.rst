@@ -7374,6 +7374,27 @@ The valid bits in cap.args[0] are:
                                     hypercall instructions. Executing the
                                     incorrect hypercall instruction will
                                     generate a #UD within the guest.
+
+ KVM_X86_QUIRK_TWEAK_VMX_MSRS       By default, during a guest CPUID update,
+                                    KVM adjusts the values of select VMX MSRs
+                                    (usually based on guest CPUID):
+
+                                    - If CPUID.07H:EBX[bit 14] (MPX) is set, KVM
+                                      sets IA32_VMX_TRUE_ENTRY_CTLS[bit 48]
+                                      ('load IA32_BNDCFGS') and
+                                      IA32_VMX_TRUE_EXIT_CTLS[bit 55]
+                                      ('clear IA32_BNDCFGS'). Otherwise, these
+                                      corresponding MSR bits are cleared.
+                                    - If CPUID.0AH:EAX[bits 7:0] > 1, KVM sets
+                                      IA32_VMX_TRUE_ENTRY_CTLS[bit 45]
+                                      ('load IA32_PERF_GLOBAL_CTRL') and
+                                      IA32_VMX_TRUE_EXIT_CTLS[bit 44]
+                                      ('load IA32_PERF_GLOBAL_CTRL'). Otherwise,
+                                      these corresponding MSR bits are cleared.
+
+                                    When this quirk is disabled, KVM will not
+                                    change the values of the aformentioned VMX
+                                    MSRs during guest CPUID updates.
 =================================== ============================================
 
 7.32 KVM_CAP_MAX_VCPU_ID
