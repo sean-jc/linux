@@ -7413,6 +7413,20 @@ void nested_vmx_entry_exit_ctls_update(struct kvm_vcpu *vcpu)
 			vmx->nested.msrs.exit_ctls_high &= ~VM_EXIT_CLEAR_BNDCFGS;
 		}
 	}
+
+	/*
+	 * KVM supports a 1-setting of the "load IA32_PERF_GLOBAL_CTRL"
+	 * VM-{Entry,Exit} controls if the vPMU supports IA32_PERF_GLOBAL_CTRL.
+	 */
+	if (cpu_has_load_perf_global_ctrl()) {
+		if (intel_pmu_has_perf_global_ctrl(vcpu_to_pmu(vcpu))) {
+			vmx->nested.msrs.entry_ctls_high |= VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL;
+			vmx->nested.msrs.exit_ctls_high |= VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL;
+		} else {
+			vmx->nested.msrs.entry_ctls_high &= ~VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL;
+			vmx->nested.msrs.exit_ctls_high &= ~VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL;
+		}
+	}
 }
 
 static void update_intel_pt_cfg(struct kvm_vcpu *vcpu)
