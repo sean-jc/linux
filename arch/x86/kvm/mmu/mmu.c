@@ -4762,6 +4762,42 @@ static inline int kvm_mmu_get_tdp_level(struct kvm_vcpu *vcpu)
 	return max_tdp_level;
 }
 
+static void kvm_init_mmu_constants(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu *nested_mmu = &vcpu->arch.nested_mmu;
+	struct kvm_mmu *guest_mmu = &vcpu->arch.guest_mmu;
+	struct kvm_mmu *root_mmu = &vcpu->arch.root_mmu;
+
+	root_mmu->get_guest_pgd	    = get_cr3;
+	root_mmu->get_pdptr	    = kvm_pdptr_read;
+	root_mmu->inject_page_fault = kvm_inject_page_fault;
+
+	/*
+	 * When shadowing IA32 page tables, all other callbacks various based
+	 * on paging mode, and the guest+nested MMUs are unused.
+	 */
+	if (!tdp_enabled)
+		return;
+
+	root_mmu->page_fault = kvm_tdp_page_fault;
+	root_mmu->sync_page  = nonpaging_sync_page;
+	root_mmu->invlpg     = NULL;
+	root_mmu->direct_map = true;
+
+	/*
+	 * Nested TDP MMU callbacks that are constant are vendor specific due
+	 * to the vast* differences between EPT and NPT.  The only commonality
+	 * is that they are always indirect.
+	 */
+	guest_mmu->direct_map = false;
+
+	/* L2 page tables are never shadowed, there's no need to sync SPTEs. */
+	nested_mmu->invlpg            = NULL;
+	nested_mmu->get_guest_pgd     = get_cr3;
+	nested_mmu->get_pdptr         = kvm_pdptr_read;
+	nested_mmu->inject_page_fault = kvm_inject_page_fault;
+}
+
 static union kvm_mmu_role
 kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu,
 				struct kvm_mmu_role_regs *regs, bool base_only)
@@ -4787,14 +4823,7 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu)
 		return;
 
 	context->mmu_role.as_u64 = new_role.as_u64;
-	context->page_fault = kvm_tdp_page_fault;
-	context->sync_page = nonpaging_sync_page;
-	context->invlpg = NULL;
 	context->shadow_root_level = kvm_mmu_get_tdp_level(vcpu);
-	context->direct_map = true;
-	context->get_guest_pgd = get_cr3;
-	context->get_pdptr = kvm_pdptr_read;
-	context->inject_page_fault = kvm_inject_page_fault;
 	context->root_level = role_regs_to_root_level(&regs);
 
 	if (!is_cr0_pg(context))
@@ -4928,6 +4957,21 @@ kvm_calc_shadow_ept_root_page_role(struct kvm_vcpu *vcpu, bool accessed_dirty,
 	return role;
 }
 
+void kvm_init_shadow_ept_mmu_constants(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu *guest_mmu = &vcpu->arch.guest_mmu;
+
+	guest_mmu->page_fault = ept_page_fault;
+	guest_mmu->gva_to_gpa = ept_gva_to_gpa;
+	guest_mmu->sync_page  = ept_sync_page;
+	guest_mmu->invlpg     = ept_invlpg;
+	guest_mmu->get_pdptr  = kvm_pdptr_read;
+
+	guest_mmu->direct_map = false;
+	guest_mmu->pkru_mask = 0;
+}
+EXPORT_SYMBOL_GPL(kvm_init_shadow_ept_mmu_constants);
+
 void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 			     int huge_page_level, bool accessed_dirty,
 			     gpa_t new_eptp)
@@ -4940,17 +4984,10 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 
 	if (new_role.as_u64 != context->mmu_role.as_u64) {
 		context->mmu_role.as_u64 = new_role.as_u64;
-
 		context->shadow_root_level = level;
-
-		context->page_fault = ept_page_fault;
-		context->gva_to_gpa = ept_gva_to_gpa;
-		context->sync_page = ept_sync_page;
-		context->invlpg = ept_invlpg;
 		context->root_level = level;
-		context->direct_map = false;
+
 		update_permission_bitmask(context, true);
-		context->pkru_mask = 0;
 		reset_rsvds_bits_mask_ept(vcpu, context, execonly, huge_page_level);
 		reset_ept_shadow_zero_bits_mask(context, execonly);
 	}
@@ -4961,14 +4998,9 @@ EXPORT_SYMBOL_GPL(kvm_init_shadow_ept_mmu);
 
 static void init_kvm_softmmu(struct kvm_vcpu *vcpu)
 {
-	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
 
 	kvm_init_shadow_mmu(vcpu, &regs);
-
-	context->get_guest_pgd     = get_cr3;
-	context->get_pdptr         = kvm_pdptr_read;
-	context->inject_page_fault = kvm_inject_page_fault;
 }
 
 static union kvm_mmu_role
@@ -4998,16 +5030,7 @@ static void init_kvm_nested_mmu(struct kvm_vcpu *vcpu)
 		return;
 
 	g_context->mmu_role.as_u64 = new_role.as_u64;
-	g_context->get_guest_pgd     = get_cr3;
-	g_context->get_pdptr         = kvm_pdptr_read;
-	g_context->inject_page_fault = kvm_inject_page_fault;
-	g_context->root_level        = new_role.base.level;
-
-	/*
-	 * L2 page tables are never shadowed, so there is no need to sync
-	 * SPTEs.
-	 */
-	g_context->invlpg            = NULL;
+	g_context->root_level = new_role.base.level;
 
 	/*
 	 * Note that arch.mmu->gva_to_gpa translates l2_gpa to l1_gpa using
@@ -5626,7 +5649,10 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	if (ret)
 		goto fail_allocate_root;
 
-	return ret;
+	kvm_init_mmu_constants(vcpu);
+
+	return 0;
+
  fail_allocate_root:
 	free_mmu_pages(&vcpu->arch.guest_mmu);
 	return ret;
