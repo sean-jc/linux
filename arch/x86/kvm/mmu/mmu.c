@@ -4812,7 +4812,7 @@ kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu,
 	return role;
 }
 
-static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu)
+static void kvm_init_tdp_mmu(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
@@ -5012,7 +5012,7 @@ kvm_calc_nested_mmu_role(struct kvm_vcpu *vcpu, struct kvm_mmu_role_regs *regs)
 	return role;
 }
 
-static void init_kvm_nested_mmu(struct kvm_vcpu *vcpu)
+static void kvm_init_nested_mmu(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
 	union kvm_mmu_role new_role = kvm_calc_nested_mmu_role(vcpu, &regs);
@@ -5047,9 +5047,9 @@ static void init_kvm_nested_mmu(struct kvm_vcpu *vcpu)
 void kvm_init_mmu(struct kvm_vcpu *vcpu)
 {
 	if (mmu_is_nested(vcpu))
-		init_kvm_nested_mmu(vcpu);
+		kvm_init_nested_mmu(vcpu);
 	else if (tdp_enabled)
-		init_kvm_tdp_mmu(vcpu);
+		kvm_init_tdp_mmu(vcpu);
 	else
 		kvm_init_shadow_non_tdp_mmu(vcpu);
 }
