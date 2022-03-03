@@ -37,6 +37,7 @@ void nested_vmx_pmu_refresh(struct kvm_vcpu *vcpu,
 void nested_mark_vmcs12_pages_dirty(struct kvm_vcpu *vcpu);
 bool nested_vmx_check_io_bitmaps(struct kvm_vcpu *vcpu, unsigned int port,
 				 int size);
+void nested_ept_init_mmu_constants(struct kvm_vcpu *vcpu);
 
 static inline struct vmcs12 *get_vmcs12(struct kvm_vcpu *vcpu)
 {

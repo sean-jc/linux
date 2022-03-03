@@ -1228,6 +1228,9 @@ static int svm_vcpu_create(struct kvm_vcpu *vcpu)
 
 	svm->guest_state_loaded = false;
 
+	if (npt_enabled && nested)
+		nested_svm_init_mmu_constants(vcpu);
+
 	return 0;
 
 error_free_vmsa_page:

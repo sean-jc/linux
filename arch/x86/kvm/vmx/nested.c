@@ -408,15 +408,22 @@ static void nested_ept_new_eptp(struct kvm_vcpu *vcpu)
 				nested_ept_get_eptp(vcpu));
 }
 
+void nested_ept_init_mmu_constants(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu *mmu = &vcpu->arch.guest_mmu;
+
+	mmu->get_guest_pgd	= nested_ept_get_eptp;
+	mmu->inject_page_fault	= nested_ept_inject_page_fault;
+
+	kvm_init_shadow_ept_mmu_constants(vcpu);
+}
+
 static void nested_ept_init_mmu_context(struct kvm_vcpu *vcpu)
 {
 	WARN_ON(mmu_is_nested(vcpu));
 
 	vcpu->arch.mmu = &vcpu->arch.guest_mmu;
 	nested_ept_new_eptp(vcpu);
-	vcpu->arch.mmu->get_guest_pgd     = nested_ept_get_eptp;
-	vcpu->arch.mmu->inject_page_fault = nested_ept_inject_page_fault;
-	vcpu->arch.mmu->get_pdptr         = kvm_pdptr_read;
 
 	vcpu->arch.walk_mmu              = &vcpu->arch.nested_mmu;
 }

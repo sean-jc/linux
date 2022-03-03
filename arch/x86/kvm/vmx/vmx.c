@@ -7075,6 +7075,9 @@ static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
 			goto free_vmcs;
 	}
 
+	if (enable_ept && nested)
+		nested_ept_init_mmu_constants(vcpu);
+
 	return 0;
 
 free_vmcs:
