@@ -4867,14 +4867,13 @@ static void shadow_mmu_init_context(struct kvm_vcpu *vcpu, struct kvm_mmu *conte
 	reset_shadow_zero_bits_mask(vcpu, context);
 }
 
-static void kvm_init_shadow_mmu(struct kvm_vcpu *vcpu,
-				struct kvm_mmu_role_regs *regs)
+static void kvm_init_shadow_non_tdp_mmu(struct kvm_vcpu *vcpu)
 {
-	struct kvm_mmu *context = &vcpu->arch.root_mmu;
+	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
 	union kvm_mmu_role new_role =
-		kvm_calc_shadow_mmu_root_page_role(vcpu, regs, false);
+		kvm_calc_shadow_mmu_root_page_role(vcpu, &regs, false);
 
-	shadow_mmu_init_context(vcpu, context, regs, new_role);
+	shadow_mmu_init_context(vcpu, &vcpu->arch.root_mmu, &regs, new_role);
 }
 
 static union kvm_mmu_role
@@ -4971,13 +4970,6 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 }
 EXPORT_SYMBOL_GPL(kvm_init_shadow_ept_mmu);
 
-static void init_kvm_softmmu(struct kvm_vcpu *vcpu)
-{
-	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
-
-	kvm_init_shadow_mmu(vcpu, &regs);
-}
-
 static union kvm_mmu_role
 kvm_calc_nested_mmu_role(struct kvm_vcpu *vcpu, struct kvm_mmu_role_regs *regs)
 {
@@ -5034,7 +5026,7 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu)
 	else if (tdp_enabled)
 		init_kvm_tdp_mmu(vcpu);
 	else
-		init_kvm_softmmu(vcpu);
+		kvm_init_shadow_non_tdp_mmu(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_init_mmu);
 
