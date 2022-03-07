@@ -9310,52 +9310,39 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
 
 static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 {
+	bool can_inject = !kvm_event_needs_reinjection(vcpu);
 	int r;
-	bool can_inject = true;
 
-	/* try to reinject previous events if any */
-
-	if (vcpu->arch.exception.injected) {
-		kvm_inject_exception(vcpu);
-		can_inject = false;
-	}
 	/*
-	 * Do not inject an NMI or interrupt if there is a pending
-	 * exception.  Exceptions and interrupts are recognized at
-	 * instruction boundaries, i.e. the start of an instruction.
-	 * Trap-like exceptions, e.g. #DB, have higher priority than
-	 * NMIs and interrupts, i.e. traps are recognized before an
-	 * NMI/interrupt that's pending on the same instruction.
-	 * Fault-like exceptions, e.g. #GP and #PF, are the lowest
-	 * priority, but are only generated (pended) during instruction
-	 * execution, i.e. a pending fault-like exception means the
-	 * fault occurred on the *previous* instruction and must be
-	 * serviced prior to recognizing any new events in order to
-	 * fully complete the previous instruction.
+	 * Re-inject exceptions and events irrespective of whether or not a
+	 * nested VM-Exit will be synthesized by kvm_check_nested_events().
+	 * If a VM-Exit occurs, the re-injected event will be discarded.
 	 */
-	else if (!vcpu->arch.exception.pending) {
-		if (vcpu->arch.nmi_injected) {
-			static_call(kvm_x86_inject_nmi)(vcpu);
-			can_inject = false;
-		} else if (vcpu->arch.interrupt.injected) {
-			static_call(kvm_x86_inject_irq)(vcpu);
-			can_inject = false;
-		}
-	}
+	if (vcpu->arch.exception.injected)
+		kvm_inject_exception(vcpu);
+	else if (vcpu->arch.nmi_injected)
+		static_call(kvm_x86_inject_nmi)(vcpu);
+	else if (vcpu->arch.interrupt.injected)
+		static_call(kvm_x86_inject_irq)(vcpu);
 
 	WARN_ON_ONCE(vcpu->arch.exception.injected &&
 		     vcpu->arch.exception.pending);
 
 	/*
-	 * Call check_nested_events() even if we reinjected a previous event
-	 * in order for caller to determine if it should require immediate-exit
-	 * from L2 to L1 due to pending L1 events which require exit
-	 * from L2 to L1.
+	 * As above, nested VM-Exit may supercede a re-injected event.  This
+	 * may also trigger an immediate-exit to complete a nested VM-Enter, or
+	 * to complete event re-injection.
 	 */
 	if (is_guest_mode(vcpu)) {
 		r = kvm_check_nested_events(vcpu);
 		if (r < 0)
 			goto out;
+
+		/*
+		 * Fallthrough even if a VM-Exit occurred, the VM-Exit will
+		 * have cleared exceptions that were meant for L2, but there
+		 * may now be events that can be injected into L1.
+		 */
 	}
 
 	/* try to inject new event if pending */
