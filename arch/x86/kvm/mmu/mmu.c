@@ -2994,7 +2994,7 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fa
 		 * touching the shadow page tables as attempting to install an
 		 * MMIO SPTE will just be an expensive nop.
 		 */
-		if (unlikely(!shadow_mmio_value)) {
+		if (unlikely(!enable_mmio_caching)) {
 			*ret_val = RET_PF_EMULATE;
 			return true;
 		}

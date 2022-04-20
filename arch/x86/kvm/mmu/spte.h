@@ -5,6 +5,8 @@
 
 #include "mmu_internal.h"
 
+extern bool __read_mostly enable_mmio_caching;
+
 /*
  * A MMU present SPTE is backed by actual memory and may or may not be present
  * in hardware.  E.g. MMIO SPTEs are not considered present.  Use bit 11, as it
@@ -210,7 +212,7 @@ extern u8 __read_mostly shadow_phys_bits;
 static inline bool is_mmio_spte(u64 spte)
 {
 	return (spte & shadow_mmio_mask) == shadow_mmio_value &&
-	       likely(shadow_mmio_value);
+	       likely(enable_mmio_caching);
 }
 
 static inline bool is_shadow_present_pte(u64 pte)
