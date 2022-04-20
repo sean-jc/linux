@@ -112,29 +112,63 @@ static void __release_gpc(struct kvm *kvm, kvm_pfn_t pfn, void *khva, gpa_t gpa)
 	}
 }
 
-static kvm_pfn_t hva_to_pfn_retry(struct kvm *kvm, unsigned long uhva)
+static kvm_pfn_t hva_to_pfn_retry(struct kvm *kvm, struct gfn_to_pfn_cache *gpc)
 {
+	bool first_attempt = true;
 	unsigned long mmu_seq;
 	kvm_pfn_t new_pfn;
-	int retry;
 
-	do {
+	lockdep_assert_held_write(&gpc->lock);
+
+	for (;;) {
 		mmu_seq = kvm->mmu_notifier_seq;
 		smp_rmb();
 
+		write_unlock_irq(&gpc->lock);
+
+		/* Opportunistically check for resched while the lock isn't held. */
+		if (!first_attempt)
+			cond_resched();
+
 		/* We always request a writeable mapping */
-		new_pfn = hva_to_pfn(uhva, false, NULL, true, NULL);
+		new_pfn = hva_to_pfn(gpc->uhva, false, NULL, true, NULL);
+
+		write_lock_irq(&gpc->lock);
+
 		if (is_error_noslot_pfn(new_pfn))
 			break;
 
-		KVM_MMU_READ_LOCK(kvm);
-		retry = mmu_notifier_retry_hva(kvm, mmu_seq, uhva);
-		KVM_MMU_READ_UNLOCK(kvm);
-		if (!retry)
-			break;
+		first_attempt = false;
 
-		cond_resched();
-	} while (1);
+		/*
+		 * Wait for mn_active_invalidate_count, not mmu_notifier_count,
+		 * to go away, as the invalidation in the mmu_notifier event
+		 * occurs _before_ mmu_notifier_count is elevated.
+		 *
+		 * Note, mn_active_invalidate_count can change at any time as
+		 * it's not protected by gpc->lock.  But, it is guaranteed to
+		 * be elevated before the mmu_notifier acquires gpc->lock, and
+		 * isn't dropped until after mmu_notifier_seq is updated.  So,
+		 * this task may get a false positive of sorts, i.e. see an
+		 * elevated count and wait even though it's technically safe to
+		 * proceed (becase the mmu_notifier will invalidate the cache
+		 * _after_ it's refreshed here), but the cache will never be
+		 * refreshed with stale data, i.e. won't get false negatives.
+		 */
+		if (kvm->mn_active_invalidate_count)
+			continue;
+
+		/*
+		 * Ensure mn_active_invalidate_count is read before
+		 * mmu_notifier_seq.  This pairs with the smp_wmb() in
+		 * mmu_notifier_invalidate_range_end() to guarantee either the
+		 * old (non-zero) value of mn_active_invalidate_count or the
+		 * new (incremented) value of mmu_notifier_seq is observed.
+		 */
+		smp_rmb();
+		if (kvm->mmu_notifier_seq == mmu_seq)
+			break;
+	}
 
 	return new_pfn;
 }
@@ -190,7 +224,6 @@ int kvm_gfn_to_pfn_cache_refresh(struct kvm *kvm, struct gfn_to_pfn_cache *gpc,
 	 * drop the lock and do the HVA to PFN lookup again.
 	 */
 	if (!old_valid || old_uhva != gpc->uhva) {
-		unsigned long uhva = gpc->uhva;
 		void *new_khva = NULL;
 
 		/* Placeholders for "hva is valid but not yet mapped" */
@@ -198,15 +231,10 @@ int kvm_gfn_to_pfn_cache_refresh(struct kvm *kvm, struct gfn_to_pfn_cache *gpc,
 		gpc->khva = NULL;
 		gpc->valid = true;
 
-		write_unlock_irq(&gpc->lock);
-
-		new_pfn = hva_to_pfn_retry(kvm, uhva);
+		new_pfn = hva_to_pfn_retry(kvm, gpc);
 		if (is_error_noslot_pfn(new_pfn)) {
 			ret = -EFAULT;
-			goto map_done;
-		}
-
-		if (gpc->usage & KVM_HOST_USES_PFN) {
+		} else if (gpc->usage & KVM_HOST_USES_PFN) {
 			if (new_pfn == old_pfn) {
 				new_khva = old_khva;
 				old_pfn = KVM_PFN_ERR_FAULT;
@@ -222,10 +250,10 @@ int kvm_gfn_to_pfn_cache_refresh(struct kvm *kvm, struct gfn_to_pfn_cache *gpc,
 				new_khva += page_offset;
 			else
 				ret = -EFAULT;
+		} else {
+			/* Nothing more to do, the pfn is consumed only by the guest. */
 		}
 
-	map_done:
-		write_lock_irq(&gpc->lock);
 		if (ret) {
 			gpc->valid = false;
 			gpc->pfn = KVM_PFN_ERR_FAULT;
