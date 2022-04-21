@@ -361,6 +361,12 @@ void kvm_flush_remote_tlbs(struct kvm *kvm)
 EXPORT_SYMBOL_GPL(kvm_flush_remote_tlbs);
 #endif
 
+static void kvm_flush_shadow_all(struct kvm *kvm)
+{
+	kvm_arch_flush_shadow_all(kvm);
+	kvm_arch_guest_memory_reclaimed(kvm);
+}
+
 #ifdef KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE
 static inline void *mmu_memory_cache_alloc_obj(struct kvm_mmu_memory_cache *mc,
 					       gfp_t gfp_flags)
@@ -818,12 +824,6 @@ static int kvm_mmu_notifier_test_young(struct mmu_notifier *mn,
 
 	return kvm_handle_hva_range_no_flush(mn, address, address + 1,
 					     kvm_test_age_gfn);
-}
-
-static void kvm_flush_shadow_all(struct kvm *kvm)
-{
-	kvm_arch_flush_shadow_all(kvm);
-	kvm_arch_guest_memory_reclaimed(kvm);
 }
 
 static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
