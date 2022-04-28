@@ -65,6 +65,27 @@ static __always_inline u64 rsvd_bits(int s, int e)
 	return ((2ULL << (e - s)) - 1) << s;
 }
 
+/*
+ * The number of non-reserved physical address bits irrespective of features
+ * that repurpose legal bits, e.g. MKTME.
+ */
+extern u8 __read_mostly shadow_phys_bits;
+
+static inline gfn_t kvm_mmu_max_gfn_host(void)
+{
+	/*
+	 * Disallow SPTEs (via memslots or cached MMIO) whose gfn would exceed
+	 * host.MAXPHYADDR.  Assuming KVM is running on bare metal, guest
+	 * accesses beyond host.MAXPHYADDR will hit a #PF(RSVD) and never hit
+	 * an EPT Violation/Misconfig / #NPF, and so KVM will never install a
+	 * SPTE for such addresses.  That doesn't hold true if KVM is running
+	 * as a VM itself, e.g. if the MAXPHYADDR KVM sees is less than
+	 * hardware's real MAXPHYADDR, but since KVM can't honor such behavior
+	 * on bare metal, disallow it entirely to simplify e.g. the TDP MMU.
+	 */
+	return (1ULL << (shadow_phys_bits - PAGE_SHIFT)) - 1;
+}
+
 void kvm_mmu_set_mmio_spte_mask(u64 mmio_value, u64 mmio_mask, u64 access_mask);
 void kvm_mmu_set_ept_masks(bool has_ad_bits, bool has_exec_only);
 

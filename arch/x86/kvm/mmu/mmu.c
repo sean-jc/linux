@@ -3010,9 +3010,15 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fa
 		/*
 		 * If MMIO caching is disabled, emulate immediately without
 		 * touching the shadow page tables as attempting to install an
-		 * MMIO SPTE will just be an expensive nop.
+		 * MMIO SPTE will just be an expensive nop.  Do not cache MMIO
+		 * whose gfn is greater than host.MAXPHYADDR, any guest that
+		 * generates such gfns is either malicious or in the weeds.
+		 * Note, it's possible to observe a gfn > host.MAXPHYADDR if
+		 * and only if host.MAXPHYADDR is inaccurate with respect to
+		 * hardware behavior, e.g. if KVM itself is running as a VM.
 		 */
-		if (unlikely(!enable_mmio_caching)) {
+		if (unlikely(!enable_mmio_caching) ||
+		    unlikely(fault->gfn > kvm_mmu_max_gfn_host())) {
 			*ret_val = RET_PF_EMULATE;
 			return true;
 		}
