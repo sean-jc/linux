@@ -25,7 +25,6 @@
 #include <linux/slab.h>
 #include <linux/kprobes.h>
 #include <linux/nmi.h>
-#include <linux/swait.h>
 #include <linux/syscore_ops.h>
 #include <linux/cc_platform.h>
 #include <linux/efi.h>
@@ -80,13 +79,6 @@ static void kvm_io_delay(void)
 #define KVM_TASK_SLEEP_HASHBITS 8
 #define KVM_TASK_SLEEP_HASHSIZE (1<<KVM_TASK_SLEEP_HASHBITS)
 
-struct kvm_task_sleep_node {
-	struct hlist_node link;
-	struct swait_queue_head wq;
-	u32 token;
-	int cpu;
-};
-
 static struct kvm_task_sleep_head {
 	raw_spinlock_t lock;
 	struct hlist_head list;
@@ -107,59 +99,71 @@ static struct kvm_task_sleep_node *_find_apf_task(struct kvm_task_sleep_head *b,
 	return NULL;
 }
 
-static bool kvm_async_pf_queue_task(u32 token, struct kvm_task_sleep_node *n)
+/*
+ * Add an async #PF victim to the queue of waiters.  This must be called before
+ * IRQs are _ever_ enabled after a #PF or #PF VM-Exit to ensure the wake IRQ
+ * cannot arrive before the waiter is queued.
+ */
+void kvm_async_pf_queue_task(u32 token, struct kvm_task_sleep_node *n)
 {
 	u32 key = hash_32(token, KVM_TASK_SLEEP_HASHBITS);
 	struct kvm_task_sleep_head *b = &async_pf_sleepers[key];
-	struct kvm_task_sleep_node *e;
+
+	lockdep_assert_irqs_disabled();
 
 	raw_spin_lock(&b->lock);
-	e = _find_apf_task(b, token);
-	if (e) {
-		/* dummy entry exist -> wake up was delivered ahead of PF */
-		hlist_del(&e->link);
-		raw_spin_unlock(&b->lock);
-		kfree(e);
-		return false;
-	}
-
 	n->token = token;
 	n->cpu = smp_processor_id();
 	init_swait_queue_head(&n->wq);
 	hlist_add_head(&n->link, &b->list);
 	raw_spin_unlock(&b->lock);
-	return true;
 }
+EXPORT_SYMBOL_GPL(kvm_async_pf_queue_task);
 
 /*
- * kvm_async_pf_task_wait_schedule - Wait for pagefault to be handled
- * @token:	Token to identify the sleep node entry
- *
- * Invoked from the async pagefault handling code or from the VM exit page
- * fault handler. In both cases RCU is watching.
+ * Wait for a page fault to be resolved by the host. Invoked from the async #PF
+ * handler or from KVM (running as L1) after a page fault VM-Exit. In both
+ * cases RCU is watching.
  */
-void kvm_async_pf_task_wait_schedule(u32 token)
+static void __kvm_async_pf_task_wait_schedule(struct kvm_task_sleep_node *n,
+					      bool irqs_on)
+{
+	DECLARE_SWAITQUEUE(wait);
+
+	for (;;) {
+		prepare_to_swait_exclusive(&n->wq, &wait, TASK_UNINTERRUPTIBLE);
+		if (hlist_unhashed(&n->link))
+			break;
+
+		if (!irqs_on)
+			local_irq_enable();
+
+		schedule();
+
+		if (!irqs_on)
+			local_irq_disable();
+	}
+	finish_swait(&n->wq, &wait);
+}
+
+void kvm_async_pf_task_wait_irqs_on(struct kvm_task_sleep_node *n)
+{
+	lockdep_assert_irqs_enabled();
+
+	__kvm_async_pf_task_wait_schedule(n, true);
+}
+EXPORT_SYMBOL_GPL(kvm_async_pf_task_wait_irqs_on);
+
+void kvm_async_pf_queue_task_and_wait(u32 token)
 {
 	struct kvm_task_sleep_node n;
-	DECLARE_SWAITQUEUE(wait);
 
 	lockdep_assert_irqs_disabled();
 
-	if (!kvm_async_pf_queue_task(token, &n))
-		return;
+	kvm_async_pf_queue_task(token, &n);
 
-	for (;;) {
-		prepare_to_swait_exclusive(&n.wq, &wait, TASK_UNINTERRUPTIBLE);
-		if (hlist_unhashed(&n.link))
-			break;
-
-		local_irq_enable();
-		schedule();
-		local_irq_disable();
-	}
-	finish_swait(&n.wq, &wait);
+	__kvm_async_pf_task_wait_schedule(&n, false);
 }
-EXPORT_SYMBOL_GPL(kvm_async_pf_task_wait_schedule);
 
 static void apf_task_wake_one(struct kvm_task_sleep_node *n)
 {
@@ -191,53 +195,18 @@ void kvm_async_pf_task_wake(u32 token)
 {
 	u32 key = hash_32(token, KVM_TASK_SLEEP_HASHBITS);
 	struct kvm_task_sleep_head *b = &async_pf_sleepers[key];
-	struct kvm_task_sleep_node *n, *dummy = NULL;
+	struct kvm_task_sleep_node *n;
 
 	if (token == ~0) {
 		apf_task_wake_all();
 		return;
 	}
 
-again:
 	raw_spin_lock(&b->lock);
 	n = _find_apf_task(b, token);
-	if (!n) {
-		/*
-		 * Async #PF not yet handled, add a dummy entry for the token.
-		 * Allocating the token must be down outside of the raw lock
-		 * as the allocator is preemptible on PREEMPT_RT kernels.
-		 */
-		if (!dummy) {
-			raw_spin_unlock(&b->lock);
-			dummy = kzalloc(sizeof(*dummy), GFP_ATOMIC);
-
-			/*
-			 * Continue looping on allocation failure, eventually
-			 * the async #PF will be handled and allocating a new
-			 * node will be unnecessary.
-			 */
-			if (!dummy)
-				cpu_relax();
-
-			/*
-			 * Recheck for async #PF completion before enqueueing
-			 * the dummy token to avoid duplicate list entries.
-			 */
-			goto again;
-		}
-		dummy->token = token;
-		dummy->cpu = smp_processor_id();
-		init_swait_queue_head(&dummy->wq);
-		hlist_add_head(&dummy->link, &b->list);
-		dummy = NULL;
-	} else {
+	if (!WARN_ON_ONCE(!n))
 		apf_task_wake_one(n);
-	}
 	raw_spin_unlock(&b->lock);
-
-	/* A dummy token might be allocated and ultimately not used.  */
-	if (dummy)
-		kfree(dummy);
 }
 EXPORT_SYMBOL_GPL(kvm_async_pf_task_wake);
 
@@ -277,7 +246,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 		if (unlikely(!(user_mode(regs))))
 			panic("Host injected async #PF in kernel mode\n");
 		/* Page is swapped out by the host. */
-		kvm_async_pf_task_wait_schedule(token);
+		kvm_async_pf_queue_task_and_wait(token);
 	} else {
 		WARN_ONCE(1, "Unexpected async PF flags: %x\n", flags);
 	}

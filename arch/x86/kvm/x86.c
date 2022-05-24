@@ -10037,6 +10037,8 @@ EXPORT_SYMBOL_GPL(__kvm_request_immediate_exit);
  */
 static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 {
+	struct kvm_task_sleep_node async_pf_node;
+	struct kvm_host_apf host_apf = {};
 	int r;
 	bool req_int_win =
 		dm_request_for_irq_injection(vcpu) &&
@@ -10344,10 +10346,21 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.xfd_no_write_intercept)
 		fpu_sync_guest_vmexit_xfd_state();
 
-	static_call(kvm_x86_handle_exit_irqoff)(vcpu);
+	static_call(kvm_x86_handle_exit_irqoff)(vcpu, &host_apf);
 
 	if (vcpu->arch.guest_fpu.xfd_err)
 		wrmsrl(MSR_IA32_XFD_ERR, 0);
+
+#ifdef CONFIG_KVM_GUEST
+	if (host_apf.flags) {
+		exit_fastpath = EXIT_FASTPATH_EXIT_HANDLED;
+
+		if (WARN_ON_ONCE(!(host_apf.flags & KVM_PV_REASON_PAGE_NOT_PRESENT)))
+			host_apf.flags = 0;
+		else
+			kvm_async_pf_queue_task(host_apf.token, &async_pf_node);
+	}
+#endif
 
 	/*
 	 * Consume any pending interrupts, including the possible source of
@@ -10373,6 +10386,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	local_irq_enable();
 	preempt_enable();
+
+#ifdef CONFIG_KVM_GUEST
+	if (host_apf.flags)
+		kvm_async_pf_task_wait_irqs_on(&async_pf_node);
+#endif
 
 	kvm_vcpu_srcu_read_lock(vcpu);
 

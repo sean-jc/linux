@@ -5,6 +5,7 @@
 #include <asm/processor.h>
 #include <asm/alternative.h>
 #include <linux/interrupt.h>
+#include <linux/swait.h>
 #include <uapi/asm/kvm_para.h>
 
 #ifdef CONFIG_KVM_GUEST
@@ -95,13 +96,22 @@ static inline long kvm_sev_hypercall3(unsigned int nr, unsigned long p1,
 	return ret;
 }
 
+struct kvm_task_sleep_node {
+	struct hlist_node link;
+	struct swait_queue_head wq;
+	u32 token;
+	int cpu;
+};
+
 #ifdef CONFIG_KVM_GUEST
 void kvmclock_init(void);
 void kvmclock_disable(void);
 bool kvm_para_available(void);
 unsigned int kvm_arch_para_features(void);
 unsigned int kvm_arch_para_hints(void);
-void kvm_async_pf_task_wait_schedule(u32 token);
+void kvm_async_pf_queue_task(u32 token, struct kvm_task_sleep_node *n);
+void kvm_async_pf_task_wait_irqs_on(struct kvm_task_sleep_node *n);
+void kvm_async_pf_queue_task_and_wait(u32 token);
 void kvm_async_pf_task_wake(u32 token);
 u32 kvm_read_and_reset_apf_flags(void);
 bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token);
@@ -125,7 +135,7 @@ static inline void kvm_spinlock_init(void)
 #endif /* CONFIG_PARAVIRT_SPINLOCKS */
 
 #else /* CONFIG_KVM_GUEST */
-#define kvm_async_pf_task_wait_schedule(T) do {} while(0)
+#define kvm_async_pf_queue_task_and_wait(T) do {} while(0)
 #define kvm_async_pf_task_wake(T) do {} while(0)
 
 static inline bool kvm_para_available(void)

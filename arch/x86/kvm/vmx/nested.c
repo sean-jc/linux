@@ -5937,8 +5937,7 @@ static bool nested_vmx_l0_wants_exit(struct kvm_vcpu *vcpu,
 		if (is_nmi(intr_info))
 			return true;
 		else if (is_page_fault(intr_info))
-			return vcpu->arch.apf.host_apf_flags ||
-			       vmx_need_pf_intercept(vcpu);
+			return vmx_need_pf_intercept(vcpu);
 		else if (is_debug(intr_info) &&
 			 vcpu->guest_debug &
 			 (KVM_GUESTDBG_SINGLESTEP | KVM_GUESTDBG_USE_HW_BP))
@@ -6121,7 +6120,7 @@ static bool nested_vmx_l1_wants_exit(struct kvm_vcpu *vcpu,
  * Conditionally reflect a VM-Exit into L1.  Returns %true if the VM-Exit was
  * reflected into L1.
  */
-bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu)
+bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	union vmx_exit_reason exit_reason = vmx->exit_reason;
@@ -6144,6 +6143,9 @@ bool nested_vmx_reflect_vmexit(struct kvm_vcpu *vcpu)
 	}
 
 	trace_kvm_nested_vmexit(vcpu, KVM_ISA_VMX);
+
+	if (exit_fastpath != EXIT_FASTPATH_NONE)
+		return false;
 
 	/* If L0 (KVM) wants the exit, it trumps L1's desires. */
 	if (nested_vmx_l0_wants_exit(vcpu, exit_reason))

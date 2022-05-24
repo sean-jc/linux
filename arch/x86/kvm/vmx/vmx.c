@@ -5022,7 +5022,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 
 	if (is_page_fault(intr_info)) {
 		cr2 = vmx_get_exit_qual(vcpu);
-		if (enable_ept && !vcpu->arch.apf.host_apf_flags) {
+		if (enable_ept) {
 			/*
 			 * EPT will cause page fault only if we need to
 			 * detect illegal GPAs.
@@ -6219,7 +6219,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 			return 1;
 		}
 
-		if (nested_vmx_reflect_vmexit(vcpu))
+		if (nested_vmx_reflect_vmexit(vcpu, exit_fastpath))
 			return 1;
 	}
 
@@ -6664,23 +6664,27 @@ static void handle_nm_fault_irqoff(struct kvm_vcpu *vcpu)
 		rdmsrl(MSR_IA32_XFD_ERR, vcpu->arch.guest_fpu.xfd_err);
 }
 
-static void handle_exception_nmi_irqoff(struct vcpu_vmx *vmx)
+static void handle_exception_nmi_irqoff(struct vcpu_vmx *vmx,
+					struct kvm_host_apf *apf)
 {
 	const unsigned long nmi_entry = (unsigned long)asm_exc_nmi_noist;
-	u32 intr_info = vmx_get_intr_info(&vmx->vcpu);
+	struct kvm_vcpu *vcpu = &vmx->vcpu;
+	u32 intr_info = vmx_get_intr_info(vcpu);
 
 	/* if exit due to PF check for async PF */
-	if (is_page_fault(intr_info))
-		vmx->vcpu.arch.apf.host_apf_flags = kvm_read_and_reset_apf_flags();
+	if (is_page_fault(intr_info)) {
+		apf->flags = kvm_read_and_reset_apf_flags();
+		apf->token = apf->flags ? vmx_get_exit_qual(vcpu) : 0;
 	/* if exit due to NM, handle before interrupts are enabled */
-	else if (is_nm_fault(intr_info))
-		handle_nm_fault_irqoff(&vmx->vcpu);
+	} else if (is_nm_fault(intr_info)) {
+		handle_nm_fault_irqoff(vcpu);
 	/* Handle machine checks before interrupts are enabled */
-	else if (is_machine_check(intr_info))
+	} else if (is_machine_check(intr_info)) {
 		kvm_machine_check();
 	/* We need to handle NMIs before interrupts are enabled */
-	else if (is_nmi(intr_info))
-		handle_interrupt_nmi_irqoff(&vmx->vcpu, nmi_entry);
+	} else if (is_nmi(intr_info)) {
+		handle_interrupt_nmi_irqoff(vcpu, nmi_entry);
+	}
 }
 
 static void handle_external_interrupt_irqoff(struct kvm_vcpu *vcpu)
@@ -6696,7 +6700,8 @@ static void handle_external_interrupt_irqoff(struct kvm_vcpu *vcpu)
 	handle_interrupt_nmi_irqoff(vcpu, gate_offset(desc));
 }
 
-static void vmx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
+static void vmx_handle_exit_irqoff(struct kvm_vcpu *vcpu,
+				   struct kvm_host_apf *apf)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
@@ -6706,7 +6711,7 @@ static void vmx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	if (vmx->exit_reason.basic == EXIT_REASON_EXTERNAL_INTERRUPT)
 		handle_external_interrupt_irqoff(vcpu);
 	else if (vmx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI)
-		handle_exception_nmi_irqoff(vmx);
+		handle_exception_nmi_irqoff(vmx, apf);
 }
 
 /*

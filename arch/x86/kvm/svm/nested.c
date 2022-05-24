@@ -1404,9 +1404,12 @@ static int svm_check_nested_events(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-int nested_svm_exit_special(struct vcpu_svm *svm)
+int nested_svm_exit_special(struct vcpu_svm *svm, fastpath_t exit_fastpath)
 {
 	u32 exit_code = svm->vmcb->control.exit_code;
+
+	if (exit_fastpath != EXIT_FASTPATH_NONE)
+		return NESTED_EXIT_HOST;
 
 	switch (exit_code) {
 	case SVM_EXIT_INTR:
@@ -1418,10 +1421,6 @@ int nested_svm_exit_special(struct vcpu_svm *svm)
 
 		if (svm->vmcb01.ptr->control.intercepts[INTERCEPT_EXCEPTION] &
 		    excp_bits)
-			return NESTED_EXIT_HOST;
-		else if (exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR &&
-			 svm->vcpu.arch.apf.host_apf_flags)
-			/* Trap async PF even if not shadowing */
 			return NESTED_EXIT_HOST;
 		break;
 	}

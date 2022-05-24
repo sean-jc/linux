@@ -1352,6 +1352,11 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 	return dest_mode_logical ? APIC_DEST_LOGICAL : APIC_DEST_PHYSICAL;
 }
 
+struct kvm_host_apf {
+	u32 flags;
+	u32 token;
+};
+
 struct kvm_x86_ops {
 	const char *name;
 
@@ -1479,7 +1484,8 @@ struct kvm_x86_ops {
 			       struct x86_instruction_info *info,
 			       enum x86_intercept_stage stage,
 			       struct x86_exception *exception);
-	void (*handle_exit_irqoff)(struct kvm_vcpu *vcpu);
+	void (*handle_exit_irqoff)(struct kvm_vcpu *vcpu,
+				   struct kvm_host_apf *apf);
 
 	void (*request_immediate_exit)(struct kvm_vcpu *vcpu);
 

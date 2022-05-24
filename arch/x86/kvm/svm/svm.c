@@ -3351,7 +3351,7 @@ static int svm_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 
 		trace_kvm_nested_vmexit(vcpu, KVM_ISA_SVM);
 
-		vmexit = nested_svm_exit_special(svm);
+		vmexit = nested_svm_exit_special(svm, exit_fastpath);
 
 		if (vmexit == NESTED_EXIT_CONTINUE)
 			vmexit = nested_svm_exit_handled(svm);
@@ -4005,11 +4005,6 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
 	svm->vmcb->control.tlb_ctl = TLB_CONTROL_DO_NOTHING;
 	vmcb_mark_all_clean(svm->vmcb);
 
-	/* if exit due to PF check for async PF */
-	if (svm->vmcb->control.exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR)
-		vcpu->arch.apf.host_apf_flags =
-			kvm_read_and_reset_apf_flags();
-
 	vcpu->arch.regs_avail &= ~SVM_REGS_LAZY_LOAD_SET;
 
 	/*
@@ -4343,8 +4338,16 @@ out:
 	return ret;
 }
 
-static void svm_handle_exit_irqoff(struct kvm_vcpu *vcpu)
+static void svm_handle_exit_irqoff(struct kvm_vcpu *vcpu,
+				   struct kvm_host_apf *apf)
 {
+	struct vmcb *vmcb = to_svm(vcpu)->vmcb;
+
+	/* if exit due to PF check for async PF */
+	if (vmcb->control.exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR) {
+		apf->flags = kvm_read_and_reset_apf_flags();
+		apf->token = apf->flags ? vmcb->control.exit_info_2 : 0;
+	}
 }
 
 static void svm_sched_in(struct kvm_vcpu *vcpu, int cpu)
