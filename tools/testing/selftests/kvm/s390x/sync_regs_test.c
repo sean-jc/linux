@@ -79,16 +79,12 @@ int main(int argc, char *argv[])
 	struct kvm_run *run;
 	struct kvm_regs regs;
 	struct kvm_sregs sregs;
-	int rv, cap;
+	int rv;
 
 	/* Tell stdout not to buffer its content */
 	setbuf(stdout, NULL);
 
-	cap = kvm_check_cap(KVM_CAP_SYNC_REGS);
-	if (!cap) {
-		print_skip("CAP_SYNC_REGS not supported");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(kvm_check_cap(KVM_CAP_SYNC_REGS));
 
 	/* Create VM */
 	vm = vm_create_with_one_vcpu(&vcpu, guest_code);

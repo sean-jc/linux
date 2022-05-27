@@ -695,19 +695,12 @@ static void test_errors(void)
 
 int main(int argc, char *argv[])
 {
-	int memop_cap, extension_cap;
-
 	setbuf(stdout, NULL);	/* Tell stdout not to buffer its content */
 
-	memop_cap = kvm_check_cap(KVM_CAP_S390_MEM_OP);
-	extension_cap = kvm_check_cap(KVM_CAP_S390_MEM_OP_EXTENSION);
-	if (!memop_cap) {
-		print_skip("CAP_S390_MEM_OP not supported");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_S390_MEM_OP));
 
 	test_copy();
-	if (extension_cap > 0) {
+	if (kvm_has_cap(KVM_CAP_S390_MEM_OP_EXTENSION)) {
 		test_copy_key();
 		test_copy_key_storage_prot_override();
 		test_copy_key_fetch_prot();
