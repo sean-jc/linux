@@ -758,7 +758,10 @@ void vm_set_page_table_entry(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 uint64_t kvm_hypercall(uint64_t nr, uint64_t a0, uint64_t a1, uint64_t a2,
 		       uint64_t a3);
 
-void vm_xsave_req_perm(int bit);
+void __vm_xsave_require_permission(int bit, const char *name);
+
+#define vm_xsave_require_permission(perm)	\
+	__vm_xsave_require_permission(perm, #perm)
 
 enum x86_page_size {
 	X86_PAGE_SIZE_4K = 0,
