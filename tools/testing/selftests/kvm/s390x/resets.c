@@ -224,7 +224,7 @@ static void test_normal(void)
 
 	inject_irq(vcpu);
 
-	vcpu_ioctl(vcpu, KVM_S390_NORMAL_RESET, 0);
+	vcpu_ioctl(vcpu, KVM_S390_NORMAL_RESET, NULL);
 
 	/* must clears */
 	assert_normal(vcpu);
@@ -247,7 +247,7 @@ static void test_initial(void)
 
 	inject_irq(vcpu);
 
-	vcpu_ioctl(vcpu, KVM_S390_INITIAL_RESET, 0);
+	vcpu_ioctl(vcpu, KVM_S390_INITIAL_RESET, NULL);
 
 	/* must clears */
 	assert_normal(vcpu);
@@ -270,7 +270,7 @@ static void test_clear(void)
 
 	inject_irq(vcpu);
 
-	vcpu_ioctl(vcpu, KVM_S390_CLEAR_RESET, 0);
+	vcpu_ioctl(vcpu, KVM_S390_CLEAR_RESET, NULL);
 
 	/* must clears */
 	assert_normal(vcpu);
