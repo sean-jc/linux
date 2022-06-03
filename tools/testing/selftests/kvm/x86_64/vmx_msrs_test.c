@@ -8,6 +8,7 @@
  * that KVM will set owned bits where appropriate, and will not if
  * KVM_X86_QUIRK_TWEAK_VMX_CTRL_MSRS is disabled.
  */
+#include <linux/bitmap.h>
 
 #include "kvm_util.h"
 #include "vmx.h"
@@ -207,6 +208,65 @@ static void cr4_reserved_bits_test(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 	cr4_reserved_bit_test(vm, vcpu, X86_CR4_LA57,       X86_FEATURE_LA57);
 }
 
+static void vmx_fixed1_msr_test(struct kvm_vcpu *vcpu, uint32_t msr_index,
+				  uint64_t mask)
+{
+	uint64_t val = vcpu_get_msr(vcpu, msr_index);
+	uint64_t bit;
+
+	mask &= val;
+
+	for_each_set_bit(bit, &mask, 64) {
+		vcpu_set_msr(vcpu, msr_index, val & ~BIT_ULL(bit));
+		vcpu_set_msr(vcpu, msr_index, val);
+	}
+}
+
+static void vmx_fixed0_msr_test(struct kvm_vcpu *vcpu, uint32_t msr_index,
+				uint64_t mask)
+{
+	uint64_t val = vcpu_get_msr(vcpu, msr_index);
+	uint64_t bit;
+
+	mask = ~mask | val;
+
+	for_each_clear_bit(bit, &mask, 64) {
+		vcpu_set_msr(vcpu, msr_index, val | BIT_ULL(bit));
+		vcpu_set_msr(vcpu, msr_index, val);
+	}
+}
+
+static void vmx_fixed0and1_msr_test(struct kvm_vcpu *vcpu, uint32_t msr_index)
+{
+	vmx_fixed0_msr_test(vcpu, msr_index, GENMASK_ULL(31, 0));
+	vmx_fixed1_msr_test(vcpu, msr_index, GENMASK_ULL(63, 32));
+}
+
+static void vmx_save_restore_msrs_test(struct kvm_vcpu *vcpu)
+{
+	vcpu_set_msr(vcpu, MSR_IA32_VMX_VMCS_ENUM, 0);
+	vcpu_set_msr(vcpu, MSR_IA32_VMX_VMCS_ENUM, -1ull);
+
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_BASIC,
+			    BIT_ULL(49) | BIT_ULL(54) | BIT_ULL(55));
+
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_BASIC,
+			    BIT_ULL(5) | GENMASK_ULL(8, 6) | BIT_ULL(14) |
+			    BIT_ULL(15) | BIT_ULL(28) | BIT_ULL(29) | BIT_ULL(30));
+
+	vmx_fixed0_msr_test(vcpu, MSR_IA32_VMX_CR0_FIXED0, -1ull);
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_CR0_FIXED1, -1ull);
+	vmx_fixed0_msr_test(vcpu, MSR_IA32_VMX_CR4_FIXED0, -1ull);
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_CR4_FIXED1, -1ull);
+	vmx_fixed0and1_msr_test(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2);
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_EPT_VPID_CAP, -1ull);
+	vmx_fixed0and1_msr_test(vcpu, MSR_IA32_VMX_TRUE_PINBASED_CTLS);
+	vmx_fixed0and1_msr_test(vcpu, MSR_IA32_VMX_TRUE_PROCBASED_CTLS);
+	vmx_fixed0and1_msr_test(vcpu, MSR_IA32_VMX_TRUE_EXIT_CTLS);
+	vmx_fixed0and1_msr_test(vcpu, MSR_IA32_VMX_TRUE_ENTRY_CTLS);
+	vmx_fixed1_msr_test(vcpu, MSR_IA32_VMX_VMFUNC, -1ull);
+}
+
 int main(void)
 {
 	struct kvm_vcpu *vcpu;
@@ -221,6 +281,7 @@ int main(void)
 	load_perf_global_ctrl_test(vm, vcpu);
 	load_and_clear_bndcfgs_test(vm, vcpu);
 	cr4_reserved_bits_test(vm, vcpu);
+	vmx_save_restore_msrs_test(vcpu);
 
 	kvm_vm_free(vm);
 }
