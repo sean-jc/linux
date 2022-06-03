@@ -143,6 +143,70 @@ static void load_and_clear_bndcfgs_test(struct kvm_vm *vm, struct kvm_vcpu *vcpu
 	test_vmx_ctrls(vm, vcpu, VM_ENTRY_LOAD_BNDCFGS, VM_EXIT_CLEAR_BNDCFGS);
 }
 
+static void cr4_reserved_bit_test(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
+				  uint64_t cr4_bit,
+				  struct kvm_x86_cpu_feature feature)
+{
+	uint64_t val;
+	int r;
+
+	if (!kvm_cpu_has(feature))
+		return;
+
+	vcpu_set_cpuid_feature(vcpu, feature);
+	val = vcpu_get_msr(vcpu, MSR_IA32_VMX_CR4_FIXED1);
+	TEST_ASSERT(val & cr4_bit,
+		    "KVM should set CR4 bit when quirk and feature are enabled");
+
+	vcpu_clear_cpuid_feature(vcpu, feature);
+	val = vcpu_get_msr(vcpu, MSR_IA32_VMX_CR4_FIXED1);
+	TEST_ASSERT(!(val & cr4_bit),
+		    "KVM should clear CR4 bit when quirk and feature are enabled");
+
+	r = _vcpu_set_msr(vcpu, MSR_IA32_VMX_CR4_FIXED1, val);
+	TEST_ASSERT(r == 0, "Writing CR4_FIXED1 should fail when quirk is enabled");
+
+	vm_enable_cap(vm, KVM_CAP_DISABLE_QUIRKS2, KVM_X86_QUIRK_TWEAK_VMX_MSRS);
+
+	val &= ~cr4_bit;
+	vcpu_set_msr(vcpu, MSR_IA32_VMX_CR4_FIXED1, val);
+
+	vcpu_set_cpuid_feature(vcpu, feature);
+	TEST_ASSERT(!(val & cr4_bit),
+		    "KVM shouldn't set CR4 bit when quirk is disabled");
+
+	val |= cr4_bit;
+	vcpu_clear_cpuid_feature(vcpu, feature);
+	TEST_ASSERT(val & cr4_bit,
+		    "KVM shouldn't clear CR4 bit when quirk is disabled");
+
+	vm_enable_cap(vm, KVM_CAP_DISABLE_QUIRKS2, 0);
+}
+
+static void cr4_reserved_bits_test(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
+{
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_VME,        X86_FEATURE_VME);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PVI,        X86_FEATURE_VME);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_TSD,        X86_FEATURE_TSC);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_DE,         X86_FEATURE_DE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PSE,        X86_FEATURE_PSE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PAE,        X86_FEATURE_PAE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_MCE,        X86_FEATURE_MCE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PGE,        X86_FEATURE_PGE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_OSFXSR,     X86_FEATURE_FXSR);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_OSXMMEXCPT, X86_FEATURE_XMM);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_VMXE,       X86_FEATURE_VMX);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_SMXE,       X86_FEATURE_SMX);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PCIDE,      X86_FEATURE_PCID);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_OSXSAVE,    X86_FEATURE_XSAVE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_FSGSBASE,   X86_FEATURE_FSGSBASE);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_SMEP,       X86_FEATURE_SMEP);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_SMAP,       X86_FEATURE_SMAP);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_PKE,        X86_FEATURE_PKU);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_UMIP,       X86_FEATURE_UMIP);
+	cr4_reserved_bit_test(vm, vcpu, X86_CR4_LA57,       X86_FEATURE_LA57);
+}
+
 int main(void)
 {
 	struct kvm_vcpu *vcpu;
@@ -156,6 +220,7 @@ int main(void)
 
 	load_perf_global_ctrl_test(vm, vcpu);
 	load_and_clear_bndcfgs_test(vm, vcpu);
+	cr4_reserved_bits_test(vm, vcpu);
 
 	kvm_vm_free(vm);
 }
