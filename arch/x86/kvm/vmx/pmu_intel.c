@@ -111,7 +111,7 @@ static bool intel_pmc_is_enabled(struct kvm_pmc *pmc)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
 
-	if (pmu->version < 2)
+	if (!intel_pmu_has_perf_global_ctrl(pmu))
 		return true;
 
 	return test_bit(pmc->idx, (unsigned long *)&pmu->global_ctrl);
@@ -208,7 +208,7 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr, bool host_initiat
 	case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
 		if (host_initiated)
 			return true;
-		return pmu->version > 1;
+		return intel_pmu_has_perf_global_ctrl(pmu);
 		break;
 	case MSR_IA32_PEBS_ENABLE:
 		if (host_initiated)
