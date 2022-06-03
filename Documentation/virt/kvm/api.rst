@@ -7391,6 +7391,14 @@ The valid bits in cap.args[0] are:
                                       IA32_VMX_TRUE_EXIT_CTLS[bit 44]
                                       ('load IA32_PERF_GLOBAL_CTRL'). Otherwise,
                                       these corresponding MSR bits are cleared.
+                                    - MSR_IA32_VMX_CR0_FIXED1 is unconditionally
+                                      set to 0xffffffff
+                                    - CR4.PCE is unconditionally set in
+                                      MSR_IA32_VMX_CR4_FIXED1.
+                                    - All CR4 bits with an associated CPUID
+                                      feature flag are set in
+                                      MSR_IA32_VMX_CR4_FIXED1 if the feature is
+                                      reported as supported in guest CPUID.
 
                                     When this quirk is disabled, KVM will not
                                     change the values of the aformentioned VMX

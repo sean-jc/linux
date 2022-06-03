@@ -1385,6 +1385,30 @@ static int vmx_restore_fixed0_msr(struct vcpu_vmx *vmx, u32 msr_index, u64 data)
 	return 0;
 }
 
+static u64 *vmx_get_fixed1_msr(struct nested_vmx_msrs *msrs, u32 msr_index)
+{
+	switch (msr_index) {
+	case MSR_IA32_VMX_CR0_FIXED1:
+		return &msrs->cr0_fixed1;
+	case MSR_IA32_VMX_CR4_FIXED1:
+		return &msrs->cr4_fixed1;
+	default:
+		BUG();
+	}
+}
+
+static int vmx_restore_fixed1_msr(struct vcpu_vmx *vmx, u32 msr_index, u64 data)
+{
+	const u64 *msr = vmx_get_fixed1_msr(&vmcs_config.nested, msr_index);
+
+	/* Bits that "must-be-0" must not be set in the restored value. */
+	if (!is_bitwise_subset(*msr, data, -1ULL))
+		return -EINVAL;
+
+	*vmx_get_fixed1_msr(&vmx->nested.msrs, msr_index) = data;
+	return 0;
+}
+
 /*
  * Called when userspace is restoring VMX MSRs.
  *
@@ -1432,10 +1456,13 @@ int vmx_set_vmx_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 	case MSR_IA32_VMX_CR0_FIXED1:
 	case MSR_IA32_VMX_CR4_FIXED1:
 		/*
-		 * These MSRs are generated based on the vCPU's CPUID, so we
-		 * do not support restoring them directly.
+		 * These MSRs are generated based on the vCPU's CPUID when KVM
+		 * "owns" the VMX MSRs, do not allow restoring them directly.
 		 */
-		return -EINVAL;
+		if (kvm_check_has_quirk(vmx->vcpu.kvm, KVM_X86_QUIRK_TWEAK_VMX_MSRS))
+			return -EINVAL;
+
+		return vmx_restore_fixed1_msr(vmx, msr_index, data);
 	case MSR_IA32_VMX_EPT_VPID_CAP:
 		return vmx_restore_vmx_ept_vpid_cap(vmx, data);
 	case MSR_IA32_VMX_VMCS_ENUM:

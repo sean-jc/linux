@@ -7520,10 +7520,10 @@ static void vmx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 			~(FEAT_CTL_VMX_ENABLED_INSIDE_SMX |
 			  FEAT_CTL_VMX_ENABLED_OUTSIDE_SMX);
 
-	if (nested_vmx_allowed(vcpu)) {
+	if (nested_vmx_allowed(vcpu) &&
+	    kvm_check_has_quirk(vcpu->kvm, KVM_X86_QUIRK_TWEAK_VMX_MSRS)) {
 		nested_vmx_cr_fixed1_bits_update(vcpu);
-		if (kvm_check_has_quirk(vcpu->kvm, KVM_X86_QUIRK_TWEAK_VMX_MSRS))
-			nested_vmx_entry_exit_ctls_update(vcpu);
+		nested_vmx_entry_exit_ctls_update(vcpu);
 	}
 
 	if (boot_cpu_has(X86_FEATURE_INTEL_PT) &&
