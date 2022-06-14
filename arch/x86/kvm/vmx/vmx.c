@@ -6051,7 +6051,7 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 	pr_err("CR4: actual=0x%016lx, shadow=0x%016lx, gh_mask=%016lx\n",
 	       cr4, vmcs_readl(CR4_READ_SHADOW), vmcs_readl(CR4_GUEST_HOST_MASK));
 	pr_err("CR3 = 0x%016lx\n", vmcs_readl(GUEST_CR3));
-	if (cpu_has_vmx_ept()) {
+	if (enable_ept) {
 		pr_err("PDPTR0 = 0x%016llx  PDPTR1 = 0x%016llx\n",
 		       vmcs_read64(GUEST_PDPTR0), vmcs_read64(GUEST_PDPTR1));
 		pr_err("PDPTR2 = 0x%016llx  PDPTR3 = 0x%016llx\n",
@@ -6124,6 +6124,16 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 	pr_err("CR0=%016lx CR3=%016lx CR4=%016lx\n",
 	       vmcs_readl(HOST_CR0), vmcs_readl(HOST_CR3),
 	       vmcs_readl(HOST_CR4));
+	if (!enable_ept &&
+	    vcpu->arch.mmu->root_role.level == PT32E_ROOT_LEVEL &&
+	    VALID_PAGE(vcpu->arch.mmu->root.hpa)) {
+		u64 *pdpte = __va(vcpu->arch.mmu->root.hpa);
+
+		pr_err("PDPTE0 = 0x%016llx  PDPTE1 = 0x%016llx\n",
+		       pdpte[0], pdpte[1]);
+		pr_err("PDPTE2 = 0x%016llx  PDPTE3 = 0x%016llx\n",
+		       pdpte[2], pdpte[3]);
+	}
 	pr_err("Sysenter RSP=%016lx CS:RIP=%04x:%016lx\n",
 	       vmcs_readl(HOST_IA32_SYSENTER_ESP),
 	       vmcs_read32(HOST_IA32_SYSENTER_CS),
