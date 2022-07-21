@@ -1785,13 +1785,17 @@ static int __mmu_unsync_walk(struct kvm_mmu_page *sp,
 		}
 
 		child = to_shadow_page(ent & SPTE_BASE_ADDR_MASK);
+		if (!child->unsync && !child->unsync_children) {
+			clear_unsync_child_bit(sp, i);
+			continue;
+		}
+
+		if (mmu_is_page_vec_full(pvec))
+			return -ENOSPC;
+
+		mmu_pages_add(pvec, child, i);
 
 		if (child->unsync_children) {
-			mmu_pages_add(pvec, child, i);
-
-			if (mmu_is_page_vec_full(pvec))
-				return -ENOSPC;
-
 			ret = __mmu_unsync_walk(child, pvec);
 			if (!ret) {
 				clear_unsync_child_bit(sp, i);
@@ -1800,14 +1804,9 @@ static int __mmu_unsync_walk(struct kvm_mmu_page *sp,
 				nr_unsync_leaf += ret;
 			} else
 				return ret;
-		} else if (child->unsync) {
+		} else {
 			nr_unsync_leaf++;
-			mmu_pages_add(pvec, child, i);
-
-			if (mmu_is_page_vec_full(pvec))
-				return -ENOSPC;
-		} else
-			clear_unsync_child_bit(sp, i);
+		}
 	}
 
 	return nr_unsync_leaf;
