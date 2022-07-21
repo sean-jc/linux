@@ -1741,20 +1741,26 @@ struct kvm_mmu_pages {
 	unsigned int nr;
 };
 
-static int mmu_pages_add(struct kvm_mmu_pages *pvec, struct kvm_mmu_page *sp,
+static bool mmu_is_page_vec_full(struct kvm_mmu_pages *pvec)
+{
+	return (pvec->nr == KVM_PAGE_ARRAY_NR);
+}
+
+static void mmu_pages_add(struct kvm_mmu_pages *pvec, struct kvm_mmu_page *sp,
 			 int idx)
 {
 	int i;
 
-	if (sp->unsync)
-		for (i=0; i < pvec->nr; i++)
+	if (sp->unsync) {
+		for (i = 0; i < pvec->nr; i++) {
 			if (pvec->page[i].sp == sp)
-				return 0;
+				return;
+		}
+	}
 
 	pvec->page[pvec->nr].sp = sp;
 	pvec->page[pvec->nr].idx = idx;
 	pvec->nr++;
-	return (pvec->nr == KVM_PAGE_ARRAY_NR);
 }
 
 static inline void clear_unsync_child_bit(struct kvm_mmu_page *sp, int idx)
@@ -1781,7 +1787,9 @@ static int __mmu_unsync_walk(struct kvm_mmu_page *sp,
 		child = to_shadow_page(ent & SPTE_BASE_ADDR_MASK);
 
 		if (child->unsync_children) {
-			if (mmu_pages_add(pvec, child, i))
+			mmu_pages_add(pvec, child, i);
+
+			if (mmu_is_page_vec_full(pvec))
 				return -ENOSPC;
 
 			ret = __mmu_unsync_walk(child, pvec);
@@ -1794,7 +1802,9 @@ static int __mmu_unsync_walk(struct kvm_mmu_page *sp,
 				return ret;
 		} else if (child->unsync) {
 			nr_unsync_leaf++;
-			if (mmu_pages_add(pvec, child, i))
+			mmu_pages_add(pvec, child, i);
+
+			if (mmu_is_page_vec_full(pvec))
 				return -ENOSPC;
 		} else
 			clear_unsync_child_bit(sp, i);
