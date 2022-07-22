@@ -42,6 +42,48 @@
 typedef uint64_t vm_paddr_t; /* Virtual Machine (Guest) physical address */
 typedef uint64_t vm_vaddr_t; /* Virtual Machine (Guest) virtual address */
 
+enum vm_guest_mode {
+	VM_MODE_P52V48_4K,
+	VM_MODE_P52V48_64K,
+	VM_MODE_P48V48_4K,
+	VM_MODE_P48V48_16K,
+	VM_MODE_P48V48_64K,
+	VM_MODE_P40V48_4K,
+	VM_MODE_P40V48_16K,
+	VM_MODE_P40V48_64K,
+	VM_MODE_PXXV48_4K,	/* For 48bits VA but ANY bits PA */
+	VM_MODE_P47V64_4K,
+	VM_MODE_P44V64_4K,
+	VM_MODE_P36V48_4K,
+	VM_MODE_P36V48_16K,
+	VM_MODE_P36V48_64K,
+	VM_MODE_P36V47_16K,
+	NUM_VM_MODES,
+};
+
+enum vm_subtype {
+	VM_SUBTYPE_DEFAULT,
+	VM_SUBTYPE_SEV,
+	NUM_VM_SUBTYPES,
+};
+
+/*
+ * There are currently two flavors of "modes" that tests can control.  The
+ * primary mode defines the physical and virtual address widths, and page sizes
+ * configured in hardware.  The VM type allows creating alternative types of
+ * VMs, e.g. architecture specific flavors of protected VMs.
+ *
+ * Valid values for the primary mask are "enum vm_guest_mode", and valid values
+ * for the type mask are "enum vm_subtype".
+ */
+#define VM_MODE_PRIMARY_MASK	GENMASK(7, 0)
+#define VM_MODE_SUBTYPE_SHIFT	8
+#define VM_MODE_SUBTYPE_MASK	GENMASK(15, 8)
+
+/* 8 bits in each mask above, i.e. 255 possible values */
+_Static_assert(NUM_VM_MODES < 256);
+_Static_assert(NUM_VM_SUBTYPES < 256);
+
 struct userspace_mem_region {
 	struct kvm_userspace_memory_region region;
 	struct sparsebit *unused_phy_pages;
@@ -87,7 +129,8 @@ enum kvm_mem_region_type {
 };
 
 struct kvm_vm {
-	int mode;
+	enum vm_guest_mode mode;
+	enum vm_subtype subtype;
 	unsigned long type;
 	int kvm_fd;
 	int fd;
@@ -148,28 +191,9 @@ static inline struct userspace_mem_region *vm_get_mem_region(struct kvm_vm *vm,
 #define DEFAULT_GUEST_STACK_VADDR_MIN	0xab6000
 #define DEFAULT_STACK_PGS		5
 
-enum vm_guest_mode {
-	VM_MODE_P52V48_4K,
-	VM_MODE_P52V48_64K,
-	VM_MODE_P48V48_4K,
-	VM_MODE_P48V48_16K,
-	VM_MODE_P48V48_64K,
-	VM_MODE_P40V48_4K,
-	VM_MODE_P40V48_16K,
-	VM_MODE_P40V48_64K,
-	VM_MODE_PXXV48_4K,	/* For 48bits VA but ANY bits PA */
-	VM_MODE_P47V64_4K,
-	VM_MODE_P44V64_4K,
-	VM_MODE_P36V48_4K,
-	VM_MODE_P36V48_16K,
-	VM_MODE_P36V48_64K,
-	VM_MODE_P36V47_16K,
-	NUM_VM_MODES,
-};
-
 #if defined(__aarch64__)
 
-extern enum vm_guest_mode vm_mode_default;
+extern uint32_t vm_mode_default;
 
 #define VM_MODE_DEFAULT			vm_mode_default
 #define MIN_PAGE_SHIFT			12U
@@ -689,8 +713,8 @@ vm_paddr_t vm_alloc_page_table(struct kvm_vm *vm);
  * __vm_create() does NOT create vCPUs, @nr_runnable_vcpus is used purely to
  * calculate the amount of memory needed for per-vCPU data, e.g. stacks.
  */
-struct kvm_vm *____vm_create(enum vm_guest_mode mode);
-struct kvm_vm *__vm_create(enum vm_guest_mode mode, uint32_t nr_runnable_vcpus,
+struct kvm_vm *____vm_create(uint32_t mode);
+struct kvm_vm *__vm_create(uint32_t mode, uint32_t nr_runnable_vcpus,
 			   uint64_t nr_extra_pages);
 
 static inline struct kvm_vm *vm_create_barebones(void)
@@ -703,7 +727,7 @@ static inline struct kvm_vm *vm_create(uint32_t nr_runnable_vcpus)
 	return __vm_create(VM_MODE_DEFAULT, nr_runnable_vcpus, 0);
 }
 
-struct kvm_vm *__vm_create_with_vcpus(enum vm_guest_mode mode, uint32_t nr_vcpus,
+struct kvm_vm *__vm_create_with_vcpus(uint32_t mode, uint32_t nr_vcpus,
 				      uint64_t extra_mem_pages,
 				      void *guest_code, struct kvm_vcpu *vcpus[]);
 
@@ -736,11 +760,11 @@ void kvm_parse_vcpu_pinning(const char *pcpus_string, uint32_t vcpu_to_pcpu[],
 			    int nr_vcpus);
 
 unsigned long vm_compute_max_gfn(struct kvm_vm *vm);
-unsigned int vm_calc_num_guest_pages(enum vm_guest_mode mode, size_t size);
-unsigned int vm_num_host_pages(enum vm_guest_mode mode, unsigned int num_guest_pages);
-unsigned int vm_num_guest_pages(enum vm_guest_mode mode, unsigned int num_host_pages);
-static inline unsigned int
-vm_adjust_num_guest_pages(enum vm_guest_mode mode, unsigned int num_guest_pages)
+unsigned int vm_calc_num_guest_pages(uint32_t mode, size_t size);
+unsigned int vm_num_host_pages(uint32_t mode, unsigned int num_guest_pages);
+unsigned int vm_num_guest_pages(uint32_t mode, unsigned int num_host_pages);
+static inline unsigned int vm_adjust_num_guest_pages(uint32_t mode,
+						     unsigned int num_guest_pages)
 {
 	unsigned int n;
 	n = vm_num_guest_pages(mode, vm_num_host_pages(mode, num_guest_pages));

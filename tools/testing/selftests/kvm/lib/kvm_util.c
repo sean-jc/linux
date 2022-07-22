@@ -204,7 +204,7 @@ __weak void vm_vaddr_populate_bitmap(struct kvm_vm *vm)
 		(1ULL << (vm->va_bits - 1)) >> vm->page_shift);
 }
 
-struct kvm_vm *____vm_create(enum vm_guest_mode mode)
+struct kvm_vm *____vm_create(uint32_t mode)
 {
 	struct kvm_vm *vm;
 
@@ -216,13 +216,19 @@ struct kvm_vm *____vm_create(enum vm_guest_mode mode)
 	vm->regions.hva_tree = RB_ROOT;
 	hash_init(vm->regions.slot_hash);
 
-	vm->mode = mode;
 	vm->type = 0;
+	vm->subtype = (mode & VM_MODE_SUBTYPE_MASK) >> VM_MODE_SUBTYPE_SHIFT;
+	vm->mode = mode & VM_MODE_PRIMARY_MASK;
+	pr_debug("%s: mode='%s' pages='%ld'\n", __func__,
+		 vm_guest_mode_string(mode), nr_pages);
 
-	vm->pa_bits = vm_guest_mode_params[mode].pa_bits;
-	vm->va_bits = vm_guest_mode_params[mode].va_bits;
-	vm->page_size = vm_guest_mode_params[mode].page_size;
-	vm->page_shift = vm_guest_mode_params[mode].page_shift;
+	TEST_ASSERT(vm->mode == mode,
+		    "Code, data, and page tables \"modes\" not yet implemented");
+
+	vm->pa_bits = vm_guest_mode_params[vm->mode].pa_bits;
+	vm->va_bits = vm_guest_mode_params[vm->mode].va_bits;
+	vm->page_size = vm_guest_mode_params[vm->mode].page_size;
+	vm->page_shift = vm_guest_mode_params[vm->mode].page_shift;
 
 	/* Setup mode specific traits. */
 	switch (vm->mode) {
@@ -280,7 +286,7 @@ struct kvm_vm *____vm_create(enum vm_guest_mode mode)
 		vm->pgtable_levels = 5;
 		break;
 	default:
-		TEST_FAIL("Unknown guest mode, mode: 0x%x", mode);
+		TEST_FAIL("Unknown guest mode, mode: 0x%x", vm->mode);
 	}
 
 #ifdef __aarch64__
@@ -303,7 +309,7 @@ struct kvm_vm *____vm_create(enum vm_guest_mode mode)
 	return vm;
 }
 
-static uint64_t vm_nr_pages_required(enum vm_guest_mode mode,
+static uint64_t vm_nr_pages_required(uint32_t mode,
 				     uint32_t nr_runnable_vcpus,
 				     uint64_t extra_mem_pages)
 {
@@ -338,7 +344,7 @@ static uint64_t vm_nr_pages_required(enum vm_guest_mode mode,
 	return vm_adjust_num_guest_pages(mode, nr_pages);
 }
 
-struct kvm_vm *__vm_create(enum vm_guest_mode mode, uint32_t nr_runnable_vcpus,
+struct kvm_vm *__vm_create(uint32_t mode, uint32_t nr_runnable_vcpus,
 			   uint64_t nr_extra_pages)
 {
 	uint64_t nr_pages = vm_nr_pages_required(mode, nr_runnable_vcpus,
@@ -391,7 +397,7 @@ struct kvm_vm *__vm_create(enum vm_guest_mode mode, uint32_t nr_runnable_vcpus,
  * extra_mem_pages is only used to calculate the maximum page table size,
  * no real memory allocation for non-slot0 memory in this function.
  */
-struct kvm_vm *__vm_create_with_vcpus(enum vm_guest_mode mode, uint32_t nr_vcpus,
+struct kvm_vm *__vm_create_with_vcpus(uint32_t mode, uint32_t nr_vcpus,
 				      uint64_t extra_mem_pages,
 				      void *guest_code, struct kvm_vcpu *vcpus[])
 {
@@ -2004,7 +2010,7 @@ static inline int getpageshift(void)
 }
 
 unsigned int
-vm_num_host_pages(enum vm_guest_mode mode, unsigned int num_guest_pages)
+vm_num_host_pages(uint32_t mode, unsigned int num_guest_pages)
 {
 	return vm_calc_num_pages(num_guest_pages,
 				 vm_guest_mode_params[mode].page_shift,
@@ -2012,13 +2018,13 @@ vm_num_host_pages(enum vm_guest_mode mode, unsigned int num_guest_pages)
 }
 
 unsigned int
-vm_num_guest_pages(enum vm_guest_mode mode, unsigned int num_host_pages)
+vm_num_guest_pages(uint32_t mode, unsigned int num_host_pages)
 {
 	return vm_calc_num_pages(num_host_pages, getpageshift(),
 				 vm_guest_mode_params[mode].page_shift, false);
 }
 
-unsigned int vm_calc_num_guest_pages(enum vm_guest_mode mode, size_t size)
+unsigned int vm_calc_num_guest_pages(uint32_t mode, size_t size)
 {
 	unsigned int n;
 	n = DIV_ROUND_UP(size, vm_guest_mode_params[mode].page_size);

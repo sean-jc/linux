@@ -6,7 +6,7 @@
 
 #ifdef __aarch64__
 #include "processor.h"
-enum vm_guest_mode vm_mode_default;
+uint32_t vm_mode_default;
 #endif
 
 struct guest_mode guest_modes[NUM_VM_MODES];
