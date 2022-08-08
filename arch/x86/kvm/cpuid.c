@@ -30,7 +30,7 @@
  * Unlike "struct cpuinfo_x86.x86_capability", kvm_cpu_caps doesn't need to be
  * aligned to sizeof(unsigned long) because it's not accessed via bitops.
  */
-u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __read_mostly;
+u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __ro_after_init;
 
 u32 xstate_required_size(u64 xstate_bv, bool compacted)
 {

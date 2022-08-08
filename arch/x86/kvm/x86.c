@@ -89,7 +89,7 @@
 #define MAX_IO_MSRS 256
 #define KVM_MAX_MCE_BANKS 32
 
-struct kvm_caps kvm_caps __read_mostly = {
+struct kvm_caps kvm_caps __ro_after_init = {
 	.supported_mce_cap = MCG_CTL_P | MCG_SER_P,
 };
 
@@ -104,12 +104,12 @@ struct kvm_caps kvm_caps __read_mostly = {
  */
 #ifdef CONFIG_X86_64
 static
-u64 __read_mostly efer_reserved_bits = ~((u64)(EFER_SCE | EFER_LME | EFER_LMA));
+u64 __ro_after_init efer_reserved_bits = ~((u64)(EFER_SCE | EFER_LME | EFER_LMA));
 #else
-static u64 __read_mostly efer_reserved_bits = ~((u64)EFER_SCE);
+static u64 __ro_after_init efer_reserved_bits = ~((u64)EFER_SCE);
 #endif
 
-static u64 __read_mostly cr4_reserved_bits = CR4_RESERVED_BITS;
+static u64 __ro_after_init cr4_reserved_bits = CR4_RESERVED_BITS;
 
 #define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
 
@@ -130,7 +130,7 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu);
 static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
 static void __get_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
 
-struct kvm_x86_ops kvm_x86_ops __read_mostly;
+struct kvm_x86_ops kvm_x86_ops __ro_after_init;
 
 #define KVM_X86_OP(func)					     \
 	DEFINE_STATIC_CALL_NULL(kvm_x86_##func,			     \
@@ -150,7 +150,7 @@ module_param(report_ignored_msrs, bool, S_IRUGO | S_IWUSR);
 unsigned int min_timer_period_us = 200;
 module_param(min_timer_period_us, uint, S_IRUGO | S_IWUSR);
 
-static bool __read_mostly kvmclock_periodic_sync = true;
+static bool __ro_after_init kvmclock_periodic_sync = true;
 module_param(kvmclock_periodic_sync, bool, S_IRUGO);
 
 /* tsc tolerance in parts per million - default to 1/2 of the NTP threshold */
@@ -166,20 +166,20 @@ module_param(tsc_tolerance_ppm, uint, S_IRUGO | S_IWUSR);
 static int __read_mostly lapic_timer_advance_ns = -1;
 module_param(lapic_timer_advance_ns, int, S_IRUGO | S_IWUSR);
 
-static bool __read_mostly vector_hashing = true;
+static bool __ro_after_init vector_hashing = true;
 module_param(vector_hashing, bool, S_IRUGO);
 
-bool __read_mostly enable_vmware_backdoor = false;
-module_param(enable_vmware_backdoor, bool, S_IRUGO);
+bool __ro_after_init enable_vmware_backdoor = false;
+module_param(enable_vmware_backdoor, bool, S_IRUGO); 
 
-static bool __read_mostly force_emulation_prefix = false;
+static bool __ro_after_init force_emulation_prefix = false;
 module_param(force_emulation_prefix, bool, S_IRUGO);
 
 int __read_mostly pi_inject_timer = -1;
 module_param(pi_inject_timer, bint, S_IRUGO | S_IWUSR);
 
 /* Enable/disable PMU virtualization */
-bool __read_mostly enable_pmu = true;
+bool __ro_after_init enable_pmu = true;
 module_param(enable_pmu, bool, 0444);
 
 bool __read_mostly eager_page_split = true;
@@ -201,8 +201,8 @@ struct kvm_user_return_msrs {
 	} values[KVM_MAX_NR_USER_RETURN_MSRS];
 };
 
-u32 __read_mostly kvm_nr_uret_msrs;
-static u32 __read_mostly kvm_uret_msrs_list[KVM_MAX_NR_USER_RETURN_MSRS];
+u32 __ro_after_init kvm_nr_uret_msrs;
+static u32 __ro_after_init kvm_uret_msrs_list[KVM_MAX_NR_USER_RETURN_MSRS];
 static struct kvm_user_return_msrs __percpu *user_return_msrs;
 
 #define KVM_SUPPORTED_XCR0     (XFEATURE_MASK_FP | XFEATURE_MASK_SSE \
@@ -210,13 +210,13 @@ static struct kvm_user_return_msrs __percpu *user_return_msrs;
 				| XFEATURE_MASK_BNDCSR | XFEATURE_MASK_AVX512 \
 				| XFEATURE_MASK_PKRU | XFEATURE_MASK_XTILE)
 
-u64 __read_mostly host_efer;
+u64 __ro_after_init host_efer;
 
-bool __read_mostly allow_smaller_maxphyaddr = 0;
+bool __ro_after_init allow_smaller_maxphyaddr = 0;
 
-bool __read_mostly enable_apicv = true;
+bool __ro_after_init enable_apicv = true;
 
-u64 __read_mostly host_xss;
+u64 __ro_after_init host_xss;
 
 const struct _kvm_stats_desc kvm_vm_stats_desc[] = {
 	KVM_GENERIC_VM_STATS(),
@@ -291,7 +291,7 @@ const struct kvm_stats_header kvm_vcpu_stats_header = {
 		       sizeof(kvm_vcpu_stats_desc),
 };
 
-u64 __read_mostly host_xcr0;
+u64 __ro_after_init host_xcr0;
 
 static struct kmem_cache *x86_emulator_cache;
 
@@ -378,7 +378,7 @@ out:
 	return ret;
 }
 
-int kvm_add_user_return_msr(u32 msr)
+__init int kvm_add_user_return_msr(u32 msr)
 {
 	BUG_ON(kvm_nr_uret_msrs >= KVM_MAX_NR_USER_RETURN_MSRS);
 
@@ -1670,7 +1670,7 @@ static int set_efer(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	return 0;
 }
 
-void kvm_enable_efer_bits(u64 mask)
+__init void kvm_enable_efer_bits(u64 mask)
 {
        efer_reserved_bits &= ~mask;
 }

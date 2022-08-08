@@ -8,7 +8,7 @@
 #include <asm/processor.h>
 #include <uapi/asm/kvm_para.h>
 
-extern u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __read_mostly;
+extern u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __ro_after_init;
 void kvm_set_cpu_caps(void);
 
 void kvm_update_cpuid_runtime(struct kvm_vcpu *vcpu);

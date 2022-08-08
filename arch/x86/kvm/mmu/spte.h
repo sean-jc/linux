@@ -5,7 +5,7 @@
 
 #include "mmu_internal.h"
 
-extern bool __read_mostly enable_mmio_caching;
+extern bool __ro_after_init enable_mmio_caching;
 
 /*
  * A MMU present SPTE is backed by actual memory and may or may not be present
@@ -136,33 +136,33 @@ static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 11);
 
 #define MMIO_SPTE_GEN_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_BITS + MMIO_SPTE_GEN_HIGH_BITS - 1, 0)
 
-extern u64 __read_mostly shadow_host_writable_mask;
-extern u64 __read_mostly shadow_mmu_writable_mask;
-extern u64 __read_mostly shadow_nx_mask;
-extern u64 __read_mostly shadow_x_mask; /* mutual exclusive with nx_mask */
-extern u64 __read_mostly shadow_user_mask;
-extern u64 __read_mostly shadow_accessed_mask;
-extern u64 __read_mostly shadow_dirty_mask;
-extern u64 __read_mostly shadow_mmio_value;
-extern u64 __read_mostly shadow_mmio_mask;
-extern u64 __read_mostly shadow_mmio_access_mask;
-extern u64 __read_mostly shadow_present_mask;
-extern u64 __read_mostly shadow_memtype_mask;
-extern u64 __read_mostly shadow_me_value;
-extern u64 __read_mostly shadow_me_mask;
+extern u64 __ro_after_init shadow_host_writable_mask;
+extern u64 __ro_after_init shadow_mmu_writable_mask;
+extern u64 __ro_after_init shadow_nx_mask;
+extern u64 __ro_after_init shadow_x_mask; /* mutual exclusive with nx_mask */
+extern u64 __ro_after_init shadow_user_mask;
+extern u64 __ro_after_init shadow_accessed_mask;
+extern u64 __ro_after_init shadow_dirty_mask;
+extern u64 __ro_after_init shadow_mmio_value;
+extern u64 __ro_after_init shadow_mmio_mask;
+extern u64 __ro_after_init shadow_mmio_access_mask;
+extern u64 __ro_after_init shadow_present_mask;
+extern u64 __ro_after_init shadow_memtype_mask;
+extern u64 __ro_after_init shadow_me_value;
+extern u64 __ro_after_init shadow_me_mask;
 
 /*
  * SPTEs in MMUs without A/D bits are marked with SPTE_TDP_AD_DISABLED_MASK;
  * shadow_acc_track_mask is the set of bits to be cleared in non-accessed
  * pages.
  */
-extern u64 __read_mostly shadow_acc_track_mask;
+extern u64 __ro_after_init shadow_acc_track_mask;
 
 /*
  * This mask must be set on all non-zero Non-Present or Reserved SPTEs in order
  * to guard against L1TF attacks.
  */
-extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
+extern u64 __ro_after_init shadow_nonpresent_or_rsvd_mask;
 
 /*
  * The number of high-order 1 bits to use in the mask above.
@@ -205,7 +205,7 @@ static inline int spte_index(u64 *sptep)
  * left into the reserved bits, i.e. the GFN in the SPTE will be split into
  * high and low parts.  This mask covers the lower bits of the GFN.
  */
-extern u64 __read_mostly shadow_nonpresent_or_rsvd_lower_gfn_mask;
+extern u64 __ro_after_init shadow_nonpresent_or_rsvd_lower_gfn_mask;
 
 static inline bool is_mmio_spte(u64 spte)
 {

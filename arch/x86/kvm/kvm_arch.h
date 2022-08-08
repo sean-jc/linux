@@ -1674,11 +1674,11 @@ struct kvm_arch_async_pf {
 	bool direct_map;
 };
 
-extern u32 __read_mostly kvm_nr_uret_msrs;
-extern u64 __read_mostly host_efer;
-extern bool __read_mostly allow_smaller_maxphyaddr;
-extern bool __read_mostly enable_apicv;
-extern struct kvm_x86_ops kvm_x86_ops;
+extern u32 __ro_after_init kvm_nr_uret_msrs;
+extern u64 __ro_after_init host_efer;
+extern bool __ro_after_init allow_smaller_maxphyaddr;
+extern bool __ro_after_init enable_apicv;
+extern struct kvm_x86_ops __ro_after_init kvm_x86_ops;
 
 #define KVM_X86_OP(func) \
 	DECLARE_STATIC_CALL(kvm_x86_##func, *(((struct kvm_x86_ops *)0)->func));
@@ -1756,7 +1756,7 @@ void kvm_unregister_irq_mask_notifier(struct kvm *kvm, int irq,
 void kvm_fire_mask_notifiers(struct kvm *kvm, unsigned irqchip, unsigned pin,
 			     bool mask);
 
-extern bool tdp_enabled;
+extern bool tdp_enabled __ro_after_init;
 
 u64 vcpu_tsc_khz(struct kvm_vcpu *vcpu);
 
@@ -1815,7 +1815,7 @@ void __kvm_prepare_emulation_failure_exit(struct kvm_vcpu *vcpu,
 					  u64 *data, u8 ndata);
 void kvm_prepare_emulation_failure_exit(struct kvm_vcpu *vcpu);
 
-void kvm_enable_efer_bits(u64);
+__init void kvm_enable_efer_bits(u64);
 bool kvm_valid_efer(struct kvm_vcpu *vcpu, u64 efer);
 int __kvm_get_msr(struct kvm_vcpu *vcpu, u32 index, u64 *data, bool host_initiated);
 int kvm_get_msr(struct kvm_vcpu *vcpu, u32 index, u64 *data);
@@ -2008,7 +2008,7 @@ int kvm_pv_send_ipi(struct kvm *kvm, unsigned long ipi_bitmap_low,
 		    unsigned long ipi_bitmap_high, u32 min,
 		    unsigned long icr, int op_64_bit);
 
-int kvm_add_user_return_msr(u32 msr);
+__init int kvm_add_user_return_msr(u32 msr);
 int kvm_find_user_return_msr(u32 msr);
 int kvm_set_user_return_msr(unsigned index, u64 val, u64 mask);
 

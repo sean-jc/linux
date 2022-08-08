@@ -97,11 +97,11 @@ module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
  * 2. while doing 1. it walks guest-physical to host-physical
  * If the hardware supports that we don't need to do shadow paging.
  */
-bool tdp_enabled = false;
+bool tdp_enabled __ro_after_init = false;
 
-static int max_huge_page_level __read_mostly;
-static int tdp_root_level __read_mostly;
-static int max_tdp_level __read_mostly;
+static int max_huge_page_level __ro_after_init;
+static int tdp_root_level __ro_after_init;
+static int max_tdp_level __ro_after_init;
 
 #ifdef MMU_DEBUG
 bool dbg = 0;
@@ -5666,8 +5666,8 @@ void kvm_mmu_invpcid_gva(struct kvm_vcpu *vcpu, gva_t gva, unsigned long pcid)
 	 */
 }
 
-void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
-		       int tdp_max_root_level, int tdp_huge_page_level)
+__init void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+			      int tdp_max_root_level, int tdp_huge_page_level)
 {
 	tdp_enabled = enable_tdp;
 	tdp_root_level = tdp_forced_root_level;

@@ -25,7 +25,7 @@
 /* This is enough to filter the vast majority of currently defined events. */
 #define KVM_PMU_EVENT_FILTER_MAX_EVENTS 300
 
-struct x86_pmu_capability __read_mostly kvm_pmu_cap;
+struct x86_pmu_capability __ro_after_init kvm_pmu_cap;
 
 static const struct x86_cpu_id vmx_icl_pebs_cpu[] = {
 	X86_MATCH_INTEL_FAM6_MODEL(ICELAKE_D, NULL),
@@ -61,7 +61,7 @@ static const struct x86_cpu_id vmx_icl_pebs_cpu[] = {
  *          and later, [0 .. AMD64_NUM_COUNTERS_CORE-1] <=> gp counters
  */
 
-static struct kvm_pmu_ops kvm_pmu_ops __read_mostly;
+static struct kvm_pmu_ops kvm_pmu_ops __ro_after_init;
 
 #define KVM_X86_PMU_OP(func)					     \
 	DEFINE_STATIC_CALL_NULL(kvm_x86_pmu_##func,			     \

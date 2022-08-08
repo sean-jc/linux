@@ -19,29 +19,29 @@
 #include <asm/memtype.h>
 #include <asm/vmx.h>
 
-bool __read_mostly enable_mmio_caching = true;
+bool __ro_after_init enable_mmio_caching = true;
 module_param_named(mmio_caching, enable_mmio_caching, bool, 0444);
 
-u64 __read_mostly shadow_host_writable_mask;
-u64 __read_mostly shadow_mmu_writable_mask;
-u64 __read_mostly shadow_nx_mask;
-u64 __read_mostly shadow_x_mask; /* mutual exclusive with nx_mask */
-u64 __read_mostly shadow_user_mask;
-u64 __read_mostly shadow_accessed_mask;
-u64 __read_mostly shadow_dirty_mask;
-u64 __read_mostly shadow_mmio_value;
-u64 __read_mostly shadow_mmio_mask;
-u64 __read_mostly shadow_mmio_access_mask;
-u64 __read_mostly shadow_present_mask;
-u64 __read_mostly shadow_memtype_mask;
-u64 __read_mostly shadow_me_value;
-u64 __read_mostly shadow_me_mask;
-u64 __read_mostly shadow_acc_track_mask;
+u64 __ro_after_init shadow_host_writable_mask;
+u64 __ro_after_init shadow_mmu_writable_mask;
+u64 __ro_after_init shadow_nx_mask;
+u64 __ro_after_init shadow_x_mask; /* mutual exclusive with nx_mask */
+u64 __ro_after_init shadow_user_mask;
+u64 __ro_after_init shadow_accessed_mask;
+u64 __ro_after_init shadow_dirty_mask;
+u64 __ro_after_init shadow_mmio_value;
+u64 __ro_after_init shadow_mmio_mask;
+u64 __ro_after_init shadow_mmio_access_mask;
+u64 __ro_after_init shadow_present_mask;
+u64 __ro_after_init shadow_memtype_mask;
+u64 __ro_after_init shadow_me_value;
+u64 __ro_after_init shadow_me_mask;
+u64 __ro_after_init shadow_acc_track_mask;
 
-u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
-u64 __read_mostly shadow_nonpresent_or_rsvd_lower_gfn_mask;
+u64 __ro_after_init shadow_nonpresent_or_rsvd_mask;
+u64 __ro_after_init shadow_nonpresent_or_rsvd_lower_gfn_mask;
 
-u8 __read_mostly shadow_phys_bits;
+u8 __ro_after_init shadow_phys_bits;
 
 static u64 generation_mmio_spte_mask(u64 gen)
 {
