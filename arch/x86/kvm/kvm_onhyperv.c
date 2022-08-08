@@ -85,13 +85,11 @@ int hv_remote_flush_tlb_with_range(struct kvm *kvm,
 	spin_unlock(&kvm_arch->hv_root_tdp_lock);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(hv_remote_flush_tlb_with_range);
 
 int hv_remote_flush_tlb(struct kvm *kvm)
 {
 	return hv_remote_flush_tlb_with_range(kvm, NULL);
 }
-EXPORT_SYMBOL_GPL(hv_remote_flush_tlb);
 
 void hv_track_root_tdp(struct kvm_vcpu *vcpu, hpa_t root_tdp)
 {
@@ -105,4 +103,3 @@ void hv_track_root_tdp(struct kvm_vcpu *vcpu, hpa_t root_tdp)
 		spin_unlock(&kvm_arch->hv_root_tdp_lock);
 	}
 }
-EXPORT_SYMBOL_GPL(hv_track_root_tdp);

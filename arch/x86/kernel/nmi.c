@@ -533,7 +533,7 @@ DEFINE_IDTENTRY_RAW(exc_nmi_noist)
 	exc_nmi(regs);
 }
 #endif
-#if IS_MODULE(CONFIG_KVM_INTEL)
+#if IS_MODULE(CONFIG_KVM)
 EXPORT_SYMBOL_GPL(asm_exc_nmi_noist);
 #endif
 

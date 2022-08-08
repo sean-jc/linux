@@ -87,7 +87,6 @@ bool kvm_mtrr_valid(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 
 	return (data & mask) == 0;
 }
-EXPORT_SYMBOL_GPL(kvm_mtrr_valid);
 
 static bool mtrr_is_enabled(struct kvm_mtrr *mtrr_state)
 {
@@ -686,7 +685,6 @@ u8 kvm_mtrr_get_guest_memory_type(struct kvm_vcpu *vcpu, gfn_t gfn)
 
 	return type;
 }
-EXPORT_SYMBOL_GPL(kvm_mtrr_get_guest_memory_type);
 
 bool kvm_mtrr_check_gfn_range_consistency(struct kvm_vcpu *vcpu, gfn_t gfn,
 					  int page_num)

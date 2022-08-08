@@ -48,9 +48,6 @@
 #include "kvm_onhyperv.h"
 #include "svm_onhyperv.h"
 
-MODULE_AUTHOR("Qumranet");
-MODULE_LICENSE("GPL");
-
 #ifdef MODULE
 static const struct x86_cpu_id svm_cpu_id[] = {
 	X86_MATCH_FEATURE(X86_FEATURE_SVM, NULL),
@@ -4736,8 +4733,15 @@ static int svm_vm_init(struct kvm *kvm)
 	return 0;
 }
 
+static void svm_module_exit(void)
+{
+	kvm_exit();
+}
+
 static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.name = "kvm_amd",
+
+	.module_exit = svm_module_exit,
 
 	.hardware_unsetup = svm_hardware_unsetup,
 	.hardware_enable = svm_hardware_enable,
@@ -5125,18 +5129,10 @@ static struct kvm_x86_init_ops svm_init_ops __initdata = {
 	.pmu_ops = &amd_pmu_ops,
 };
 
-static int __init svm_init(void)
+int __init svm_init(void)
 {
 	__unused_size_checks();
 
 	return kvm_init(&svm_init_ops, sizeof(struct vcpu_svm),
 			__alignof__(struct vcpu_svm), THIS_MODULE);
 }
-
-static void __exit svm_exit(void)
-{
-	kvm_exit();
-}
-
-module_init(svm_init)
-module_exit(svm_exit)

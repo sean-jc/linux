@@ -106,7 +106,6 @@ void __kvm_write_track_add_gfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		kvm_flush_remote_tlbs(kvm);
 }
 
-
 /*
  * add guest page to the tracking pool so that corresponding access on that
  * page will be intercepted.
