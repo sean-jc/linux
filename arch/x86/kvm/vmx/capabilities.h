@@ -9,14 +9,14 @@
 #include "../pmu.h"
 #include "../cpuid.h"
 
-extern bool __read_mostly enable_vpid;
-extern bool __read_mostly flexpriority_enabled;
-extern bool __read_mostly enable_ept;
-extern bool __read_mostly enable_unrestricted_guest;
-extern bool __read_mostly enable_ept_ad_bits;
-extern bool __read_mostly enable_pml;
-extern bool __read_mostly enable_ipiv;
-extern int __read_mostly pt_mode;
+extern bool __ro_after_init enable_vpid;
+extern bool __ro_after_init flexpriority_enabled;
+extern bool __ro_after_init enable_ept;
+extern bool __ro_after_init enable_unrestricted_guest;
+extern bool __ro_after_init enable_ept_ad_bits;
+extern bool __ro_after_init enable_pml;
+extern bool __ro_after_init enable_ipiv;
+extern int __ro_after_init pt_mode;
 
 #define PT_MODE_SYSTEM		0
 #define PT_MODE_HOST_GUEST	1

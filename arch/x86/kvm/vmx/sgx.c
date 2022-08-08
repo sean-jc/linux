@@ -10,7 +10,7 @@
 #include "vmx.h"
 #include "x86.h"
 
-bool __read_mostly enable_sgx = 1;
+bool __ro_after_init enable_sgx = 1;
 module_param_named(sgx, enable_sgx, bool, 0444);
 
 /* Initial value of guest's virtual SGX_LEPUBKEYHASHn MSRs */
