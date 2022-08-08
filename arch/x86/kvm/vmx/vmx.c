@@ -133,7 +133,6 @@ static bool __ro_after_init enable_preemption_timer = 1;
 module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 #endif
 
-extern bool __read_mostly allow_smaller_maxphyaddr;
 module_param(allow_smaller_maxphyaddr, bool, S_IRUGO);
 
 #define KVM_VM_CR0_ALWAYS_OFF (X86_CR0_NW | X86_CR0_CD)
@@ -8049,8 +8048,6 @@ static void vmx_module_exit(void)
 	}
 #endif
 	vmx_cleanup_l1d_flush();
-
-	allow_smaller_maxphyaddr = false;
 }
 
 static struct kvm_x86_ops vmx_x86_ops __initdata = {
