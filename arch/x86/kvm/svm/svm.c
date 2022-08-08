@@ -64,7 +64,7 @@ MODULE_DEVICE_TABLE(x86cpu, svm_cpu_id);
 
 static bool erratum_383_found __read_mostly;
 
-u32 msrpm_offsets[MSRPM_OFFSETS] __read_mostly;
+u32 msrpm_offsets[MSRPM_OFFSETS] __ro_after_init;
 
 /*
  * Set osvw_len to higher value when updated Revision Guides
@@ -862,7 +862,7 @@ static void svm_msr_filter_changed(struct kvm_vcpu *vcpu)
 	}
 }
 
-static void add_msr_offset(u32 offset)
+__init static void add_msr_offset(u32 offset)
 {
 	int i;
 
@@ -889,7 +889,7 @@ static void add_msr_offset(u32 offset)
 	BUG();
 }
 
-static void init_msrpm_offsets(void)
+__init static void init_msrpm_offsets(void)
 {
 	int i;
 

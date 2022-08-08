@@ -31,7 +31,7 @@
 
 #define MAX_DIRECT_ACCESS_MSRS	46
 #define MSRPM_OFFSETS	32
-extern u32 msrpm_offsets[MSRPM_OFFSETS] __read_mostly;
+extern u32 msrpm_offsets[MSRPM_OFFSETS] __ro_after_init;
 extern bool npt_enabled;
 extern int vgif;
 extern bool intercept_smi;
