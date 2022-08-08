@@ -17,10 +17,10 @@
 #include "vmx.h"
 #include "x86.h"
 
-static bool __read_mostly enable_shadow_vmcs = 1;
+static bool __ro_after_init enable_shadow_vmcs = 1;
 module_param_named(enable_shadow_vmcs, enable_shadow_vmcs, bool, S_IRUGO);
 
-static bool __read_mostly nested_early_check = 0;
+static bool __ro_after_init nested_early_check = 0;
 module_param(nested_early_check, bool, S_IRUGO);
 
 #define CC KVM_NESTED_VMENTER_CONSISTENCY_CHECK

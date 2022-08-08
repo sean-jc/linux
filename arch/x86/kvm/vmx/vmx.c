@@ -78,34 +78,34 @@ static const struct x86_cpu_id vmx_cpu_id[] = {
 MODULE_DEVICE_TABLE(x86cpu, vmx_cpu_id);
 #endif
 
-bool __read_mostly enable_vpid = 1;
+bool __ro_after_init enable_vpid = 1;
 module_param_named(vpid, enable_vpid, bool, 0444);
 
-static bool __read_mostly enable_vnmi = 1;
+static bool __ro_after_init enable_vnmi = 1;
 module_param_named(vnmi, enable_vnmi, bool, S_IRUGO);
 
-bool __read_mostly flexpriority_enabled = 1;
+bool __ro_after_init flexpriority_enabled = 1;
 module_param_named(flexpriority, flexpriority_enabled, bool, S_IRUGO);
 
-bool __read_mostly enable_ept = 1;
+bool __ro_after_init enable_ept = 1;
 module_param_named(ept, enable_ept, bool, S_IRUGO);
 
-bool __read_mostly enable_unrestricted_guest = 1;
+bool __ro_after_init enable_unrestricted_guest = 1;
 module_param_named(unrestricted_guest,
 			enable_unrestricted_guest, bool, S_IRUGO);
 
-bool __read_mostly enable_ept_ad_bits = 1;
+bool __ro_after_init enable_ept_ad_bits = 1;
 module_param_named(eptad, enable_ept_ad_bits, bool, S_IRUGO);
 
-static bool __read_mostly emulate_invalid_guest_state = true;
+static bool __ro_after_init emulate_invalid_guest_state = true;
 module_param(emulate_invalid_guest_state, bool, S_IRUGO);
 
-static bool __read_mostly fasteoi = 1;
+static bool __ro_after_init fasteoi = 1;
 module_param(fasteoi, bool, S_IRUGO);
 
 module_param(enable_apicv, bool, S_IRUGO);
 
-bool __read_mostly enable_ipiv = true;
+bool __ro_after_init enable_ipiv = true;
 module_param(enable_ipiv, bool, 0444);
 
 /*
@@ -113,13 +113,13 @@ module_param(enable_ipiv, bool, 0444);
  * VMX and be a hypervisor for its own guests. If nested=0, guests may not
  * use VMX instructions.
  */
-static bool __read_mostly nested = 1;
+static bool __ro_after_init nested = 1;
 module_param(nested, bool, S_IRUGO);
 
-bool __read_mostly enable_pml = 1;
+bool __ro_after_init enable_pml = 1;
 module_param_named(pml, enable_pml, bool, S_IRUGO);
 
-static bool __read_mostly error_on_inconsistent_vmcs_config = true;
+static bool __ro_after_init error_on_inconsistent_vmcs_config = true;
 module_param(error_on_inconsistent_vmcs_config, bool, 0444);
 
 static bool __read_mostly dump_invalid_vmcs = 0;
@@ -131,8 +131,8 @@ module_param(dump_invalid_vmcs, bool, 0644);
 #define KVM_VMX_TSC_MULTIPLIER_MAX     0xffffffffffffffffULL
 
 /* Guest_tsc -> host_tsc conversion requires 64-bit division.  */
-static int __read_mostly cpu_preemption_timer_multi;
-static bool __read_mostly enable_preemption_timer = 1;
+static int __ro_after_init cpu_preemption_timer_multi;
+static bool __ro_after_init enable_preemption_timer = 1;
 #ifdef CONFIG_X86_64
 module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 #endif
@@ -210,7 +210,7 @@ static unsigned int ple_window_max        = KVM_VMX_DEFAULT_PLE_WINDOW_MAX;
 module_param(ple_window_max, uint, 0444);
 
 /* Default is SYSTEM mode, 1 for host-guest mode */
-int __read_mostly pt_mode = PT_MODE_SYSTEM;
+int __ro_after_init pt_mode = PT_MODE_SYSTEM;
 module_param(pt_mode, int, S_IRUGO);
 
 static DEFINE_STATIC_KEY_FALSE(vmx_l1d_should_flush);
@@ -236,7 +236,7 @@ static const struct {
 static void *vmx_l1d_flush_pages;
 
 /* Control for disabling CPU Fill buffer clear */
-static bool __read_mostly vmx_fb_clear_ctrl_available;
+static bool __ro_after_init vmx_fb_clear_ctrl_available;
 
 static int vmx_setup_l1d_flush(enum vmx_l1d_flush_state l1tf)
 {
@@ -369,7 +369,7 @@ static int vmentry_l1d_flush_get(char *s, const struct kernel_param *kp)
 	return sprintf(s, "%s\n", vmentry_l1d_param[l1tf_vmx_mitigation].option);
 }
 
-static void vmx_setup_fb_clear_ctrl(void)
+__init static void vmx_setup_fb_clear_ctrl(void)
 {
 	u64 msr;
 

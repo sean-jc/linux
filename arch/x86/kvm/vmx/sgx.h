@@ -8,7 +8,7 @@
 #include "vmx_ops.h"
 
 #ifdef CONFIG_X86_SGX_KVM
-extern bool __read_mostly enable_sgx;
+extern bool __ro_after_init enable_sgx;
 
 int handle_encls(struct kvm_vcpu *vcpu);
 
