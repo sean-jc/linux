@@ -55,6 +55,7 @@ config KVM_BOOK3S_32
 	select KVM_BOOK3S_32_HANDLER
 	select KVM_BOOK3S_PR_POSSIBLE
 	select PPC_FPU
+	select HAVE_KVM_VENDOR_MODULES if KVM_BOOK3S_32 = m
 	help
 	  Support running unmodified book3s_32 guest kernels
 	  in virtual machines on book3s_32 host processors.
@@ -72,6 +73,7 @@ config KVM_BOOK3S_64
 	select KVM_BOOK3S_PR_POSSIBLE if !KVM_BOOK3S_HV_POSSIBLE
 	select PPC_64S_HASH_MMU
 	select SPAPR_TCE_IOMMU if IOMMU_SUPPORT && (PPC_PSERIES || PPC_POWERNV)
+	select HAVE_KVM_VENDOR_MODULES if KVM_BOOK3S_64 = m
 	help
 	  Support running unmodified book3s_64 and book3s_32 guest kernels
 	  in virtual machines on book3s_64 host processors.
@@ -87,6 +89,7 @@ config KVM_BOOK3S_64_HV
 	select KVM_BOOK3S_HV_POSSIBLE
 	select MMU_NOTIFIER
 	select CMA
+	select HAVE_KVM_VENDOR_MODULES if KVM_BOOK3S_64_HV = m
 	help
 	  Support running unmodified book3s_64 guest kernels in
 	  virtual machines on POWER7 and newer processors that have
@@ -106,6 +109,7 @@ config KVM_BOOK3S_64_PR
 	tristate "KVM support without using hypervisor mode in host"
 	depends on KVM_BOOK3S_64
 	select KVM_BOOK3S_PR_POSSIBLE
+	select HAVE_KVM_VENDOR_MODULES if KVM_BOOK3S_64_PR = m
 	help
 	  Support running guest kernels in virtual machines on processors
 	  without using hypervisor mode in the host, by running the
