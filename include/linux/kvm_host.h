@@ -2,7 +2,7 @@
 #ifndef __KVM_HOST_H
 #define __KVM_HOST_H
 
-
+#include <linux/entry-kvm.h>
 #include <linux/types.h>
 #include <linux/hardirq.h>
 #include <linux/list.h>
@@ -2238,10 +2238,16 @@ int kvm_vm_create_worker_thread(struct kvm *kvm, kvm_vm_thread_fn_t thread_fn,
 				struct task_struct **thread_ptr);
 
 #ifdef CONFIG_KVM_XFER_TO_GUEST_WORK
-static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
+static inline int kvm_xfer_to_guest_mode_handle_work(struct kvm_vcpu *vcpu)
 {
-	vcpu->run->exit_reason = KVM_EXIT_INTR;
-	vcpu->stat.signal_exits++;
+	int r = xfer_to_guest_mode_handle_work();
+
+	if (r) {
+		WARN_ON_ONCE(r != -EINVAL);
+		vcpu->run->exit_reason = KVM_EXIT_INTR;
+		vcpu->stat.signal_exits++;
+	}
+	return r;
 }
 #endif /* CONFIG_KVM_XFER_TO_GUEST_WORK */
 
