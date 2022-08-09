@@ -45,6 +45,12 @@
 #include <asm/kvm_host.h>
 #include <linux/kvm_dirty_ring.h>
 
+#ifdef CONFIG_HAVE_KVM_VENDOR_MODULES
+#define KVM_EXPORT_SYMBOL_GPL(symbol) EXPORT_SYMBOL_GPL(symbol)
+#else
+#define KVM_EXPORT_SYMBOL_GPL(symbol)
+#endif
+
 #ifndef KVM_MAX_VCPU_IDS
 #define KVM_MAX_VCPU_IDS KVM_MAX_VCPUS
 #endif
