@@ -75,6 +75,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	lea (%_ASM_SP), %_ASM_ARG2
 	call vmx_update_host_rsp
 
+#if 0
 	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
 
 	/*
@@ -86,7 +87,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * and vmentry.
 	 */
 	mov 2*WORD_SIZE(%_ASM_SP), %_ASM_DI
-	movl VMX_spec_ctrl(%_ASM_DI), %edi
+	movl (%_ASM_DI), %edi
 	movl PER_CPU_VAR(x86_spec_ctrl_current), %esi
 	cmp %edi, %esi
 	je .Lspec_ctrl_done
@@ -96,7 +97,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	wrmsr
 
 .Lspec_ctrl_done:
-
+#endif
 	/*
 	 * Since vmentry is serializing on affected CPUs, there's no need for
 	 * an LFENCE to stop speculation from skipping the wrmsr.
