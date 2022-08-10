@@ -51,18 +51,14 @@ static int preallocated_oos_pages = 8192;
 
 static bool intel_gvt_is_valid_gfn(struct intel_vgpu *vgpu, unsigned long gfn)
 {
-	struct kvm *kvm = vgpu->vfio_device.kvm;
-	int idx;
-	bool ret;
-
 	if (!vgpu->attached)
 		return false;
 
-	idx = srcu_read_lock(&kvm->srcu);
-	ret = kvm_is_visible_gfn(kvm, gfn);
-	srcu_read_unlock(&kvm->srcu, idx);
-
-	return ret;
+	/*
+	 * TODO: This is broken and should route through VFIO, not KVM, e.g.
+	 * this doesn't properly handled 2MB guest entries.
+	 */
+	return kvm_page_track_is_valid_gfn(vgpu->vfio_device.kvm, gfn);
 }
 
 /*

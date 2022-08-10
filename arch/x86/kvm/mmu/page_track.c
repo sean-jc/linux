@@ -58,6 +58,19 @@ int kvm_page_track_write_tracking_alloc(struct kvm_memory_slot *slot)
 	return __kvm_page_track_write_tracking_alloc(slot, slot->npages);
 }
 
+bool kvm_page_track_is_valid_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	bool ret;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	ret = kvm_is_visible_gfn(kvm, gfn);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_page_track_is_valid_gfn);
+
 static void update_gfn_write_track(struct kvm_memory_slot *slot, gfn_t gfn,
 				   short count)
 {
