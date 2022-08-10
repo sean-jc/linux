@@ -3632,7 +3632,7 @@ static int mmu_first_shadow_root_alloc(struct kvm *kvm)
 
 out_success:
 	node->track_write = kvm_mmu_pte_write;
-	node->track_flush_slot = NULL;
+	node->track_remove_region = NULL;
 	kvm_page_track_register_notifier(kvm, node);
 
 	/*

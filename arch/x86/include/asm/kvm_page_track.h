@@ -32,15 +32,17 @@ struct kvm_page_track_notifier_node {
 	void (*track_write)(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 			    int bytes, struct kvm_page_track_notifier_node *node);
 	/*
-	 * It is called when memory slot is being moved or removed
-	 * users can drop write-protection for the pages in that memory slot
+	 * It is called when a memory region is being moved or removed
+	 * users must drop write-protection for the pages in that region
 	 *
 	 * @kvm: the kvm where memory slot being moved or removed
-	 * @slot: the memory slot being moved or removed
+	 * @base_gfn: the base gfn of the region
+	 * @npages: the number of pages in the region
 	 * @node: this node
 	 */
-	void (*track_flush_slot)(struct kvm *kvm, struct kvm_memory_slot *slot,
-			    struct kvm_page_track_notifier_node *node);
+	void (*track_remove_region)(struct kvm *kvm, gfn_t base_gfn,
+				    unsigned long npages,
+				    struct kvm_page_track_notifier_node *node);
 };
 
 int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn);

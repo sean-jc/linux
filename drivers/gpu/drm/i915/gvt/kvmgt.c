@@ -111,9 +111,9 @@ struct gvt_dma {
 static void kvmgt_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 		const u8 *val, int len,
 		struct kvm_page_track_notifier_node *node);
-static void kvmgt_page_track_flush_slot(struct kvm *kvm,
-		struct kvm_memory_slot *slot,
-		struct kvm_page_track_notifier_node *node);
+static void kvmgt_page_track_remove_region(struct kvm *kvm, gfn_t base_gfn,
+					   unsigned long npages,
+					   struct kvm_page_track_notifier_node *node);
 
 static ssize_t available_instances_show(struct mdev_type *mtype,
 					struct mdev_type_attribute *attr,
@@ -818,7 +818,7 @@ static int intel_vgpu_open_device(struct vfio_device *vfio_dev)
 	gvt_cache_init(vgpu);
 
 	vgpu->track_node.track_write = kvmgt_page_track_write;
-	vgpu->track_node.track_flush_slot = kvmgt_page_track_flush_slot;
+	vgpu->track_node.track_remove_region = kvmgt_page_track_remove_region;
 	kvm_get_kvm(vgpu->vfio_device.kvm);
 	kvm_page_track_register_notifier(vgpu->vfio_device.kvm,
 					 &vgpu->track_node);
@@ -1715,9 +1715,9 @@ static void kvmgt_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 						     (void *)val, len);
 }
 
-static void kvmgt_page_track_flush_slot(struct kvm *kvm,
-		struct kvm_memory_slot *slot,
-		struct kvm_page_track_notifier_node *node)
+static void kvmgt_page_track_remove_region(struct kvm *kvm, gfn_t base_gfn,
+					   unsigned long npages,
+					   struct kvm_page_track_notifier_node *node)
 {
 	int i;
 	gfn_t gfn;
@@ -1725,8 +1725,8 @@ static void kvmgt_page_track_flush_slot(struct kvm *kvm,
 		container_of(node, struct intel_vgpu, track_node);
 
 	mutex_lock(&info->gfn_lock);
-	for (i = 0; i < slot->npages; i++) {
-		gfn = slot->base_gfn + i;
+	for (i = 0; i < npages; i++) {
+		gfn = base_gfn + i;
 		if (kvmgt_gfn_is_write_protected(info, gfn)) {
 			WARN_ON_ONCE(kvm_write_track_remove_gfn(kvm, gfn));
 
