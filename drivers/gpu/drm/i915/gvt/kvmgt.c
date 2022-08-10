@@ -1593,7 +1593,7 @@ static void kvmgt_page_track_write(gpa_t gpa, const u8 *val, int len,
 	mutex_lock(&info->vgpu_lock);
 	mutex_lock(&info->gfn_lock);
 
-	if (kvmgt_gfn_is_write_protected(info, gpa_to_gfn(gpa)))
+	if (kvmgt_gfn_is_write_protected(info, gpa >> PAGE_SHIFT))
 		intel_vgpu_page_track_handler(info, gpa,
 						     (void *)val, len);
 
