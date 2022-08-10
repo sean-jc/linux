@@ -11,6 +11,7 @@
  *   Xiao Guangrong <guangrong.xiao@linux.intel.com>
  */
 
+#include <linux/lockdep.h>
 #include <linux/kvm_host.h>
 #include <linux/rculist.h>
 
@@ -85,10 +86,7 @@ void kvm_write_track_add_gfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 {
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	WARN_ON_ONCE(!lockdep_is_held(&kvm->slots_lock) &&
-		     !srcu_read_lock_held(&kvm->srcu));
-
-	if (WARN_ON(!kvm_page_track_write_tracking_enabled(kvm)))
+	if (KVM_BUG_ON(!kvm_page_track_write_tracking_enabled(kvm), kvm))
 		return;
 
 	update_gfn_write_track(slot, gfn, 1);
@@ -117,10 +115,7 @@ void kvm_write_track_remove_gfn(struct kvm *kvm,
 {
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	WARN_ON_ONCE(!lockdep_is_held(&kvm->slots_lock) &&
-		     !srcu_read_lock_held(&kvm->srcu));
-
-	if (WARN_ON(!kvm_page_track_write_tracking_enabled(kvm)))
+	if (KVM_BUG_ON(!kvm_page_track_write_tracking_enabled(kvm), kvm))
 		return;
 
 	update_gfn_write_track(slot, gfn, -1);
