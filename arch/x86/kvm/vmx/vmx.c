@@ -2437,14 +2437,6 @@ static int vmx_hardware_enable(void)
 	if (cr4_read_shadow() & X86_CR4_VMXE)
 		return -EBUSY;
 
-	/*
-	 * This can happen if we hot-added a CPU but failed to allocate
-	 * VP assist page for it.
-	 */
-	if (static_branch_unlikely(&enable_evmcs) &&
-	    !hv_get_vp_assist_page(cpu))
-		return -EFAULT;
-
 	intel_pt_handle_vmx(1);
 
 	r = kvm_cpu_vmxon(phys_addr);
