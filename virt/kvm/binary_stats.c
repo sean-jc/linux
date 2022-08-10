@@ -5,7 +5,7 @@
  * Copyright 2021 Google LLC
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/kvm.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>

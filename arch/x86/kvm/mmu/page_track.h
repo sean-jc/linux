@@ -2,9 +2,9 @@
 #ifndef __KVM_X86_PAGE_TRACK_H
 #define __KVM_X86_PAGE_TRACK_H
 
-#include <linux/kvm_host.h>
-
 #include <asm/kvm_page_track.h>
+
+#include "kvm_host.h"
 
 int kvm_page_track_init(struct kvm *kvm);
 void kvm_page_track_cleanup(struct kvm *kvm);

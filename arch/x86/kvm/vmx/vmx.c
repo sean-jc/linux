@@ -16,7 +16,7 @@
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/kernel.h>
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/mod_devicetable.h>

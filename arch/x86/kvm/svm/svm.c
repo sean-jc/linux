@@ -1,6 +1,6 @@
 #define pr_fmt(fmt) "SVM: " fmt
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 
 #include "irq.h"
 #include "mmu.h"

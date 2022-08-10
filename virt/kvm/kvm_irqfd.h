@@ -8,8 +8,9 @@
 #ifndef __LINUX_KVM_IRQFD_H
 #define __LINUX_KVM_IRQFD_H
 
-#include <linux/kvm_host.h>
 #include <linux/poll.h>
+
+#include "kvm_host.h"
 
 /*
  * Resampling irqfds are a special variety of irqfds used to emulate

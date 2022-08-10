@@ -9,7 +9,7 @@
  */
 
 #include <linux/export.h>
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 
 #include "irq.h"
 #include "i8254.h"

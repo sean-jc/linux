@@ -8,7 +8,7 @@
  *      Gleb Natapov <gleb@redhat.com>
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mmu_context.h>

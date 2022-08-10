@@ -12,9 +12,9 @@
  */
 
 #include <linux/lockdep.h>
-#include <linux/kvm_host.h>
 #include <linux/rculist.h>
 
+#include "kvm_host.h"
 #include "mmu.h"
 #include "mmu_internal.h"
 #include "page_track.h"

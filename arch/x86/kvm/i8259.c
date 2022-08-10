@@ -31,7 +31,7 @@
 #include <linux/bitops.h>
 #include "irq.h"
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include "trace.h"
 
 #define pr_pic_unimpl(fmt, ...)	\
