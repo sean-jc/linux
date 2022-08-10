@@ -1173,18 +1173,18 @@ static inline void ppgtt_generate_shadow_entry(struct intel_gvt_gtt_entry *se,
 static int is_2MB_gtt_possible(struct intel_vgpu *vgpu,
 	struct intel_gvt_gtt_entry *entry)
 {
-	const struct intel_gvt_gtt_pte_ops *ops = vgpu->gvt->gtt.pte_ops;
-	kvm_pfn_t pfn;
-
 	if (!HAS_PAGE_SIZES(vgpu->gvt->gt->i915, I915_GTT_PAGE_SIZE_2M))
 		return 0;
 
 	if (!vgpu->attached)
 		return -EINVAL;
-	pfn = gfn_to_pfn(vgpu->vfio_device.kvm, ops->get_pfn(entry));
-	if (is_error_noslot_pfn(pfn))
-		return -EINVAL;
-	return PageTransHuge(pfn_to_page(pfn));
+
+	/*
+	 * TODO: Rely on VFIO to get the IOVA and allowed page size.  GVT must
+	 * pin the page via VFIO before this point, i.e. GVT has already gotten
+	 * the pfn in the past.
+	 */
+	return 0;
 }
 
 static int split_2MB_gtt_entry(struct intel_vgpu *vgpu,
