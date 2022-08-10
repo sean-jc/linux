@@ -14,7 +14,6 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 #include <linux/nmi.h>
-#include <linux/kvm_host.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hardirq.h>
@@ -3989,6 +3988,9 @@ static int intel_pmu_hw_config(struct perf_event *event)
  */
 static struct perf_guest_switch_msr *intel_guest_get_msrs(int *nr, void *data)
 {
+#if 1
+	return NULL;
+#else
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	struct perf_guest_switch_msr *arr = cpuc->guest_switch_msrs;
 	struct kvm_pmu *kvm_pmu = (struct kvm_pmu *)data;
@@ -4059,6 +4061,7 @@ static struct perf_guest_switch_msr *intel_guest_get_msrs(int *nr, void *data)
 	}
 
 	return arr;
+#endif
 }
 
 static struct perf_guest_switch_msr *core_guest_get_msrs(int *nr, void *data)
