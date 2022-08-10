@@ -26,7 +26,7 @@
 #include "xen.h"
 
 #include <linux/cpu.h>
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/highmem.h>
 #include <linux/sched/cputime.h>
 #include <linux/eventfd.h>

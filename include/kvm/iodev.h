@@ -7,7 +7,6 @@
 #include <linux/errno.h>
 
 struct kvm_io_device;
-struct kvm_vcpu;
 
 /**
  * kvm_io_device_ops are called under kvm slots_lock.

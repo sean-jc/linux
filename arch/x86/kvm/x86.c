@@ -16,7 +16,8 @@
  *   Ben-Ami Yassour <benami@il.ibm.com>
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
+#include "kvm_irqfd.h"
 #include "irq.h"
 #include "ioapic.h"
 #include "mmu.h"
@@ -53,7 +54,6 @@
 #include <linux/pci.h>
 #include <linux/timekeeper_internal.h>
 #include <linux/pvclock_gtod.h>
-#include <linux/kvm_irqfd.h>
 #include <linux/irqbypass.h>
 #include <linux/sched/stat.h>
 #include <linux/sched/isolation.h>

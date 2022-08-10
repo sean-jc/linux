@@ -16,7 +16,7 @@
  * Based on Xen 3.1 code, Copyright (c) 2004, Intel Corporation.
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/kvm.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>

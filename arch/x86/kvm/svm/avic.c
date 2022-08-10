@@ -14,13 +14,12 @@
 
 #define pr_fmt(fmt) "SVM: " fmt
 
-#include <linux/kvm_types.h>
 #include <linux/hashtable.h>
 #include <linux/amd-iommu.h>
-#include <linux/kvm_host.h>
 
 #include <asm/irq_remapping.h>
 
+#include "kvm_host.h"
 #include "trace.h"
 #include "lapic.h"
 #include "x86.h"

@@ -4,7 +4,7 @@
  *
  * Copyright 2016 Red Hat, Inc. and/or its affiliates.
  */
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/debugfs.h>
 #include "lapic.h"
 #include "mmu.h"

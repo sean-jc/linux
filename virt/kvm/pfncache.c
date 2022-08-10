@@ -11,7 +11,7 @@
  *   David Woodhouse <dwmw2@infradead.org>
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/kvm.h>
 #include <linux/highmem.h>
 #include <linux/module.h>
