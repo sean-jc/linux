@@ -23,8 +23,6 @@ enum kvm_mr_change;
 #include <linux/types.h>
 #include <linux/spinlock_types.h>
 
-#include <asm/kvm_types.h>
-
 /*
  * Address types:
  *
