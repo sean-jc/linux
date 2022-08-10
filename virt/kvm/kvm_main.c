@@ -98,12 +98,7 @@ KVM_EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
  */
 
 DEFINE_MUTEX(kvm_lock);
-static DEFINE_RAW_SPINLOCK(kvm_count_lock);
 LIST_HEAD(vm_list);
-
-static cpumask_var_t cpus_hardware_enabled;
-static int kvm_usage_count;
-static atomic_t hardware_enable_failed;
 
 static struct kmem_cache *kvm_vcpu_cache;
 
@@ -141,8 +136,6 @@ static int kvm_no_compat_open(struct inode *inode, struct file *file)
 #define KVM_COMPAT(c)	.compat_ioctl	= kvm_no_compat_ioctl,	\
 			.open		= kvm_no_compat_open
 #endif
-static int hardware_enable_all(void);
-static void hardware_disable_all(void);
 
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
 
@@ -1189,7 +1182,7 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	if (r)
 		goto out_err_no_arch_destroy_vm;
 
-	r = hardware_enable_all();
+	r = kvm_hardware_enable_all();
 	if (r)
 		goto out_err_no_disable;
 
@@ -1230,7 +1223,7 @@ out_err:
 		mmu_notifier_unregister(&kvm->mmu_notifier, current->mm);
 #endif
 out_err_no_mmu_notifier:
-	hardware_disable_all();
+	kvm_hardware_disable_all();
 out_err_no_disable:
 	kvm_arch_destroy_vm(kvm);
 out_err_no_arch_destroy_vm:
@@ -1309,7 +1302,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	cleanup_srcu_struct(&kvm->srcu);
 	kvm_arch_free_vm(kvm);
 	preempt_notifier_dec();
-	hardware_disable_all();
+	kvm_hardware_disable_all();
 	mmdrop(mm);
 	module_put(kvm_chardev_ops.owner);
 }
@@ -4983,111 +4976,6 @@ static struct miscdevice kvm_dev = {
 	&kvm_chardev_ops,
 };
 
-static void hardware_enable_nolock(void *junk)
-{
-	int cpu = raw_smp_processor_id();
-	int r;
-
-	if (cpumask_test_cpu(cpu, cpus_hardware_enabled))
-		return;
-
-	cpumask_set_cpu(cpu, cpus_hardware_enabled);
-
-	r = kvm_arch_hardware_enable();
-
-	if (r) {
-		cpumask_clear_cpu(cpu, cpus_hardware_enabled);
-		atomic_inc(&hardware_enable_failed);
-		pr_info("kvm: enabling virtualization on CPU%d failed\n", cpu);
-	}
-}
-
-static int kvm_starting_cpu(unsigned int cpu)
-{
-	raw_spin_lock(&kvm_count_lock);
-	if (kvm_usage_count)
-		hardware_enable_nolock(NULL);
-	raw_spin_unlock(&kvm_count_lock);
-	return 0;
-}
-
-static void hardware_disable_nolock(void *junk)
-{
-	int cpu = raw_smp_processor_id();
-
-	if (!cpumask_test_cpu(cpu, cpus_hardware_enabled))
-		return;
-	cpumask_clear_cpu(cpu, cpus_hardware_enabled);
-	kvm_arch_hardware_disable();
-}
-
-static int kvm_dying_cpu(unsigned int cpu)
-{
-	raw_spin_lock(&kvm_count_lock);
-	if (kvm_usage_count)
-		hardware_disable_nolock(NULL);
-	raw_spin_unlock(&kvm_count_lock);
-	return 0;
-}
-
-static void hardware_disable_all_nolock(void)
-{
-	BUG_ON(!kvm_usage_count);
-
-	kvm_usage_count--;
-	if (!kvm_usage_count)
-		on_each_cpu(hardware_disable_nolock, NULL, 1);
-}
-
-static void hardware_disable_all(void)
-{
-	raw_spin_lock(&kvm_count_lock);
-	hardware_disable_all_nolock();
-	raw_spin_unlock(&kvm_count_lock);
-}
-
-static int hardware_enable_all(void)
-{
-	int r = 0;
-
-	raw_spin_lock(&kvm_count_lock);
-
-	kvm_usage_count++;
-	if (kvm_usage_count == 1) {
-		atomic_set(&hardware_enable_failed, 0);
-		on_each_cpu(hardware_enable_nolock, NULL, 1);
-
-		if (atomic_read(&hardware_enable_failed)) {
-			hardware_disable_all_nolock();
-			r = -EBUSY;
-		}
-	}
-
-	raw_spin_unlock(&kvm_count_lock);
-
-	return r;
-}
-
-static int kvm_reboot(struct notifier_block *notifier, unsigned long val,
-		      void *v)
-{
-	/*
-	 * Some (well, at least mine) BIOSes hang on reboot if
-	 * in vmx root mode.
-	 *
-	 * And Intel TXT required VMX off for all cpu when system shutdown.
-	 */
-	pr_info("kvm: exiting hardware virtualization\n");
-	kvm_rebooting = true;
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
-	return NOTIFY_OK;
-}
-
-static struct notifier_block kvm_reboot_notifier = {
-	.notifier_call = kvm_reboot,
-	.priority = 0,
-};
-
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus)
 {
 	int i;
@@ -5667,26 +5555,6 @@ static void kvm_init_debug(void)
 	}
 }
 
-static int kvm_suspend(void)
-{
-	if (kvm_usage_count)
-		hardware_disable_nolock(NULL);
-	return 0;
-}
-
-static void kvm_resume(void)
-{
-	if (kvm_usage_count) {
-		lockdep_assert_not_held(&kvm_count_lock);
-		hardware_enable_nolock(NULL);
-	}
-}
-
-static struct syscore_ops kvm_syscore_ops = {
-	.suspend = kvm_suspend,
-	.resume = kvm_resume,
-};
-
 static inline
 struct kvm_vcpu *preempt_notifier_to_vcpu(struct preempt_notifier *pn)
 {
@@ -5825,11 +5693,6 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	if (r)
 		goto out_irqfd;
 
-	if (!zalloc_cpumask_var(&cpus_hardware_enabled, GFP_KERNEL)) {
-		r = -ENOMEM;
-		goto out_free_0;
-	}
-
 	r = kvm_arch_hardware_setup(opaque);
 	if (r < 0)
 		goto out_free_1;
@@ -5842,11 +5705,9 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 			goto out_free_2;
 	}
 
-	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "kvm/cpu:starting",
-				      kvm_starting_cpu, kvm_dying_cpu);
+	r = kvm_base_init();
 	if (r)
 		goto out_free_2;
-	register_reboot_notifier(&kvm_reboot_notifier);
 
 	/* A kmem cache lets us meet the alignment requirements of fx_save. */
 	if (!vcpu_align)
@@ -5883,8 +5744,6 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		goto out_unreg;
 	}
 
-	register_syscore_ops(&kvm_syscore_ops);
-
 	kvm_preempt_ops.sched_in = kvm_sched_in;
 	kvm_preempt_ops.sched_out = kvm_sched_out;
 
@@ -5903,13 +5762,10 @@ out_free_5:
 out_free_4:
 	kmem_cache_destroy(kvm_vcpu_cache);
 out_free_3:
-	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
+	kvm_base_put();
 out_free_2:
 	kvm_arch_hardware_unsetup();
 out_free_1:
-	free_cpumask_var(cpus_hardware_enabled);
-out_free_0:
 	kvm_irqfd_exit();
 out_irqfd:
 	kvm_arch_exit();
@@ -5928,14 +5784,10 @@ void kvm_exit(void)
 		free_cpumask_var(per_cpu(cpu_kick_mask, cpu));
 	kmem_cache_destroy(kvm_vcpu_cache);
 	kvm_async_pf_deinit();
-	unregister_syscore_ops(&kvm_syscore_ops);
-	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
+	kvm_base_exit();
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();
 	kvm_irqfd_exit();
-	free_cpumask_var(cpus_hardware_enabled);
 	kvm_vfio_ops_exit();
 }
 KVM_EXPORT_SYMBOL_GPL(kvm_exit);

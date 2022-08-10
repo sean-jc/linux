@@ -192,19 +192,9 @@ module_param(eager_page_split, bool, 0644);
  */
 #define KVM_MAX_NR_USER_RETURN_MSRS 16
 
-struct kvm_user_return_msrs {
-	struct user_return_notifier urn;
-	bool initialized;
-	bool registered;
-	struct kvm_user_return_msr_values {
-		u64 host;
-		u64 curr;
-	} values[KVM_MAX_NR_USER_RETURN_MSRS];
-};
-
 u32 __ro_after_init kvm_nr_uret_msrs;
-static u32 __ro_after_init kvm_uret_msrs_list[KVM_MAX_NR_USER_RETURN_MSRS];
-static struct kvm_user_return_msrs __percpu *user_return_msrs;
+
+struct kvm_uret_msr_map_entry __ro_after_init kvm_uret_msr_map[KVM_MAX_NR_USER_RETURN_MSRS];
 
 #define KVM_SUPPORTED_XCR0     (XFEATURE_MASK_FP | XFEATURE_MASK_SSE \
 				| XFEATURE_MASK_YMM | XFEATURE_MASK_BNDREGS \
@@ -337,56 +327,18 @@ static inline void kvm_async_pf_hash_reset(struct kvm_vcpu *vcpu)
 		vcpu->arch.apf.gfns[i] = ~0;
 }
 
-static void kvm_on_user_return(struct user_return_notifier *urn)
-{
-	unsigned slot;
-	struct kvm_user_return_msrs *msrs
-		= container_of(urn, struct kvm_user_return_msrs, urn);
-	struct kvm_user_return_msr_values *values;
-	unsigned long flags;
-
-	/*
-	 * Disabling irqs at this point since the following code could be
-	 * interrupted and executed through kvm_arch_hardware_disable()
-	 */
-	local_irq_save(flags);
-	if (msrs->registered) {
-		msrs->registered = false;
-		user_return_notifier_unregister(urn);
-	}
-	local_irq_restore(flags);
-	for (slot = 0; slot < kvm_nr_uret_msrs; ++slot) {
-		values = &msrs->values[slot];
-		if (values->host != values->curr) {
-			wrmsrl(kvm_uret_msrs_list[slot], values->host);
-			values->curr = values->host;
-		}
-	}
-}
-
-static int kvm_probe_user_return_msr(u32 msr)
-{
-	u64 val;
-	int ret;
-
-	preempt_disable();
-	ret = rdmsrl_safe(msr, &val);
-	if (ret)
-		goto out;
-	ret = wrmsrl_safe(msr, val);
-out:
-	preempt_enable();
-	return ret;
-}
-
 __init int kvm_add_user_return_msr(u32 msr)
 {
+	int base_slot;
+
 	BUG_ON(kvm_nr_uret_msrs >= KVM_MAX_NR_USER_RETURN_MSRS);
 
-	if (kvm_probe_user_return_msr(msr))
+	base_slot = kvm_base_add_user_return_msr(msr);
+	if (base_slot < 0)
 		return -1;
 
-	kvm_uret_msrs_list[kvm_nr_uret_msrs] = msr;
+	kvm_uret_msrs_map[kvm_nr_uret_msrs].msr = msr;
+	kvm_uret_msrs_map[kvm_nr_uret_msrs].base_slot = base_slot;
 	return kvm_nr_uret_msrs++;
 }
 
@@ -395,59 +347,10 @@ int kvm_find_user_return_msr(u32 msr)
 	int i;
 
 	for (i = 0; i < kvm_nr_uret_msrs; ++i) {
-		if (kvm_uret_msrs_list[i] == msr)
+		if (kvm_uret_msrs_map[i].msr == msr)
 			return i;
 	}
 	return -1;
-}
-
-static void kvm_user_return_msr_init_cpu(struct kvm_user_return_msrs *msrs)
-{
-	u64 value;
-	int i;
-
-	if (msrs->initialized)
-		return;
-
-	for (i = 0; i < kvm_nr_uret_msrs; ++i) {
-		rdmsrl_safe(kvm_uret_msrs_list[i], &value);
-		msrs->values[i].host = value;
-		msrs->values[i].curr = value;
-	}
-	msrs->initialized = true;
-}
-
-int kvm_set_user_return_msr(unsigned slot, u64 value, u64 mask)
-{
-	unsigned int cpu = smp_processor_id();
-	struct kvm_user_return_msrs *msrs = per_cpu_ptr(user_return_msrs, cpu);
-	int err;
-
-	kvm_user_return_msr_init_cpu(msrs);
-
-	value = (value & mask) | (msrs->values[slot].host & ~mask);
-	if (value == msrs->values[slot].curr)
-		return 0;
-	err = wrmsrl_safe(kvm_uret_msrs_list[slot], value);
-	if (err)
-		return 1;
-
-	msrs->values[slot].curr = value;
-	if (!msrs->registered) {
-		msrs->urn.on_user_return = kvm_on_user_return;
-		user_return_notifier_register(&msrs->urn);
-		msrs->registered = true;
-	}
-	return 0;
-}
-
-static void drop_user_return_notifiers(void)
-{
-	unsigned int cpu = smp_processor_id();
-	struct kvm_user_return_msrs *msrs = per_cpu_ptr(user_return_msrs, cpu);
-
-	if (msrs->registered)
-		kvm_on_user_return(&msrs->urn);
 }
 
 u64 kvm_get_apic_base(struct kvm_vcpu *vcpu)
@@ -11738,12 +11641,6 @@ void kvm_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
 int kvm_arch_hardware_enable(void)
 {
 	return static_call(kvm_x86_hardware_enable)();
-}
-
-void kvm_arch_hardware_disable(void)
-{
-	static_call(kvm_x86_hardware_disable)();
-	drop_user_return_notifiers();
 }
 
 static inline void kvm_ops_update(struct kvm_x86_init_ops *ops)

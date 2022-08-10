@@ -1674,7 +1674,14 @@ struct kvm_arch_async_pf {
 	bool direct_map;
 };
 
+struct kvm_uret_msr_map_entry {
+	u32 msr;
+	u32 base_slot;
+};
+
 extern u32 __ro_after_init kvm_nr_uret_msrs;
+extern struct kvm_uret_msr_map_entry __ro_after_init kvm_uret_msrs_map[];
+
 extern u64 __ro_after_init host_efer;
 extern bool __ro_after_init allow_smaller_maxphyaddr;
 extern bool __ro_after_init enable_apicv;
@@ -2010,7 +2017,13 @@ int kvm_pv_send_ipi(struct kvm *kvm, unsigned long ipi_bitmap_low,
 
 __init int kvm_add_user_return_msr(u32 msr);
 int kvm_find_user_return_msr(u32 msr);
-int kvm_set_user_return_msr(unsigned index, u64 val, u64 mask);
+
+static inline int kvm_set_user_return_msr(unsigned int slot, u64 value, u64 mask)
+{
+	unsigned int base_slot = kvm_uret_msrs_map[slot].base_slot;
+
+	return kvm_base_set_user_return_msr(base_slot, value, mask);
+}
 
 static inline bool kvm_is_supported_user_return_msr(u32 msr)
 {

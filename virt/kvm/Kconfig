@@ -75,3 +75,6 @@ config HAVE_KVM_PM_NOTIFIER
 
 config HAVE_KVM_VENDOR_MODULES
        bool
+
+config HAVE_KVM_SEPARATE_BASE
+       bool

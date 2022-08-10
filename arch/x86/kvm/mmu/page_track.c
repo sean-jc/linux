@@ -58,19 +58,6 @@ int kvm_page_track_write_tracking_alloc(struct kvm_memory_slot *slot)
 	return __kvm_page_track_write_tracking_alloc(slot, slot->npages);
 }
 
-bool kvm_page_track_is_valid_gfn(struct kvm *kvm, gfn_t gfn)
-{
-	bool ret;
-	int idx;
-
-	idx = srcu_read_lock(&kvm->srcu);
-	ret = kvm_is_visible_gfn(kvm, gfn);
-	srcu_read_unlock(&kvm->srcu, idx);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(kvm_page_track_is_valid_gfn);
-
 static void update_gfn_write_track(struct kvm_memory_slot *slot, gfn_t gfn,
 				   short count)
 {
@@ -106,35 +93,6 @@ void __kvm_write_track_add_gfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		kvm_flush_remote_tlbs(kvm);
 }
 
-/*
- * add guest page to the tracking pool so that corresponding access on that
- * page will be intercepted.
- *
- * @kvm: the guest instance we are interested in.
- * @gfn: the guest page.
- */
-int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn)
-{
-	struct kvm_memory_slot *slot;
-	int idx;
-
-	idx = srcu_read_lock(&kvm->srcu);
-
-	slot = gfn_to_memslot(kvm, gfn);
-	if (!slot) {
-		srcu_read_unlock(&kvm->srcu, idx);
-		return -EINVAL;
-	}
-
-	write_lock(&kvm->mmu_lock);
-	__kvm_write_track_add_gfn(kvm, slot, gfn);
-	write_unlock(&kvm->mmu_lock);
-
-	srcu_read_unlock(&kvm->srcu, idx);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(kvm_write_track_add_gfn);
 
 void __kvm_write_track_remove_gfn(struct kvm *kvm,
 				  struct kvm_memory_slot *slot, gfn_t gfn)
@@ -153,35 +111,6 @@ void __kvm_write_track_remove_gfn(struct kvm *kvm,
 	kvm_mmu_gfn_allow_lpage(slot, gfn);
 }
 
-/*
- * remove the guest page from the tracking pool which stops the interception
- * of corresponding access on that page.
- *
- * @kvm: the guest instance we are interested in.
- * @gfn: the guest page.
- */
-int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn)
-{
-	struct kvm_memory_slot *slot;
-	int idx;
-
-	idx = srcu_read_lock(&kvm->srcu);
-
-	slot = gfn_to_memslot(kvm, gfn);
-	if (!slot) {
-		srcu_read_unlock(&kvm->srcu, idx);
-		return -EINVAL;
-	}
-
-	write_lock(&kvm->mmu_lock);
-	__kvm_write_track_remove_gfn(kvm, slot, gfn);
-	write_unlock(&kvm->mmu_lock);
-
-	srcu_read_unlock(&kvm->srcu, idx);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(kvm_write_track_remove_gfn);
 
 /*
  * check if the corresponding access on the specified guest page is tracked.
@@ -229,43 +158,6 @@ void __kvm_page_track_register_notifier(struct kvm *kvm,
 	hlist_add_head_rcu(&n->node, &head->track_notifier_list);
 	write_unlock(&kvm->mmu_lock);
 }
-
-/*
- * register the notifier so that event interception for the tracked guest
- * pages can be received.
- */
-int kvm_page_track_register_notifier(struct kvm *kvm,
-				     struct kvm_page_track_notifier_node *n)
-{
-	if (!kvm || kvm->mm != current->mm)
-		return -ESRCH;
-
-	kvm_get_kvm(kvm);
-
-	__kvm_page_track_register_notifier(kvm, n);
-	return 0;
-}
-EXPORT_SYMBOL_GPL(kvm_page_track_register_notifier);
-
-/*
- * stop receiving the event interception. It is the opposed operation of
- * kvm_page_track_register_notifier().
- */
-void kvm_page_track_unregister_notifier(struct kvm *kvm,
-					struct kvm_page_track_notifier_node *n)
-{
-	struct kvm_page_track_notifier_head *head;
-
-	head = &kvm->arch.track_notifier_head;
-
-	write_lock(&kvm->mmu_lock);
-	hlist_del_rcu(&n->node);
-	write_unlock(&kvm->mmu_lock);
-	synchronize_srcu(&head->track_srcu);
-
-	kvm_put_kvm(kvm);
-}
-EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
 
 /*
  * Notify the node that write access is intercepted and write emulation is
@@ -319,3 +211,115 @@ void kvm_page_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot)
 			n->track_remove_region(kvm, slot->base_gfn, slot->npages, n);
 	srcu_read_unlock(&head->track_srcu, idx);
 }
+
+#ifndef CONFIG_HAVE_KVM_SEPARATE_BASE
+bool kvm_page_track_is_valid_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	bool ret;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	ret = kvm_is_visible_gfn(kvm, gfn);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_page_track_is_valid_gfn);
+
+/*
+ * add guest page to the tracking pool so that corresponding access on that
+ * page will be intercepted.
+ *
+ * @kvm: the guest instance we are interested in.
+ * @gfn: the guest page.
+ */
+int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot) {
+		srcu_read_unlock(&kvm->srcu, idx);
+		return -EINVAL;
+	}
+
+	write_lock(&kvm->mmu_lock);
+	__kvm_write_track_add_gfn(kvm, slot, gfn);
+	write_unlock(&kvm->mmu_lock);
+
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_write_track_add_gfn);
+
+/*
+ * remove the guest page from the tracking pool which stops the interception
+ * of corresponding access on that page.
+ *
+ * @kvm: the guest instance we are interested in.
+ * @gfn: the guest page.
+ */
+int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot) {
+		srcu_read_unlock(&kvm->srcu, idx);
+		return -EINVAL;
+	}
+
+	write_lock(&kvm->mmu_lock);
+	__kvm_write_track_remove_gfn(kvm, slot, gfn);
+	write_unlock(&kvm->mmu_lock);
+
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_write_track_remove_gfn);
+
+/*
+ * register the notifier so that event interception for the tracked guest
+ * pages can be received.
+ */
+int kvm_page_track_register_notifier(struct kvm *kvm,
+				     struct kvm_page_track_notifier_node *n)
+{
+	if (!kvm || kvm->mm != current->mm)
+		return -ESRCH;
+
+	kvm_get_kvm(kvm);
+
+	__kvm_page_track_register_notifier(kvm, n);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_page_track_register_notifier);
+
+/*
+ * stop receiving the event interception. It is the opposed operation of
+ * kvm_page_track_register_notifier().
+ */
+void kvm_page_track_unregister_notifier(struct kvm *kvm,
+					struct kvm_page_track_notifier_node *n)
+{
+	struct kvm_page_track_notifier_head *head;
+
+	head = &kvm->arch.track_notifier_head;
+
+	write_lock(&kvm->mmu_lock);
+	hlist_del_rcu(&n->node);
+	write_unlock(&kvm->mmu_lock);
+	synchronize_srcu(&head->track_srcu);
+
+	kvm_put_kvm(kvm);
+}
+EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
+#endif

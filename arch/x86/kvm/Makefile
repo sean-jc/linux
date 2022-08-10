@@ -33,4 +33,10 @@ ifdef CONFIG_HYPERV
 kvm-$(CONFIG_KVM_AMD)	+= svm/svm_onhyperv.o
 endif
 
+ifeq ($(CONFIG_HAVE_KVM_SEPARATE_BASE),y)
+obj-$(CONFIG_KVM_BASE)	+= $(KVM)/kvm_base.o
+else
+kvm-y                   += $(KVM)/kvm_base.o
+endif
+
 obj-$(CONFIG_KVM)	+= kvm.o

@@ -20,6 +20,7 @@ if VIRTUALIZATION
 
 config KVM
 	tristate "Kernel-based Virtual Machine (KVM) support"
+	depends on !HAVE_KVM_SEPARATE_BASE || KVM_STANDLONE_BASE
 	depends on HAVE_KVM
 	depends on HIGH_RES_TIMERS
 	depends on X86_LOCAL_APIC
@@ -59,6 +60,17 @@ config KVM
 
 	  To compile this as a module, choose M here: the module
 	  will be called kvm.
+
+	  If unsure, say N.
+
+config KVM_STANDLONE_BASE
+	tristate "Allow multiple KVM instances"
+	depends on HAVE_KVM && !KVM_AMD
+	select USER_RETURN_NOTIFIER
+	select HAVE_KVM_SEPARATE_BASE
+	help
+	  To compile this as a module, choose M here: the module
+	  will be called kvm_base.
 
 	  If unsure, say N.
 
