@@ -801,27 +801,23 @@ static int intel_vgpu_open_device(struct vfio_device *vfio_dev)
 	if (vgpu->attached)
 		goto undo_iommu;
 
-	ret = -ESRCH;
-	if (!vgpu->vfio_device.kvm ||
-	    vgpu->vfio_device.kvm->mm != current->mm) {
-		gvt_vgpu_err("KVM is required to use Intel vGPU\n");
-		goto undo_iommu;
-	}
-
 	ret = -EEXIST;
 	if (__kvmgt_vgpu_exist(vgpu))
 		goto undo_iommu;
+
+	vgpu->track_node.track_write = kvmgt_page_track_write;
+	vgpu->track_node.track_remove_region = kvmgt_page_track_remove_region;
+	ret = kvm_page_track_register_notifier(vgpu->vfio_device.kvm,
+					       &vgpu->track_node);
+	if (ret) {
+		gvt_vgpu_err("KVM is required to use Intel vGPU\n");
+		goto undo_iommu;
+	}
 
 	vgpu->attached = true;
 
 	kvmgt_protect_table_init(vgpu);
 	gvt_cache_init(vgpu);
-
-	vgpu->track_node.track_write = kvmgt_page_track_write;
-	vgpu->track_node.track_remove_region = kvmgt_page_track_remove_region;
-	kvm_get_kvm(vgpu->vfio_device.kvm);
-	kvm_page_track_register_notifier(vgpu->vfio_device.kvm,
-					 &vgpu->track_node);
 
 	debugfs_create_ulong(KVMGT_DEBUGFS_FILENAME, 0444, vgpu->debugfs,
 			     &vgpu->nr_cache_entries);
@@ -872,7 +868,6 @@ static void intel_vgpu_close_device(struct vfio_device *vfio_dev)
 
 	kvm_page_track_unregister_notifier(vgpu->vfio_device.kvm,
 					   &vgpu->track_node);
-	kvm_put_kvm(vgpu->vfio_device.kvm);
 
 	kvmgt_protect_table_destroy(vgpu);
 	gvt_cache_destroy(vgpu);

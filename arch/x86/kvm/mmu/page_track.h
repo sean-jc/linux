@@ -27,4 +27,7 @@ void kvm_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 			  int bytes);
 void kvm_page_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot);
 
+void __kvm_page_track_register_notifier(struct kvm *kvm,
+                                        struct kvm_page_track_notifier_node *n);
+
 #endif /* __KVM_X86_PAGE_TRACK_H */
