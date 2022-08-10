@@ -7,8 +7,6 @@
  * Copyright 2010 Red Hat, Inc. and/or its affiliates.
  */
 
-#include <linux/kvm_types.h>
-#include <linux/kvm_host.h>
 #include <linux/kernel.h>
 #include <linux/highmem.h>
 #include <linux/psp-sev.h>
@@ -22,6 +20,7 @@
 #include <asm/trapnr.h>
 #include <asm/fpu/xcr.h>
 
+#include "kvm_host.h"
 #include "x86.h"
 #include "svm.h"
 #include "svm_ops.h"

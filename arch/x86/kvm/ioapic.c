@@ -27,7 +27,7 @@
  *  Based on Xen 3.1 code.
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/kvm.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>

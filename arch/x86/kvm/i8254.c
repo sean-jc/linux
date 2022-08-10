@@ -32,7 +32,7 @@
 
 #define pr_fmt(fmt) "pit: " fmt
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/slab.h>
 
 #include "ioapic.h"

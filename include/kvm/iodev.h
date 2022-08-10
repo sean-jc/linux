@@ -3,11 +3,11 @@
 #ifndef __KVM_IODEV_H__
 #define __KVM_IODEV_H__
 
-#include <linux/kvm_types.h>
 #include <linux/errno.h>
 
+#include "kvm_types.h"
+
 struct kvm_io_device;
-struct kvm_vcpu;
 
 /**
  * kvm_io_device_ops are called under kvm slots_lock.

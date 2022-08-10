@@ -11,7 +11,7 @@
  *   Xiao Guangrong <guangrong.xiao@linux.intel.com>
  */
 
-#include <linux/kvm_host.h>
+#include "kvm_host.h"
 #include <linux/rculist.h>
 
 #include <asm/kvm_page_track.h>

@@ -40,10 +40,9 @@
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
 
-#include <linux/kvm_types.h>
-
-#include <asm/kvm_host.h>
-#include <linux/kvm_dirty_ring.h>
+#include "kvm_types.h"
+#include "kvm_arch.h"
+#include "kvm_dirty_ring.h"
 
 #ifdef CONFIG_HAVE_KVM_VENDOR_MODULES
 #define KVM_EXPORT_SYMBOL_GPL(symbol) EXPORT_SYMBOL_GPL(symbol)
