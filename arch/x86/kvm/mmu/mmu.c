@@ -3576,8 +3576,13 @@ out_unlock:
 	return r;
 }
 
+static void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
+			      const u8 *new, int bytes,
+			      struct kvm_page_track_notifier_node *node);
+
 static int mmu_first_shadow_root_alloc(struct kvm *kvm)
 {
+	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *slot;
 	int r = 0, i, bkt;
@@ -3625,11 +3630,15 @@ static int mmu_first_shadow_root_alloc(struct kvm *kvm)
 		}
 	}
 
+out_success:
+	node->track_write = kvm_mmu_pte_write;
+	node->track_flush_slot = NULL;
+	kvm_page_track_register_notifier(kvm, node);
+
 	/*
 	 * Ensure that shadow_root_allocated becomes true strictly after
 	 * all the related pointers are set.
 	 */
-out_success:
 	smp_store_release(&kvm->arch.shadow_root_allocated, true);
 
 out_unlock:
@@ -5957,7 +5966,6 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 
 int kvm_mmu_init_vm(struct kvm *kvm)
 {
-	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
 	int r;
 
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
@@ -5968,10 +5976,6 @@ int kvm_mmu_init_vm(struct kvm *kvm)
 	r = kvm_mmu_init_tdp_mmu(kvm);
 	if (r < 0)
 		return r;
-
-	node->track_write = kvm_mmu_pte_write;
-	node->track_flush_slot = NULL;
-	kvm_page_track_register_notifier(kvm, node);
 
 	kvm->arch.split_page_header_cache.kmem_cache = mmu_page_header_cache;
 	kvm->arch.split_page_header_cache.gfp_zero = __GFP_ZERO;
