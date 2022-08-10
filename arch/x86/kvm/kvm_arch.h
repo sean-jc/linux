@@ -33,7 +33,7 @@
 #include <asm/msr-index.h>
 #include <asm/asm.h>
 #include <asm/kvm_page_track.h>
-#include <asm/kvm_vcpu_regs.h>
+#include "kvm_vcpu_regs.h"
 #include <asm/hyperv-tlfs.h>
 
 #define __KVM_HAVE_ARCH_VCPU_DEBUGFS
@@ -1682,7 +1682,7 @@ extern struct kvm_x86_ops kvm_x86_ops;
 	DECLARE_STATIC_CALL(kvm_x86_##func, *(((struct kvm_x86_ops *)0)->func));
 #define KVM_X86_OP_OPTIONAL KVM_X86_OP
 #define KVM_X86_OP_OPTIONAL_RET0 KVM_X86_OP
-#include <asm/kvm-x86-ops.h>
+#include "kvm-x86-ops.h"
 
 #define __KVM_HAVE_ARCH_VM_ALLOC
 static inline struct kvm *kvm_arch_alloc_vm(void)
