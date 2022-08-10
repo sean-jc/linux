@@ -30,6 +30,7 @@
 #include "hyperv.h"
 #include "lapic.h"
 #include "xen.h"
+#include "mmu/page_track.h"
 
 #include <linux/clocksource.h>
 #include <linux/interrupt.h>
