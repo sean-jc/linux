@@ -49,6 +49,7 @@ int kvm_page_track_register_notifier(struct kvm *kvm,
 void kvm_page_track_unregister_notifier(struct kvm *kvm,
 				        struct kvm_page_track_notifier_node *n);
 
+bool kvm_page_track_is_valid_gfn(struct kvm *kvm, gfn_t gfn);
 int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn);
 int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn);
 
