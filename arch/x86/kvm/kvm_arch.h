@@ -419,6 +419,8 @@ struct kvm_mmu_root_info {
 
 #define KVM_HAVE_MMU_RWLOCK
 
+#define KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE 40
+
 struct kvm_mmu_page;
 struct kvm_page_fault;
 
