@@ -78,7 +78,6 @@ struct gfn_to_pfn_cache {
 	bool valid;
 };
 
-#ifdef KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE
 /*
  * Memory caches are used to preallocate memory ahead of various MMU flows,
  * e.g. page fault handlers.  Gracefully handling allocation failures deep in
@@ -97,7 +96,6 @@ struct kvm_mmu_memory_cache {
 	int capacity;
 	void **objects;
 };
-#endif
 
 #define HALT_POLL_HIST_COUNT			32
 
