@@ -2,11 +2,12 @@
 #include <linux/linkage.h>
 #include <asm/asm.h>
 #include <asm/bitsperlong.h>
-#include <asm/kvm_vcpu_regs.h>
 #include <asm/nospec-branch.h>
 #include <asm/percpu.h>
 #include <asm/segment.h>
+
 #include "kvm-asm-offsets.h"
+#include "kvm_vcpu_regs.h"
 #include "run_flags.h"
 
 #define WORD_SIZE (BITS_PER_LONG / 8)
