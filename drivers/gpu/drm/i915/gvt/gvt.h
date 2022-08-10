@@ -174,6 +174,7 @@ struct intel_vgpu_submission {
 struct intel_vgpu {
 	struct intel_gvt *gvt;
 	struct mutex vgpu_lock;
+	struct mutex gfn_lock;
 	int id;
 	bool active;
 	bool attached;

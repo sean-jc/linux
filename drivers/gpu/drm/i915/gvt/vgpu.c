@@ -330,6 +330,7 @@ struct intel_vgpu *intel_gvt_create_idle_vgpu(struct intel_gvt *gvt)
 	vgpu->id = IDLE_VGPU_IDR;
 	vgpu->gvt = gvt;
 	mutex_init(&vgpu->vgpu_lock);
+	mutex_init(&vgpu->gfn_lock);
 
 	for (i = 0; i < I915_NUM_ENGINES; i++)
 		INIT_LIST_HEAD(&vgpu->submission.workload_q_head[i]);
