@@ -65,7 +65,7 @@ config KVM
 
 config KVM_STANDLONE_BASE
 	tristate "Allow multiple KVM instances"
-	depends on HAVE_KVM && !KVM_AMD
+	depends on HAVE_KVM && !KVM_AMD && !KEXEC_CORE
 	select USER_RETURN_NOTIFIER
 	select HAVE_KVM_SEPARATE_BASE
 	help
