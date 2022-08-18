@@ -5908,12 +5908,10 @@ vm_fault_t kvm_arch_vcpu_fault(struct kvm_vcpu *vcpu, struct vm_fault *vmf)
 
 static int kvm_vm_ioctl_set_tss_addr(struct kvm *kvm, unsigned long addr)
 {
-	int ret;
-
 	if (addr > (unsigned int)(-3 * PAGE_SIZE))
 		return -EINVAL;
-	ret = static_call(kvm_x86_set_tss_addr)(kvm, addr);
-	return ret;
+
+	return static_call(kvm_x86_set_tss_addr)(kvm, addr);
 }
 
 static int kvm_vm_ioctl_set_identity_map_addr(struct kvm *kvm,
