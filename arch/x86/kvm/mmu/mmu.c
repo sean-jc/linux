@@ -804,7 +804,7 @@ static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 
 void account_huge_nx_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
-	if (sp->lpage_disallowed)
+	if (KVM_BUG_ON(sp->lpage_disallowed, kvm))
 		return;
 
 	++kvm->stat.nx_lpage_splits;
