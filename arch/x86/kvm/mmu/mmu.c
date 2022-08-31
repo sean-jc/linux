@@ -2664,16 +2664,13 @@ int kvm_mmu_unprotect_page(struct kvm *kvm, gfn_t gfn)
 static int kvm_mmu_unprotect_page_virt(struct kvm_vcpu *vcpu, gva_t gva)
 {
 	gpa_t gpa;
-	int r;
 
 	if (vcpu->arch.mmu->root_role.direct)
 		return 0;
 
 	gpa = kvm_mmu_gva_to_gpa_read(vcpu, gva, NULL);
 
-	r = kvm_mmu_unprotect_page(vcpu->kvm, gpa >> PAGE_SHIFT);
-
-	return r;
+	return kvm_mmu_unprotect_page(vcpu->kvm, gpa >> PAGE_SHIFT);
 }
 
 static void kvm_unsync_page(struct kvm *kvm, struct kvm_mmu_page *sp)
