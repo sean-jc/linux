@@ -303,7 +303,6 @@ struct svm_cpu_data {
 	u32 min_asid;
 	struct kvm_ldttss_desc *tss_desc;
 
-	struct page *save_area;
 	struct vmcb *current_vmcb;
 
 	/* index = sev_asid, value = vmcb pointer */
@@ -311,6 +310,7 @@ struct svm_cpu_data {
 };
 
 DECLARE_PER_CPU(struct svm_cpu_data *, svm_data);
+DECLARE_PER_CPU(unsigned long, svm_host_save_area_pa);
 
 void recalc_intercepts(struct vcpu_svm *svm);
 

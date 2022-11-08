@@ -246,6 +246,7 @@ struct kvm_ldttss_desc {
 } __attribute__((packed));
 
 DEFINE_PER_CPU(struct svm_cpu_data *, svm_data);
+DEFINE_PER_CPU(unsigned long, svm_host_save_area_pa);
 
 /*
  * Only MSR_TSC_AUX is switched via the user return hook.  EFER is switched via
@@ -597,7 +598,7 @@ static int svm_hardware_enable(void)
 
 	wrmsrl(MSR_EFER, efer | EFER_SVME);
 
-	wrmsrl(MSR_VM_HSAVE_PA, __sme_page_pa(sd->save_area));
+	wrmsrl(MSR_VM_HSAVE_PA, per_cpu(svm_host_save_area_pa, me));
 
 	if (static_cpu_has(X86_FEATURE_TSCRATEMSR)) {
 		/*
@@ -653,12 +654,13 @@ static void svm_cpu_uninit(int cpu)
 
 	per_cpu(svm_data, cpu) = NULL;
 	kfree(sd->sev_vmcbs);
-	__free_page(sd->save_area);
+	__free_page(__sme_pa_to_page(per_cpu(svm_host_save_area_pa, cpu)));
 	kfree(sd);
 }
 
 static int svm_cpu_init(int cpu)
 {
+	struct page *host_save_area;
 	struct svm_cpu_data *sd;
 	int ret = -ENOMEM;
 
@@ -666,20 +668,20 @@ static int svm_cpu_init(int cpu)
 	if (!sd)
 		return ret;
 	sd->cpu = cpu;
-	sd->save_area = alloc_page(GFP_KERNEL | __GFP_ZERO);
-	if (!sd->save_area)
-		goto free_cpu_data;
 
 	ret = sev_cpu_init(sd);
 	if (ret)
-		goto free_save_area;
+		goto free_cpu_data;
+
+	host_save_area = alloc_page(GFP_KERNEL | __GFP_ZERO);
+	if (!host_save_area)
+		goto free_cpu_data;
 
 	per_cpu(svm_data, cpu) = sd;
+	per_cpu(svm_host_save_area_pa, cpu) = __sme_page_pa(host_save_area);
 
 	return 0;
 
-free_save_area:
-	__free_page(sd->save_area);
 free_cpu_data:
 	kfree(sd);
 	return ret;
@@ -1449,7 +1451,6 @@ static void svm_vcpu_free(struct kvm_vcpu *vcpu)
 static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-	struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
 
 	if (sev_es_guest(vcpu->kvm))
 		sev_es_unmap_ghcb(svm);
@@ -1461,10 +1462,13 @@ static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	 * Save additional host state that will be restored on VMEXIT (sev-es)
 	 * or subsequent vmload of host save area.
 	 */
-	vmsave(__sme_page_pa(sd->save_area));
+	vmsave(per_cpu(svm_host_save_area_pa, vcpu->cpu));
 	if (sev_es_guest(vcpu->kvm)) {
 		struct sev_es_save_area *hostsa;
-		hostsa = (struct sev_es_save_area *)(page_address(sd->save_area) + 0x400);
+		struct page *hostsa_page;
+
+		hostsa_page = __sme_pa_to_page(per_cpu(svm_host_save_area_pa, vcpu->cpu));
+		hostsa = (struct sev_es_save_area *)(page_address(hostsa_page) + 0x400);
 
 		sev_es_prepare_switch_to_guest(hostsa);
 	}
@@ -3920,8 +3924,6 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	if (sev_es_guest(vcpu->kvm)) {
 		__svm_sev_es_vcpu_run(vmcb_pa);
 	} else {
-		struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
-
 		/*
 		 * Use a single vmcb (vmcb01 because it's always valid) for
 		 * context switching guest state via VMLOAD/VMSAVE, that way
@@ -3932,7 +3934,7 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
 		vmsave(svm->vmcb01.pa);
 
-		vmload(__sme_page_pa(sd->save_area));
+		vmload(per_cpu(svm_host_save_area_pa, vcpu->cpu));
 	}
 
 	guest_state_exit_irqoff();
