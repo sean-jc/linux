@@ -12,6 +12,96 @@
 #include "kvm_util.h"
 #include "vmx.h"
 
+static void vmx_sec_exec_assert_allowed(struct kvm_vcpu *vcpu,
+					const char *name, uint64_t ctrl)
+{
+	TEST_ASSERT(vcpu_get_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2) & ctrl,
+		    "Expected '%s' to be allowed in sec exec controls", name);
+}
+
+static void vmx_sec_exec_assert_denied(struct kvm_vcpu *vcpu,
+				       const char *name, uint64_t ctrl)
+{
+	TEST_ASSERT(!(vcpu_get_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2) & ctrl),
+		    "Expected '%s' to be denied in sec exec controls", name);
+}
+
+static void vmx_sec_exec_control_test(struct kvm_vcpu *vcpu,
+				      const char *name,
+				      struct kvm_x86_cpu_feature feature,
+				      uint64_t ctrl, bool kvm_owned)
+{
+	/* Allowed-1 settings are in the upper 32 bits. */
+	ctrl <<= 32;
+
+	if (!this_cpu_has(feature))
+		return;
+
+	if (kvm_owned) {
+		vcpu_set_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_allowed(vcpu, name, ctrl);
+
+		vcpu_clear_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_denied(vcpu, name, ctrl);
+
+		/* Make sure KVM is actually toggling the bit. */
+		vcpu_set_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_allowed(vcpu, name, ctrl);
+	} else {
+		vcpu_set_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2,
+			     vcpu_get_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2) | ctrl);
+		vmx_sec_exec_assert_allowed(vcpu, name, ctrl);
+
+		vcpu_set_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_allowed(vcpu, name, ctrl);
+
+		vcpu_clear_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_allowed(vcpu, name, ctrl);
+
+		vcpu_set_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2,
+			     vcpu_get_msr(vcpu, MSR_IA32_VMX_PROCBASED_CTLS2) & ~ctrl);
+		vmx_sec_exec_assert_denied(vcpu, name, ctrl);
+
+		vcpu_set_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_denied(vcpu, name, ctrl);
+
+		vcpu_clear_cpuid_feature(vcpu, feature);
+		vmx_sec_exec_assert_denied(vcpu, name, ctrl);
+	}
+}
+
+#define vmx_sec_exec_feature_test(vcpu, name, kvm_owned)			\
+	vmx_sec_exec_control_test(vcpu, #name, X86_FEATURE_##name,		\
+				  SECONDARY_EXEC_ENABLE_##name, kvm_owned)
+
+#define vmx_sec_exec_exiting_test(vcpu, name, kvm_owned)			\
+	vmx_sec_exec_control_test(vcpu, #name, X86_FEATURE_##name,		\
+				  SECONDARY_EXEC_##name##_EXITING, kvm_owned)
+
+static void vmx_sec_exec_controls_test(struct kvm_vcpu *vcpu)
+{
+	int i;
+
+	if (this_cpu_has(X86_FEATURE_XSAVE))
+		vcpu_set_cpuid_feature(vcpu, X86_FEATURE_XSAVE);
+
+	if (this_cpu_has(X86_FEATURE_RDPID))
+		vcpu_clear_cpuid_feature(vcpu, X86_FEATURE_RDPID);
+
+	/*
+	 * Verify that for features KVM has historically taken control of, KVM
+	 * updates PROCBASED_CTLS2 during KVM_SET_CPUID if userspace has never
+	 * set the MSR, but leaves it alone once userspace writes the MSR.
+	 */
+	for (i = 0; i < 2; i++) {
+		vmx_sec_exec_feature_test(vcpu, XSAVES, !i);
+		vmx_sec_exec_feature_test(vcpu, RDTSCP, !i);
+		vmx_sec_exec_feature_test(vcpu, INVPCID, !i);
+		vmx_sec_exec_exiting_test(vcpu, RDRAND, !i);
+		vmx_sec_exec_exiting_test(vcpu, RDSEED, !i);
+	}
+}
+
 static void vmx_fixed1_msr_test(struct kvm_vcpu *vcpu, uint32_t msr_index,
 				  uint64_t mask)
 {
@@ -123,6 +213,8 @@ int main(void)
 
 	/* No need to actually do KVM_RUN, thus no guest code. */
 	vm = vm_create_with_one_vcpu(&vcpu, NULL);
+
+	vmx_sec_exec_controls_test(vcpu);
 
 	vmx_save_restore_msrs_test(vcpu);
 	ia32_feature_control_msr_test(vcpu);
