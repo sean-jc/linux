@@ -4456,9 +4456,12 @@ vmx_adjust_secondary_exec_control(struct vcpu_vmx *vmx, u32 *exec_control,
 
 	/*
 	 * Update the nested MSR settings so that a nested VMM can/can't set
-	 * controls for features that are/aren't exposed to the guest.
+	 * controls for features that are/aren't exposed to the guest.  Stuff
+	 * the MSR if and only if userspace hasn't explicitly set the MSR, i.e.
+	 * to avoid ABI breakage if userspace might be relying on KVM's flawed
+	 * behavior to expose features to L1.
 	 */
-	if (nested) {
+	if (nested && !vmx->nested.msrs.secondary_set_by_userspace) {
 		/*
 		 * All features that got grandfathered into KVM's flawed CPUID-
 		 * induced manipulation of VMX MSRs are unconditionally exposed

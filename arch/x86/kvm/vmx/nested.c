@@ -1271,6 +1271,9 @@ vmx_restore_control_msr(struct vcpu_vmx *vmx, u32 msr_index, u64 data)
 	if (!is_bitwise_subset(supported, data, GENMASK_ULL(63, 32)))
 		return -EINVAL;
 
+	if (msr_index == MSR_IA32_VMX_PROCBASED_CTLS2)
+		vmx->nested.msrs.secondary_set_by_userspace = true;
+
 	vmx_get_control_msr(&vmx->nested.msrs, msr_index, &lowp, &highp);
 	*lowp = data;
 	*highp = data >> 32;
