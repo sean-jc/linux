@@ -3678,11 +3678,14 @@ static int mmu_first_shadow_root_alloc(struct kvm *kvm)
 		}
 	}
 
+out_success:
+	/* Register KVM's page-tracker to react to guest writes to gPTEs. */
+	kvm_page_track_register_notifier(kvm, &kvm->arch.mmu_sp_tracker);
+
 	/*
 	 * Ensure that shadow_root_allocated becomes true strictly after
 	 * all the related pointers are set.
 	 */
-out_success:
 	smp_store_release(&kvm->arch.shadow_root_allocated, true);
 
 out_unlock:
@@ -6001,7 +6004,6 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 
 int kvm_mmu_init_vm(struct kvm *kvm)
 {
-	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
 	int r;
 
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
@@ -6013,8 +6015,7 @@ int kvm_mmu_init_vm(struct kvm *kvm)
 	if (r < 0)
 		return r;
 
-	node->track_write = kvm_mmu_pte_write;
-	kvm_page_track_register_notifier(kvm, node);
+	kvm->arch.mmu_sp_tracker.track_write = kvm_mmu_pte_write;
 
 	kvm->arch.split_page_header_cache.kmem_cache = mmu_page_header_cache;
 	kvm->arch.split_page_header_cache.gfp_zero = __GFP_ZERO;
@@ -6036,9 +6037,8 @@ static void mmu_free_vm_memory_caches(struct kvm *kvm)
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)
 {
-	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
-
-	kvm_page_track_unregister_notifier(kvm, node);
+	if (kvm_shadow_root_allocated(kvm))
+		kvm_page_track_unregister_notifier(kvm, &kvm->arch.mmu_sp_tracker);
 
 	kvm_mmu_uninit_tdp_mmu(kvm);
 
