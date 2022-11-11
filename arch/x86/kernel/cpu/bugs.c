@@ -2222,8 +2222,7 @@ static ssize_t l1tf_show_state(char *buf)
 
 static ssize_t itlb_multihit_show_state(char *buf)
 {
-	if (!boot_cpu_has(X86_FEATURE_MSR_IA32_FEAT_CTL) ||
-	    !boot_cpu_has(X86_FEATURE_VMX))
+	if (!boot_cpu_has(X86_FEATURE_VMX))
 		return sysfs_emit(buf, "KVM: Mitigation: VMX unsupported\n");
 	else if (!(cr4_read_shadow() & X86_CR4_VMXE))
 		return sysfs_emit(buf, "KVM: Mitigation: VMX disabled\n");
