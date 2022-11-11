@@ -117,8 +117,7 @@ void init_ia32_feat_ctl(struct cpuinfo_x86 *c)
 	u64 msr;
 
 	if (rdmsrl_safe(MSR_IA32_FEAT_CTL, &msr)) {
-		clear_cpu_cap(c, X86_FEATURE_VMX);
-		clear_cpu_cap(c, X86_FEATURE_SGX);
+		clear_cpu_cap(c, X86_FEATURE_MSR_IA32_FEAT_CTL);
 		return;
 	}
 
