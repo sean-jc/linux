@@ -77,6 +77,16 @@ kvm_page_track_register_notifier(struct kvm *kvm,
 void
 kvm_page_track_unregister_notifier(struct kvm *kvm,
 				   struct kvm_page_track_notifier_node *n);
+
+bool kvm_page_track_has_external_user(struct kvm *kvm);
+
+#else
+
+static inline bool kvm_page_track_has_external_user(struct kvm *kvm)
+{
+	return false;
+}
+
 #endif /* CONFIG_KVM_EXTERNAL_WRITE_TRACKING */
 
 #endif

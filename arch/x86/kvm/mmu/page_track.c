@@ -254,6 +254,12 @@ kvm_page_track_unregister_notifier(struct kvm *kvm,
 	synchronize_srcu(&head->track_srcu);
 }
 EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
+
+bool kvm_page_track_has_external_user(struct kvm *kvm)
+{
+	return hlist_empty(&kvm->arch.track_notifier_head.track_notifier_list);
+}
+
 #endif
 
 /*
