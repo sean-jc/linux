@@ -1887,6 +1887,12 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 
 	ppin_init(c);
 
+	/*
+	 * Apply CPUID dependencies to ensure dependent features are disabled
+	 * if a parent feature is unsupported but wasn't explicitly disabled.
+	 */
+	apply_cpuid_deps(c);
+
 	/* Init Machine Check Exception if available. */
 	mcheck_cpu_init(c);
 
