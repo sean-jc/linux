@@ -786,6 +786,80 @@ void set_msr_interception(struct kvm_vcpu *vcpu, u32 *msrpm, u32 msr,
 	set_msr_interception_bitmap(vcpu, msrpm, msr, read, write);
 }
 
+typedef void (*msr_bitop_t)(long nr, volatile unsigned long *addr);
+
+/*
+ * Wrap the double-underscore utilities, which are fancy macros that the
+ * compiler might not resolve to a single function on the first pass.
+ */
+static __always_inline void _set_bit(long nr, volatile unsigned long *addr)
+{
+	__set_bit(nr, addr);
+}
+static __always_inline void _clear_bit(long nr, volatile unsigned long *addr)
+{
+	__clear_bit(nr, addr);
+}
+
+static __always_inline void svm_toggle_intercept_for_msr(struct kvm_vcpu *vcpu,
+							 u32 msr, int type,
+							 msr_bitop_t msr_bitop)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	u8 bit_read, bit_write;
+	unsigned long tmp;
+	u32 offset;
+	int slot;
+
+	slot = direct_access_msr_slot(msr);
+	if (!WARN_ON(slot == -ENOENT)) {
+		/* Set the shadow bitmaps to the desired intercept states */
+		if (type & MSR_TYPE_R)
+			msr_bitop(slot, svm->shadow_msr_intercept.read);
+		if (type & MSR_TYPE_W)
+			msr_bitop(slot, svm->shadow_msr_intercept.write);
+	}
+
+	offset    = svm_msrpm_offset(msr);
+	bit_read  = 2 * (msr & 0x0f);
+	bit_write = 2 * (msr & 0x0f) + 1;
+	tmp       = svm->msrpm[offset];
+
+	BUG_ON(offset == MSR_INVALID);
+
+	if (type & MSR_TYPE_R)
+		msr_bitop(bit_read,  &tmp);
+	if (type & MSR_TYPE_W)
+		msr_bitop(bit_write, &tmp);
+
+	/*
+	 * Intercept MSRs that are disallowed by userspace even if KVM would
+	 * otherwise pass through the MSR.
+	 */
+	if ((type & MSR_TYPE_R) && !test_bit(bit_read, &tmp) &&
+	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_READ))
+		__set_bit(bit_read,  &tmp);
+
+	if ((type & MSR_TYPE_W) && !test_bit(bit_write, &tmp) &&
+	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_WRITE))
+		__set_bit(bit_write, &tmp);
+
+	svm->msrpm[offset] = tmp;
+
+	svm_hv_vmcb_dirty_nested_enlightenments(vcpu);
+	svm->nested.force_msr_bitmap_recalc = true;
+}
+
+void svm_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
+{
+	svm_toggle_intercept_for_msr(vcpu, msr, type, _set_bit);
+}
+
+void svm_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
+{
+	svm_toggle_intercept_for_msr(vcpu, msr, type, _clear_bit);
+}
+
 u32 *svm_vcpu_alloc_msrpm(void)
 {
 	unsigned int order = get_order(MSRPM_SIZE);
@@ -808,7 +882,8 @@ void svm_vcpu_init_msrpm(struct kvm_vcpu *vcpu, u32 *msrpm)
 	for (i = 0; direct_access_msrs[i].index != MSR_INVALID; i++) {
 		if (!direct_access_msrs[i].always)
 			continue;
-		set_msr_interception(vcpu, msrpm, direct_access_msrs[i].index, 1, 1);
+		svm_disable_intercept_for_msr(vcpu, direct_access_msrs[i].index,
+					      MSR_TYPE_RW);
 	}
 }
 
@@ -829,8 +904,8 @@ void svm_set_x2apic_msr_interception(struct vcpu_svm *svm, bool intercept)
 		if ((index < APIC_BASE_MSR) ||
 		    (index > APIC_BASE_MSR + 0xff))
 			continue;
-		set_msr_interception(&svm->vcpu, svm->msrpm, index,
-				     !intercept, !intercept);
+		svm_set_intercept_for_msr(&svm->vcpu, index, MSR_TYPE_RW,
+					  !intercept);
 	}
 
 	svm->x2avic_msrs_intercepted = intercept;
@@ -920,10 +995,10 @@ static void svm_enable_lbrv(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 
 	svm->vmcb->control.virt_ext |= LBR_CTL_ENABLE_MASK;
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTBRANCHFROMIP, 1, 1);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTBRANCHTOIP, 1, 1);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTFROMIP, 1, 1);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTTOIP, 1, 1);
+	svm_disable_intercept_for_msr(vcpu, MSR_IA32_LASTBRANCHFROMIP, MSR_TYPE_RW);
+	svm_disable_intercept_for_msr(vcpu, MSR_IA32_LASTBRANCHTOIP, MSR_TYPE_RW);
+	svm_disable_intercept_for_msr(vcpu, MSR_IA32_LASTINTFROMIP, MSR_TYPE_RW);
+	svm_disable_intercept_for_msr(vcpu, MSR_IA32_LASTINTTOIP, MSR_TYPE_RW);
 
 	/* Move the LBR msrs to the vmcb02 so that the guest can see them. */
 	if (is_guest_mode(vcpu))
@@ -935,10 +1010,10 @@ static void svm_disable_lbrv(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 
 	svm->vmcb->control.virt_ext &= ~LBR_CTL_ENABLE_MASK;
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTBRANCHFROMIP, 0, 0);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTBRANCHTOIP, 0, 0);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTFROMIP, 0, 0);
-	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTTOIP, 0, 0);
+	svm_enable_intercept_for_msr(vcpu, MSR_IA32_LASTBRANCHFROMIP, MSR_TYPE_RW);
+	svm_enable_intercept_for_msr(vcpu, MSR_IA32_LASTBRANCHTOIP, MSR_TYPE_RW);
+	svm_enable_intercept_for_msr(vcpu, MSR_IA32_LASTINTFROMIP, MSR_TYPE_RW);
+	svm_enable_intercept_for_msr(vcpu, MSR_IA32_LASTINTTOIP, MSR_TYPE_RW);
 
 	/*
 	 * Move the LBR msrs back to the vmcb01 to avoid copying them
@@ -1155,8 +1230,8 @@ static inline void init_vmcb_after_set_cpuid(struct kvm_vcpu *vcpu)
 		svm_set_intercept(svm, INTERCEPT_VMSAVE);
 		svm->vmcb->control.virt_ext &= ~VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
 
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 0, 0);
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 0, 0);
+		svm_enable_intercept_for_msr(vcpu, MSR_IA32_SYSENTER_EIP, MSR_TYPE_RW);
+		svm_enable_intercept_for_msr(vcpu, MSR_IA32_SYSENTER_ESP, MSR_TYPE_RW);
 
 		svm->v_vmload_vmsave_enabled = false;
 	} else {
@@ -1170,8 +1245,8 @@ static inline void init_vmcb_after_set_cpuid(struct kvm_vcpu *vcpu)
 			svm->vmcb->control.virt_ext |= VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
 		}
 		/* No need to intercept these MSRs */
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 1, 1);
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 1, 1);
+		svm_disable_intercept_for_msr(vcpu, MSR_IA32_SYSENTER_EIP, MSR_TYPE_RW);
+		svm_disable_intercept_for_msr(vcpu, MSR_IA32_SYSENTER_ESP, MSR_TYPE_RW);
 	}
 }
 
@@ -1301,7 +1376,7 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 	 * of MSR_IA32_SPEC_CTRL.
 	 */
 	if (boot_cpu_has(X86_FEATURE_V_SPEC_CTRL))
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
+		svm_disable_intercept_for_msr(vcpu, MSR_IA32_SPEC_CTRL, MSR_TYPE_RW);
 
 	if (kvm_vcpu_apicv_active(vcpu))
 		avic_init_vmcb(svm, vmcb);
@@ -2935,7 +3010,8 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		 * We update the L1 MSR bit as well since it will end up
 		 * touching the MSR anyway now.
 		 */
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
+		svm_disable_intercept_for_msr(vcpu, MSR_IA32_SPEC_CTRL,
+					      MSR_TYPE_RW);
 		break;
 	case MSR_IA32_PRED_CMD:
 		if (!msr->host_initiated &&
