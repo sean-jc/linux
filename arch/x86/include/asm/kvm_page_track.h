@@ -52,6 +52,7 @@ void kvm_page_track_unregister_notifier(struct kvm *kvm,
 bool kvm_page_track_is_valid_gfn(struct kvm *kvm, gfn_t gfn);
 int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn);
 int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn);
+enum pg_level kvm_page_track_max_mapping_level(struct kvm *kvm, gfn_t gfn);
 
 #endif /* CONFIG_KVM_EXTERNAL_WRITE_TRACKING */
 

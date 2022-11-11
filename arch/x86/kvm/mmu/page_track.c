@@ -267,6 +267,24 @@ int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_write_track_remove_gfn);
+
+enum pg_level kvm_page_track_max_mapping_level(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot;
+	int max_level, idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot || slot->flags & KVM_MEMSLOT_INVALID)
+		max_level = PG_LEVEL_4K;
+	else
+		max_level = kvm_mmu_max_mapping_level(kvm, slot, gfn,
+						      KVM_MAX_HUGEPAGE_LEVEL);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return max_level;
+}
+EXPORT_SYMBOL_GPL(kvm_page_track_max_mapping_level);
 #endif
 
 /*
