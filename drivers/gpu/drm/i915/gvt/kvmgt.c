@@ -352,6 +352,8 @@ __kvmgt_protect_table_find(struct intel_vgpu *info, gfn_t gfn)
 {
 	struct kvmgt_pgfn *p, *res = NULL;
 
+	lockdep_assert_held(&info->gfn_lock);
+
 	hash_for_each_possible(info->ptable, p, hnode, gfn) {
 		if (gfn == p->gfn) {
 			res = p;
@@ -373,6 +375,8 @@ static bool kvmgt_gfn_is_write_protected(struct intel_vgpu *info, gfn_t gfn)
 static void kvmgt_protect_table_add(struct intel_vgpu *info, gfn_t gfn)
 {
 	struct kvmgt_pgfn *p;
+
+	lockdep_assert_held(&info->gfn_lock);
 
 	if (kvmgt_gfn_is_write_protected(info, gfn))
 		return;
@@ -1549,60 +1553,68 @@ int intel_gvt_page_track_add(struct intel_vgpu *info, u64 gfn)
 {
 	struct kvm *kvm = info->vfio_device.kvm;
 	struct kvm_memory_slot *slot;
-	int idx;
+	int idx, ret = 0;
 
 	if (!info->attached)
 		return -ESRCH;
+
+	mutex_lock(&info->gfn_lock);
+
+	if (kvmgt_gfn_is_write_protected(info, gfn))
+		goto out;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	slot = gfn_to_memslot(kvm, gfn);
 	if (!slot) {
 		srcu_read_unlock(&kvm->srcu, idx);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	write_lock(&kvm->mmu_lock);
-
-	if (kvmgt_gfn_is_write_protected(info, gfn))
-		goto out;
-
 	kvm_slot_page_track_add_page(kvm, slot, gfn, KVM_PAGE_TRACK_WRITE);
-	kvmgt_protect_table_add(info, gfn);
-
-out:
 	write_unlock(&kvm->mmu_lock);
+
 	srcu_read_unlock(&kvm->srcu, idx);
-	return 0;
+
+	kvmgt_protect_table_add(info, gfn);
+out:
+	mutex_unlock(&info->gfn_lock);
+	return ret;
 }
 
 int intel_gvt_page_track_remove(struct intel_vgpu *info, u64 gfn)
 {
 	struct kvm *kvm = info->vfio_device.kvm;
 	struct kvm_memory_slot *slot;
-	int idx;
+	int idx, ret = 0;
 
 	if (!info->attached)
 		return 0;
+
+	mutex_lock(&info->gfn_lock);
+
+	if (!kvmgt_gfn_is_write_protected(info, gfn))
+		goto out;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	slot = gfn_to_memslot(kvm, gfn);
 	if (!slot) {
 		srcu_read_unlock(&kvm->srcu, idx);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	write_lock(&kvm->mmu_lock);
-
-	if (!kvmgt_gfn_is_write_protected(info, gfn))
-		goto out;
-
 	kvm_slot_page_track_remove_page(kvm, slot, gfn, KVM_PAGE_TRACK_WRITE);
+	write_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
 	kvmgt_protect_table_del(info, gfn);
 
 out:
-	write_unlock(&kvm->mmu_lock);
-	srcu_read_unlock(&kvm->srcu, idx);
-	return 0;
+	mutex_unlock(&info->gfn_lock);
+	return ret;
 }
 
 static void kvmgt_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa,
@@ -1613,11 +1625,13 @@ static void kvmgt_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 		container_of(node, struct intel_vgpu, track_node);
 
 	mutex_lock(&info->vgpu_lock);
+	mutex_lock(&info->gfn_lock);
 
 	if (kvmgt_gfn_is_write_protected(info, gpa_to_gfn(gpa)))
 		intel_vgpu_page_track_handler(info, gpa,
 						     (void *)val, len);
 
+	mutex_unlock(&info->gfn_lock);
 	mutex_unlock(&info->vgpu_lock);
 }
 
@@ -1630,16 +1644,19 @@ static void kvmgt_page_track_flush_slot(struct kvm *kvm,
 	struct intel_vgpu *info =
 		container_of(node, struct intel_vgpu, track_node);
 
-	write_lock(&kvm->mmu_lock);
+	mutex_lock(&info->gfn_lock);
 	for (i = 0; i < slot->npages; i++) {
 		gfn = slot->base_gfn + i;
 		if (kvmgt_gfn_is_write_protected(info, gfn)) {
+			write_lock(&kvm->mmu_lock);
 			kvm_slot_page_track_remove_page(kvm, slot, gfn,
 						KVM_PAGE_TRACK_WRITE);
+			write_unlock(&kvm->mmu_lock);
+
 			kvmgt_protect_table_del(info, gfn);
 		}
 	}
-	write_unlock(&kvm->mmu_lock);
+	mutex_unlock(&info->gfn_lock);
 }
 
 void intel_vgpu_detach_regions(struct intel_vgpu *vgpu)

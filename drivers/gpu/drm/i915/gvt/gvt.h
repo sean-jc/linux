@@ -176,6 +176,7 @@ struct intel_vgpu {
 	struct vfio_device vfio_device;
 	struct intel_gvt *gvt;
 	struct mutex vgpu_lock;
+	struct mutex gfn_lock;
 	int id;
 	bool active;
 	bool attached;
