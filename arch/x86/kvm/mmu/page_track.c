@@ -196,21 +196,28 @@ bool kvm_slot_page_track_is_active(struct kvm *kvm,
 
 void kvm_page_track_cleanup(struct kvm *kvm)
 {
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head *head;
 
 	head = &kvm->arch.track_notifier_head;
 	cleanup_srcu_struct(&head->track_srcu);
+#endif
 }
 
 int kvm_page_track_init(struct kvm *kvm)
 {
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head *head;
 
 	head = &kvm->arch.track_notifier_head;
 	INIT_HLIST_HEAD(&head->track_notifier_list);
 	return init_srcu_struct(&head->track_srcu);
+#else
+	return 0;
+#endif
 }
 
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 /*
  * register the notifier so that event interception for the tracked guest
  * pages can be received.
@@ -247,6 +254,7 @@ kvm_page_track_unregister_notifier(struct kvm *kvm,
 	synchronize_srcu(&head->track_srcu);
 }
 EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
+#endif
 
 /*
  * Notify the node that write access is intercepted and write emulation is
@@ -258,6 +266,7 @@ EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
 void kvm_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 			  int bytes)
 {
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head *head;
 	struct kvm_page_track_notifier_node *n;
 	int idx;
@@ -273,7 +282,7 @@ void kvm_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 		if (n->track_write)
 			n->track_write(gpa, new, bytes, n);
 	srcu_read_unlock(&head->track_srcu, idx);
-
+#endif
 	kvm_mmu_track_write(vcpu, gpa, new, bytes);
 }
 
@@ -286,6 +295,7 @@ void kvm_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
  */
 void kvm_page_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head *head;
 	struct kvm_page_track_notifier_node *n;
 	int idx;
@@ -301,4 +311,5 @@ void kvm_page_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot)
 		if (n->track_flush_slot)
 			n->track_flush_slot(kvm, slot, n);
 	srcu_read_unlock(&head->track_srcu, idx);
+#endif
 }
