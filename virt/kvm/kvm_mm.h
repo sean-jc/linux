@@ -3,6 +3,8 @@
 #ifndef __KVM_MM_H__
 #define __KVM_MM_H__ 1
 
+#include "kvm_arch.h"
+
 /*
  * Architectures can choose whether to use an rwlock or spinlock
  * for the mmu_lock.  These macros, for use in common code
