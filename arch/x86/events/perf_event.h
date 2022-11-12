@@ -729,6 +729,8 @@ enum hybrid_pmu_type {
 
 #define X86_HYBRID_NUM_PMUS		2
 
+struct kvm_pmu_state;
+
 /*
  * struct x86_pmu - generic x86 pmu
  */
@@ -916,7 +918,8 @@ struct x86_pmu {
 	/*
 	 * Intel host/guest support (KVM)
 	 */
-	struct perf_guest_switch_msr *(*guest_get_msrs)(int *nr, void *data);
+	struct perf_guest_switch_msr *(*guest_get_msrs)(int *nr,
+							struct kvm_pmu_state *kvm_pmu);
 
 	/*
 	 * Check period value for PERF_EVENT_IOC_PERIOD ioctl.

@@ -41,6 +41,7 @@
 #include <asm/io.h>
 #include <asm/irq_remapping.h>
 #include <asm/kexec.h>
+#include <asm/kvm_pmu.h>
 #include <asm/perf_event.h>
 #include <asm/mmu_context.h>
 #include <asm/mshyperv.h>
@@ -6976,13 +6977,18 @@ static void atomic_switch_perf_msrs(struct vcpu_vmx *vmx)
 	int i, nr_msrs;
 	struct perf_guest_switch_msr *msrs;
 	struct kvm_pmu *pmu = vcpu_to_pmu(&vmx->vcpu);
+	struct kvm_pmu_state state;
 
 	pmu->host_cross_mapped_mask = 0;
 	if (pmu->pebs_enable & pmu->global_ctrl)
 		intel_pmu_cross_mapped_check(pmu);
 
+	state.ds_area = pmu->ds_area;
+	state.pebs_data_cfg = pmu->pebs_data_cfg;
+	state.host_cross_mapped_mask = pmu->host_cross_mapped_mask;
+
 	/* Note, nr_msrs may be garbage if perf_guest_get_msrs() returns NULL. */
-	msrs = perf_guest_get_msrs(&nr_msrs, (void *)pmu);
+	msrs = perf_guest_get_msrs(&nr_msrs, &state);
 	if (!msrs)
 		return;
 
