@@ -2886,9 +2886,11 @@ static bool kvm_is_ad_tracked_page(struct page *page)
 {
 	/*
 	 * Per page-flags.h, pages tagged PG_reserved "should in general not be
-	 * touched (e.g. set dirty) except by its owner".
+	 * touched (e.g. set dirty) except by its owner".  SLAB memory, i.e.
+	 * kernel memory, is also not access tracked, but can be mapped into
+	 * userspace and thus the guest.
 	 */
-	return !PageReserved(page);
+	return !PageReserved(page) && !PageSlab(page);
 }
 
 static void kvm_set_page_dirty(struct page *page)
