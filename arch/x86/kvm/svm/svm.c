@@ -272,8 +272,8 @@ u32 svm_msrpm_offset(u32 msr)
 		offset  = (msr - msrpm_ranges[i]) / 4; /* 4 msrs per u8 */
 		offset += (i * MSRS_RANGE_SIZE);       /* add range offset */
 
-		/* Now we have the u8 offset - but need the u32 offset */
-		return offset / 4;
+		/* Now we have the u8 offset - but need the ulong offset */
+		return offset / sizeof(unsigned long);
 	}
 
 	/* MSR not in any range */
@@ -676,9 +676,9 @@ free_save_area:
 static bool msr_write_intercepted(struct kvm_vcpu *vcpu, u32 msr)
 {
 	u8 bit_write;
+	unsigned long *msrpm;
 	unsigned long tmp;
 	u32 offset;
-	u32 *msrpm;
 
 	/*
 	 * For non-nested case:
@@ -775,11 +775,11 @@ void svm_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	svm_toggle_intercept_for_msr(vcpu, msr, type, _clear_bit);
 }
 
-u32 *svm_vcpu_alloc_msrpm(void)
+unsigned long *svm_vcpu_alloc_msrpm(void)
 {
 	unsigned int order = get_order(MSRPM_SIZE);
 	struct page *pages = alloc_pages(GFP_KERNEL_ACCOUNT, order);
-	u32 *msrpm;
+	unsigned long *msrpm;
 
 	if (!pages)
 		return NULL;
@@ -790,7 +790,7 @@ u32 *svm_vcpu_alloc_msrpm(void)
 	return msrpm;
 }
 
-void svm_vcpu_init_msrpm(struct kvm_vcpu *vcpu, u32 *msrpm)
+void svm_vcpu_init_msrpm(struct kvm_vcpu *vcpu, unsigned long *msrpm)
 {
 	svm_disable_intercept_for_msr(vcpu, MSR_STAR, MSR_TYPE_RW);
 	svm_disable_intercept_for_msr(vcpu, MSR_IA32_SYSENTER_CS, MSR_TYPE_RW);
@@ -831,7 +831,7 @@ void svm_set_x2apic_msr_interception(struct vcpu_svm *svm, bool intercept)
 	svm->x2avic_msrs_intercepted = intercept;
 }
 
-void svm_vcpu_free_msrpm(u32 *msrpm)
+void svm_vcpu_free_msrpm(unsigned long *msrpm)
 {
 	__free_pages(virt_to_page(msrpm), get_order(MSRPM_SIZE));
 }
