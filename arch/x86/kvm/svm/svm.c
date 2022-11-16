@@ -673,18 +673,6 @@ free_save_area:
 
 }
 
-static int direct_access_msr_slot(u32 msr)
-{
-	u32 i;
-
-	for (i = 0; i < ARRAY_SIZE(direct_access_msrs); i++) {
-		if (direct_access_msrs[i] == msr)
-			return i;
-	}
-
-	return -ENOENT;
-}
-
 static bool msr_write_intercepted(struct kvm_vcpu *vcpu, u32 msr)
 {
 	u8 bit_write;
@@ -738,7 +726,7 @@ static __always_inline void svm_toggle_intercept_for_msr(struct kvm_vcpu *vcpu,
 	u32 offset;
 	int slot;
 
-	slot = direct_access_msr_slot(msr);
+	slot = kvm_passthrough_msr_slot(msr);
 	if (!WARN_ON(slot == -ENOENT)) {
 		/* Set the shadow bitmaps to the desired intercept states */
 		if (type & MSR_TYPE_R)
@@ -4840,6 +4828,8 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 
 	.apic_init_signal_blocked = svm_apic_init_signal_blocked,
 
+	.possible_passthrough_msrs = direct_access_msrs,
+	.nr_possible_passthrough_msrs = ARRAY_SIZE(direct_access_msrs),
 	.msr_filter_changed = svm_msr_filter_changed,
 	.complete_emulated_msr = svm_complete_emulated_msr,
 

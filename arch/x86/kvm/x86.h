@@ -453,6 +453,7 @@ int kvm_handle_invpcid(struct kvm_vcpu *vcpu, unsigned long type, gva_t gva);
 #define MSR_TYPE_RW	(MSR_TYPE_R | MSR_TYPE_W)
 
 bool kvm_msr_allowed(struct kvm_vcpu *vcpu, u32 index, u32 type);
+int kvm_passthrough_msr_slot(u32 msr);
 
 /*
  * Internal error codes that are used to indicate that MSR emulation encountered

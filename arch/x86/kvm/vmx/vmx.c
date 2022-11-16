@@ -607,17 +607,6 @@ static inline bool cpu_need_virtualize_apic_accesses(struct kvm_vcpu *vcpu)
 	return flexpriority_enabled && lapic_in_kernel(vcpu);
 }
 
-static int possible_passthrough_msr_slot(u32 msr)
-{
-	u32 i;
-
-	for (i = 0; i < ARRAY_SIZE(vmx_possible_passthrough_msrs); i++)
-		if (vmx_possible_passthrough_msrs[i] == msr)
-			return i;
-
-	return -ENOENT;
-}
-
 static bool is_valid_passthrough_msr(u32 msr)
 {
 	bool r;
@@ -643,7 +632,7 @@ static bool is_valid_passthrough_msr(u32 msr)
 		return true;
 	}
 
-	r = possible_passthrough_msr_slot(msr) != -ENOENT;
+	r = kvm_passthrough_msr_slot(msr) != -ENOENT;
 
 	WARN(!r, "Invalid MSR %x, please adapt vmx_possible_passthrough_msrs[]", msr);
 
@@ -3859,7 +3848,7 @@ void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	 * for resync when the MSR filters change.
 	*/
 	if (is_valid_passthrough_msr(msr)) {
-		int idx = possible_passthrough_msr_slot(msr);
+		int idx = kvm_passthrough_msr_slot(msr);
 
 		if (idx != -ENOENT) {
 			if (type & MSR_TYPE_R)
@@ -3903,7 +3892,7 @@ void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	 * for resync when the MSR filter changes.
 	*/
 	if (is_valid_passthrough_msr(msr)) {
-		int idx = possible_passthrough_msr_slot(msr);
+		int idx = kvm_passthrough_msr_slot(msr);
 
 		if (idx != -ENOENT) {
 			if (type & MSR_TYPE_R)
@@ -8166,6 +8155,8 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.apic_init_signal_blocked = vmx_apic_init_signal_blocked,
 	.migrate_timers = vmx_migrate_timers,
 
+	.possible_passthrough_msrs = vmx_possible_passthrough_msrs,
+	.nr_possible_passthrough_msrs = ARRAY_SIZE(vmx_possible_passthrough_msrs),
 	.msr_filter_changed = vmx_msr_filter_changed,
 	.complete_emulated_msr = kvm_complete_insn_gp,
 
