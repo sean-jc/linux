@@ -675,7 +675,7 @@ free_save_area:
 
 static bool msr_write_intercepted(struct kvm_vcpu *vcpu, u32 msr)
 {
-	u8 bit_write;
+	u8 write_bit;
 	unsigned long *msrpm;
 	unsigned long tmp;
 	u32 offset;
@@ -693,12 +693,12 @@ static bool msr_write_intercepted(struct kvm_vcpu *vcpu, u32 msr)
 				      to_svm(vcpu)->msrpm;
 
 	offset    = svm_msrpm_offset(msr);
-	bit_write = 2 * (msr & 0x0f) + 1;
+	write_bit = 2 * (msr & 0x0f) + 1;
 	tmp       = msrpm[offset];
 
 	BUG_ON(offset == MSR_INVALID);
 
-	return !!test_bit(bit_write,  &tmp);
+	return !!test_bit(write_bit,  &tmp);
 }
 
 typedef void (*msr_bitop_t)(long nr, volatile unsigned long *addr);
@@ -716,14 +716,29 @@ static __always_inline void _clear_bit(long nr, volatile unsigned long *addr)
 	__clear_bit(nr, addr);
 }
 
+static void svm_get_msr_bitmap_entries(struct kvm_vcpu *vcpu, u32 msr,
+				       unsigned long **read_map, u8 *read_bit,
+				       unsigned long **write_map, u8 *write_bit)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	u32 offset;
+
+	offset     = svm_msrpm_offset(msr);
+	*read_bit  = 2 * (msr & 0x0f);
+	*write_bit = 2 * (msr & 0x0f) + 1;
+	BUG_ON(offset == MSR_INVALID);
+
+	*read_map = &svm->msrpm[offset];
+	*write_map = &svm->msrpm[offset];
+}
+
 static __always_inline void svm_toggle_intercept_for_msr(struct kvm_vcpu *vcpu,
 							 u32 msr, int type,
 							 msr_bitop_t msr_bitop)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-	u8 bit_read, bit_write;
-	unsigned long tmp;
-	u32 offset;
+	u8 read_bit, write_bit;
+	unsigned long *read_map, *write_map;
 	int slot;
 
 	slot = kvm_passthrough_msr_slot(msr);
@@ -735,31 +750,25 @@ static __always_inline void svm_toggle_intercept_for_msr(struct kvm_vcpu *vcpu,
 			msr_bitop(slot, vcpu->arch.shadow_msr_intercept.write);
 	}
 
-	offset    = svm_msrpm_offset(msr);
-	bit_read  = 2 * (msr & 0x0f);
-	bit_write = 2 * (msr & 0x0f) + 1;
-	tmp       = svm->msrpm[offset];
-
-	BUG_ON(offset == MSR_INVALID);
+	svm_get_msr_bitmap_entries(vcpu, msr, &read_map, &read_bit,
+				   &write_map, &write_bit);
 
 	if (type & MSR_TYPE_R)
-		msr_bitop(bit_read,  &tmp);
+		msr_bitop(read_bit,  read_map);
 	if (type & MSR_TYPE_W)
-		msr_bitop(bit_write, &tmp);
+		msr_bitop(write_bit, write_map);
 
 	/*
 	 * Intercept MSRs that are disallowed by userspace even if KVM would
 	 * otherwise pass through the MSR.
 	 */
-	if ((type & MSR_TYPE_R) && !test_bit(bit_read, &tmp) &&
+	if ((type & MSR_TYPE_R) && !test_bit(read_bit, read_map) &&
 	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_READ))
-		__set_bit(bit_read,  &tmp);
+		__set_bit(read_bit, read_map);
 
-	if ((type & MSR_TYPE_W) && !test_bit(bit_write, &tmp) &&
+	if ((type & MSR_TYPE_W) && !test_bit(write_bit, write_map) &&
 	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_WRITE))
-		__set_bit(bit_write, &tmp);
-
-	svm->msrpm[offset] = tmp;
+		__set_bit(write_bit, write_map);
 
 	svm_hv_vmcb_dirty_nested_enlightenments(vcpu);
 	svm->nested.force_msr_bitmap_recalc = true;
