@@ -443,6 +443,15 @@ bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4);
 int kvm_handle_memory_failure(struct kvm_vcpu *vcpu, int r,
 			      struct x86_exception *e);
 int kvm_handle_invpcid(struct kvm_vcpu *vcpu, unsigned long type, gva_t gva);
+
+/*
+ * These don't strictly need to match the "filter" versions, but keeping them
+ * the same reduces the probability of a typo leading to a real bug.
+ */
+#define MSR_TYPE_R	KVM_MSR_FILTER_READ
+#define MSR_TYPE_W	KVM_MSR_FILTER_WRITE
+#define MSR_TYPE_RW	(MSR_TYPE_R | MSR_TYPE_W)
+
 bool kvm_msr_allowed(struct kvm_vcpu *vcpu, u32 index, u32 type);
 
 /*
