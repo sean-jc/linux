@@ -161,7 +161,7 @@ module_param(allow_smaller_maxphyaddr, bool, S_IRUGO);
  * List of MSRs that can be directly passed to the guest.
  * In addition to these x2apic and PT MSRs are handled specially.
  */
-static const u32 vmx_possible_passthrough_msrs[MAX_POSSIBLE_PASSTHROUGH_MSRS] = {
+static const u32 vmx_possible_passthrough_msrs[] = {
 	MSR_IA32_SPEC_CTRL,
 	MSR_IA32_PRED_CMD,
 	MSR_IA32_TSC,
@@ -3852,9 +3852,9 @@ void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 
 		if (idx != -ENOENT) {
 			if (type & MSR_TYPE_R)
-				__clear_bit(idx, vmx->shadow_msr_intercept.read);
+				__clear_bit(idx, vcpu->arch.shadow_msr_intercept.read);
 			if (type & MSR_TYPE_W)
-				__clear_bit(idx, vmx->shadow_msr_intercept.write);
+				__clear_bit(idx, vcpu->arch.shadow_msr_intercept.write);
 		}
 	}
 
@@ -3896,9 +3896,9 @@ void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 
 		if (idx != -ENOENT) {
 			if (type & MSR_TYPE_R)
-				__set_bit(idx, vmx->shadow_msr_intercept.read);
+				__set_bit(idx, vcpu->arch.shadow_msr_intercept.read);
 			if (type & MSR_TYPE_W)
-				__set_bit(idx, vmx->shadow_msr_intercept.write);
+				__set_bit(idx, vcpu->arch.shadow_msr_intercept.write);
 		}
 	}
 
@@ -4005,27 +4005,6 @@ static bool vmx_guest_apic_has_interrupt(struct kvm_vcpu *vcpu)
 
 static void vmx_msr_filter_changed(struct kvm_vcpu *vcpu)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	u32 i;
-
-	/*
-	 * Redo intercept permissions for MSRs that KVM is passing through to
-	 * the guest.  Disabling interception will check the new MSR filter and
-	 * ensure that KVM enables interception if usersepace wants to filter
-	 * the MSR.  MSRs that KVM is already intercepting don't need to be
-	 * refreshed since KVM is going to intercept them regardless of what
-	 * userspace wants.
-	 */
-	for (i = 0; i < ARRAY_SIZE(vmx_possible_passthrough_msrs); i++) {
-		u32 msr = vmx_possible_passthrough_msrs[i];
-
-		if (!test_bit(i, vmx->shadow_msr_intercept.read))
-			vmx_disable_intercept_for_msr(vcpu, msr, MSR_TYPE_R);
-
-		if (!test_bit(i, vmx->shadow_msr_intercept.write))
-			vmx_disable_intercept_for_msr(vcpu, msr, MSR_TYPE_W);
-	}
-
 	/* PT MSRs can be passed through iff PT is exposed to the guest. */
 	if (vmx_pt_mode_is_host_guest())
 		pt_update_intercept_for_msr(vcpu);
@@ -7318,10 +7297,6 @@ static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
 		evmcs->hv_enlightenments_control.msr_bitmap = 1;
 	}
 
-	/* The MSR bitmap starts with all ones */
-	bitmap_fill(vmx->shadow_msr_intercept.read, MAX_POSSIBLE_PASSTHROUGH_MSRS);
-	bitmap_fill(vmx->shadow_msr_intercept.write, MAX_POSSIBLE_PASSTHROUGH_MSRS);
-
 	vmx_disable_intercept_for_msr(vcpu, MSR_IA32_TSC, MSR_TYPE_R);
 #ifdef CONFIG_X86_64
 	vmx_disable_intercept_for_msr(vcpu, MSR_FS_BASE, MSR_TYPE_RW);
@@ -8157,6 +8132,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 
 	.possible_passthrough_msrs = vmx_possible_passthrough_msrs,
 	.nr_possible_passthrough_msrs = ARRAY_SIZE(vmx_possible_passthrough_msrs),
+	.disable_intercept_for_msr = vmx_disable_intercept_for_msr,
 	.msr_filter_changed = vmx_msr_filter_changed,
 	.complete_emulated_msr = kvm_complete_insn_gp,
 
