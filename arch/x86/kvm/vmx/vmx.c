@@ -3833,76 +3833,44 @@ static void vmx_msr_bitmap_l01_changed(struct vcpu_vmx *vmx)
 	vmx->nested.force_msr_bitmap_recalc = true;
 }
 
+static void vmx_get_msr_bitmap_entries(struct kvm_vcpu *vcpu, u32 msr,
+				       unsigned long **read_map, u8 *read_bit,
+				       unsigned long **write_map, u8 *write_bit)
+{
+	unsigned long *bitmap = to_vmx(vcpu)->vmcs01.msr_bitmap;
+	u32 offset;
+
+	*read_bit = *write_bit = msr & 0x1fff;
+
+	if (msr <= 0x1fff)
+		offset = 0;
+	else if ((msr >= 0xc0000000) && (msr <= 0xc0001fff))
+		offset = 0x400;
+	else
+		BUG();
+
+	*read_map = bitmap + (0 + offset) / sizeof(unsigned long);
+	*write_map = bitmap + (0x800 + offset) / sizeof(unsigned long);
+}
+
 void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
-	int idx;
-
 	if (!is_valid_passthrough_msr(msr) || !cpu_has_vmx_msr_bitmap())
 		return;
 
-	vmx_msr_bitmap_l01_changed(vmx);
+	kvm_disable_intercept_for_msr(vcpu, msr, type);
 
-	/*
-	 * Mark the desired intercept state in shadow bitmap, this is needed
-	 * for resync when the MSR filters change.
-	*/
-	idx = kvm_passthrough_msr_slot(msr);
-	if (idx != -ENOENT) {
-		if (type & MSR_TYPE_R)
-			__clear_bit(idx, vcpu->arch.shadow_msr_intercept.read);
-		if (type & MSR_TYPE_W)
-			__clear_bit(idx, vcpu->arch.shadow_msr_intercept.write);
-	}
-
-	if ((type & MSR_TYPE_R) &&
-	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_READ)) {
-		vmx_set_msr_bitmap_read(msr_bitmap, msr);
-		type &= ~MSR_TYPE_R;
-	}
-
-	if ((type & MSR_TYPE_W) &&
-	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_WRITE)) {
-		vmx_set_msr_bitmap_write(msr_bitmap, msr);
-		type &= ~MSR_TYPE_W;
-	}
-
-	if (type & MSR_TYPE_R)
-		vmx_clear_msr_bitmap_read(msr_bitmap, msr);
-
-	if (type & MSR_TYPE_W)
-		vmx_clear_msr_bitmap_write(msr_bitmap, msr);
+	vmx_msr_bitmap_l01_changed(to_vmx(vcpu));
 }
 
 void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
-	int idx;
-
 	if (!is_valid_passthrough_msr(msr) || !cpu_has_vmx_msr_bitmap())
 		return;
 
-	vmx_msr_bitmap_l01_changed(vmx);
+	kvm_enable_intercept_for_msr(vcpu, msr, type);
 
-	/*
-	 * Mark the desired intercept state in shadow bitmap, this is needed
-	 * for resync when the MSR filter changes.
-	*/
-	idx = kvm_passthrough_msr_slot(msr);
-	if (idx != -ENOENT) {
-		if (type & MSR_TYPE_R)
-			__set_bit(idx, vcpu->arch.shadow_msr_intercept.read);
-		if (type & MSR_TYPE_W)
-			__set_bit(idx, vcpu->arch.shadow_msr_intercept.write);
-	}
-
-	if (type & MSR_TYPE_R)
-		vmx_set_msr_bitmap_read(msr_bitmap, msr);
-
-	if (type & MSR_TYPE_W)
-		vmx_set_msr_bitmap_write(msr_bitmap, msr);
+	vmx_msr_bitmap_l01_changed(to_vmx(vcpu));
 }
 
 static void vmx_reset_x2apic_msrs(struct kvm_vcpu *vcpu, u8 mode)
@@ -8128,6 +8096,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 
 	.possible_passthrough_msrs = vmx_possible_passthrough_msrs,
 	.nr_possible_passthrough_msrs = ARRAY_SIZE(vmx_possible_passthrough_msrs),
+	.get_msr_bitmap_entries = vmx_get_msr_bitmap_entries,
 	.disable_intercept_for_msr = vmx_disable_intercept_for_msr,
 	.msr_filter_changed = vmx_msr_filter_changed,
 	.complete_emulated_msr = kvm_complete_insn_gp,
