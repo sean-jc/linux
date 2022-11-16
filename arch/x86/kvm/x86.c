@@ -1804,6 +1804,71 @@ int kvm_passthrough_msr_slot(u32 msr)
 }
 EXPORT_SYMBOL_GPL(kvm_passthrough_msr_slot);
 
+typedef void (*msr_bitop_t)(long nr, volatile unsigned long *addr);
+
+/*
+ * Wrap the double-underscore utilities, which are fancy macros that the
+ * compiler might not resolve to a single function on the first pass.
+ */
+static __always_inline void _set_bit(long nr, volatile unsigned long *addr)
+{
+	__set_bit(nr, addr);
+}
+static __always_inline void _clear_bit(long nr, volatile unsigned long *addr)
+{
+	__clear_bit(nr, addr);
+}
+
+static __always_inline void kvm_toggle_intercept_for_msr(struct kvm_vcpu *vcpu,
+							 u32 msr, int type,
+							 msr_bitop_t msr_bitop)
+{
+	unsigned long *read_map, *write_map;
+	u8 read_bit, write_bit;
+	int slot;
+
+	slot = kvm_passthrough_msr_slot(msr);
+	if (!WARN_ON(slot == -ENOENT)) {
+		/* Set the shadow bitmaps to the desired intercept states */
+		if (type & MSR_TYPE_R)
+			msr_bitop(slot, vcpu->arch.shadow_msr_intercept.read);
+		if (type & MSR_TYPE_W)
+			msr_bitop(slot, vcpu->arch.shadow_msr_intercept.write);
+	}
+
+	static_call(kvm_x86_get_msr_bitmap_entries)(vcpu, msr, &read_map, &read_bit,
+						    &write_map, &write_bit);
+
+	if (type & MSR_TYPE_R)
+		msr_bitop(read_bit,  read_map);
+	if (type & MSR_TYPE_W)
+		msr_bitop(write_bit, write_map);
+
+	/*
+	 * Intercept MSRs that are disallowed by userspace even if KVM would
+	 * otherwise pass through the MSR.
+	 */
+	if ((type & MSR_TYPE_R) && !test_bit(read_bit, read_map) &&
+	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_READ))
+		__set_bit(read_bit, read_map);
+
+	if ((type & MSR_TYPE_W) && !test_bit(write_bit, write_map) &&
+	    !kvm_msr_allowed(vcpu, msr, KVM_MSR_FILTER_WRITE))
+		__set_bit(write_bit, write_map);
+}
+
+void kvm_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
+{
+	kvm_toggle_intercept_for_msr(vcpu, msr, type, _set_bit);
+}
+EXPORT_SYMBOL_GPL(kvm_enable_intercept_for_msr);
+
+void kvm_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
+{
+	kvm_toggle_intercept_for_msr(vcpu, msr, type, _clear_bit);
+}
+EXPORT_SYMBOL_GPL(kvm_disable_intercept_for_msr);
+
 static void kvm_msr_filter_changed(struct kvm_vcpu *vcpu)
 {
 	u32 msr, i;
