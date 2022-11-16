@@ -3837,8 +3837,9 @@ void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
+	int idx;
 
-	if (!cpu_has_vmx_msr_bitmap())
+	if (!is_valid_passthrough_msr(msr) || !cpu_has_vmx_msr_bitmap())
 		return;
 
 	vmx_msr_bitmap_l01_changed(vmx);
@@ -3847,15 +3848,12 @@ void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	 * Mark the desired intercept state in shadow bitmap, this is needed
 	 * for resync when the MSR filters change.
 	*/
-	if (is_valid_passthrough_msr(msr)) {
-		int idx = kvm_passthrough_msr_slot(msr);
-
-		if (idx != -ENOENT) {
-			if (type & MSR_TYPE_R)
-				__clear_bit(idx, vcpu->arch.shadow_msr_intercept.read);
-			if (type & MSR_TYPE_W)
-				__clear_bit(idx, vcpu->arch.shadow_msr_intercept.write);
-		}
+	idx = kvm_passthrough_msr_slot(msr);
+	if (idx != -ENOENT) {
+		if (type & MSR_TYPE_R)
+			__clear_bit(idx, vcpu->arch.shadow_msr_intercept.read);
+		if (type & MSR_TYPE_W)
+			__clear_bit(idx, vcpu->arch.shadow_msr_intercept.write);
 	}
 
 	if ((type & MSR_TYPE_R) &&
@@ -3881,8 +3879,9 @@ void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
+	int idx;
 
-	if (!cpu_has_vmx_msr_bitmap())
+	if (!is_valid_passthrough_msr(msr) || !cpu_has_vmx_msr_bitmap())
 		return;
 
 	vmx_msr_bitmap_l01_changed(vmx);
@@ -3891,15 +3890,12 @@ void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	 * Mark the desired intercept state in shadow bitmap, this is needed
 	 * for resync when the MSR filter changes.
 	*/
-	if (is_valid_passthrough_msr(msr)) {
-		int idx = kvm_passthrough_msr_slot(msr);
-
-		if (idx != -ENOENT) {
-			if (type & MSR_TYPE_R)
-				__set_bit(idx, vcpu->arch.shadow_msr_intercept.read);
-			if (type & MSR_TYPE_W)
-				__set_bit(idx, vcpu->arch.shadow_msr_intercept.write);
-		}
+	idx = kvm_passthrough_msr_slot(msr);
+	if (idx != -ENOENT) {
+		if (type & MSR_TYPE_R)
+			__set_bit(idx, vcpu->arch.shadow_msr_intercept.read);
+		if (type & MSR_TYPE_W)
+			__set_bit(idx, vcpu->arch.shadow_msr_intercept.write);
 	}
 
 	if (type & MSR_TYPE_R)
