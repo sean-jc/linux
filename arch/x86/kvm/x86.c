@@ -1437,6 +1437,7 @@ static const u32 msrs_to_save_base[] = {
 	MSR_IA32_UMWAIT_CONTROL,
 
 	MSR_IA32_XFD, MSR_IA32_XFD_ERR,
+	MSR_IA32_XSS,
 };
 
 static const u32 msrs_to_save_pmu[] = {
@@ -7109,6 +7110,10 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 	case MSR_IA32_XFD:
 	case MSR_IA32_XFD_ERR:
 		if (!kvm_cpu_cap_has(X86_FEATURE_XFD))
+			return;
+		break;
+	case MSR_IA32_XSS:
+		if (!kvm_caps.supported_xss)
 			return;
 		break;
 	default:
