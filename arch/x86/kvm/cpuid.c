@@ -1075,6 +1075,27 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 				goto out;
 		}
 		break;
+	/* Architectural LBR */
+	case 0x1c: {
+		struct x86_pmu_lbr lbr_info;
+
+		x86_perf_get_lbr(&lbr_info);
+
+		if (!kvm_cpu_cap_has(X86_FEATURE_ARCH_LBR) || !lbr_info.nr) {
+			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+			break;
+		}
+
+		/*
+		 * For simplicity, support only the host's chosen LBR depth.
+		 * This allows KVM to reject guest/userspace attempts to use a
+		 * different LBR depth without violating Intel's architecture.
+		 * See also guest_can_use_lbrs().
+		 */
+		entry->eax &= ~0xff;
+		entry->eax |= ((lbr_info.nr / 8) - 1);
+		break;
+	}
 	/* Intel AMX TILE */
 	case 0x1d:
 		if (!kvm_cpu_cap_has(X86_FEATURE_AMX_TILE)) {

@@ -7790,11 +7790,9 @@ static u64 vmx_get_perf_capabilities(void)
 	if (boot_cpu_has(X86_FEATURE_PDCM))
 		rdmsrl(MSR_IA32_PERF_CAPABILITIES, host_perf_cap);
 
-	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR)) {
-		x86_perf_get_lbr(&lbr);
-		if (lbr.nr)
-			perf_cap |= host_perf_cap & PMU_CAP_LBR_FMT;
-	}
+	x86_perf_get_lbr(&lbr);
+	if (lbr.nr)
+		perf_cap |= host_perf_cap & PMU_CAP_LBR_FMT;
 
 	if (vmx_pebs_supported()) {
 		perf_cap |= host_perf_cap & PERF_CAP_PEBS_MASK;
@@ -7824,14 +7822,22 @@ static __init void vmx_set_cpu_caps(void)
 		kvm_cpu_cap_check_and_set(X86_FEATURE_DS);
 		kvm_cpu_cap_check_and_set(X86_FEATURE_DTES64);
 	}
-	if (!cpu_has_vmx_arch_lbr()) {
-		kvm_cpu_cap_clear(X86_FEATURE_ARCH_LBR);
-		kvm_caps.supported_xss &= ~XFEATURE_MASK_LBR;
-	}
 
 	if (!enable_pmu)
 		kvm_cpu_cap_clear(X86_FEATURE_PDCM);
 	kvm_caps.supported_perf_cap = vmx_get_perf_capabilities();
+
+	if (IS_ENABLED(CONFIG_X86_64) && enable_pmu && cpu_has_vmx_xsaves() &&
+	    cpu_has_vmx_arch_lbr() &&
+	    kvm_caps.supported_perf_cap & PMU_CAP_LBR_FMT)
+		kvm_cpu_cap_check_and_set(X86_FEATURE_ARCH_LBR);
+
+	if (!kvm_cpu_cap_has(X86_FEATURE_ARCH_LBR)) {
+		kvm_caps.supported_xss &= ~XFEATURE_MASK_LBR;
+
+		if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR))
+			kvm_caps.supported_perf_cap &= ~PMU_CAP_LBR_FMT;
+	}
 
 	if (!enable_sgx) {
 		kvm_cpu_cap_clear(X86_FEATURE_SGX);
@@ -7844,7 +7850,6 @@ static __init void vmx_set_cpu_caps(void)
 		kvm_cpu_cap_set(X86_FEATURE_UMIP);
 
 	/* CPUID 0xD.1 */
-	kvm_caps.supported_xss = 0;
 	if (!cpu_has_vmx_xsaves())
 		kvm_cpu_cap_clear(X86_FEATURE_XSAVES);
 

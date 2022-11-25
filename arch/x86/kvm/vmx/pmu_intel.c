@@ -549,6 +549,37 @@ static void setup_fixed_pmc_eventsel(struct kvm_pmu *pmu)
 	}
 }
 
+static bool guest_can_use_lbrs(struct kvm_vcpu *vcpu, unsigned int nr_lbrs)
+{
+	struct kvm_cpuid_entry2 *entry;
+
+	/*
+	 * Legacy LBRs depend on the CPU model and so can be exposed to the
+	 * guest if and only if the guest CPUID model is consistent with
+	 * the host model.
+	 */
+	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR))
+		return cpuid_model_is_consistent(vcpu) &&
+		       !guest_cpuid_has(vcpu, X86_FEATURE_ARCH_LBR);
+
+	/*
+	 * KVM may not support arch LBRs even though they're present in
+	 * hardware.  64-bit support is required as KVM doesn't handle saving
+	 * and restoring LBR_CTL.LBREn for 32-bit SMRAM.
+	 */
+	if (!kvm_cpu_cap_has(X86_FEATURE_ARCH_LBR) ||
+	    !guest_cpuid_has(vcpu, X86_FEATURE_ARCH_LBR) ||
+	    !guest_cpuid_has(vcpu, X86_FEATURE_LM))
+		return false;
+
+	/*
+	 * Allow use of arch LBRs if and only if guest CPUID reports the host's
+	 * configured LBR depth as the only allowed depth.
+	 */
+	entry = kvm_find_cpuid_entry(vcpu, 0x1C);
+	return entry && ((entry->eax & 0xff) == ((nr_lbrs / 8) - 1));
+}
+
 static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -644,14 +675,13 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 		INTEL_PMC_MAX_GENERIC, pmu->nr_arch_fixed_counters);
 
 	perf_capabilities = vcpu_get_perf_capabilities(vcpu);
-	if (cpuid_model_is_consistent(vcpu) &&
-	    (perf_capabilities & PMU_CAP_LBR_FMT))
-		x86_perf_get_lbr(&lbr_desc->records);
-	else
-		lbr_desc->records.nr = 0;
 
-	if (lbr_desc->records.nr)
-		bitmap_set(pmu->all_valid_pmc_idx, INTEL_PMC_IDX_FIXED_VLBR, 1);
+	if (perf_capabilities & PMU_CAP_LBR_FMT) {
+		x86_perf_get_lbr(&lbr_desc->records);
+
+		if (!guest_can_use_lbrs(vcpu, lbr_desc->records.nr))
+			lbr_desc->records.nr = 0;
+	}
 
 	if (perf_capabilities & PERF_CAP_PEBS_FORMAT) {
 		if (perf_capabilities & PERF_CAP_PEBS_BASELINE) {
