@@ -114,7 +114,8 @@ struct kvm_smram_state_64 {
 	u32 reserved3[3];
 	u32 smm_revison;
 	u32 smbase;
-	u32 reserved4[5];
+	u32 reserved4[3];
+	u64 arch_lbr_ctl;
 
 	/* ssp and svm_* fields below are not implemented by KVM */
 	u64 ssp;

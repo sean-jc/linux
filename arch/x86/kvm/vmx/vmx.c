@@ -8070,6 +8070,18 @@ static int vmx_enter_smm(struct kvm_vcpu *vcpu, union kvm_smram *smram)
 	vmx->nested.smm.vmxon = vmx->nested.vmxon;
 	vmx->nested.vmxon = false;
 	vmx_clear_hlt(vcpu);
+
+
+	if (intel_pmu_arch_lbr_is_enabled(vcpu)) {
+		WARN_ON_ONCE(!IS_ENABLED(CONFIG_X86_64) ||
+			     !guest_cpuid_has(vcpu, X86_FEATURE_LM));
+
+		smram->smram64.arch_lbr_ctl = vmcs_read64(GUEST_IA32_LBR_CTL);
+		if (smram->smram64.arch_lbr_ctl & ARCH_LBR_CTL_LBREN)
+			vmcs_write64(GUEST_IA32_LBR_CTL,
+				     smram->smram64.arch_lbr_ctl & ~ARCH_LBR_CTL_LBREN);
+	}
+
 	return 0;
 }
 
@@ -8091,6 +8103,21 @@ static int vmx_leave_smm(struct kvm_vcpu *vcpu, const union kvm_smram *smram)
 		vmx->nested.nested_run_pending = 1;
 		vmx->nested.smm.guest_mode = false;
 	}
+
+	if (intel_pmu_arch_lbr_is_enabled(vcpu)) {
+		WARN_ON_ONCE(!IS_ENABLED(CONFIG_X86_64) ||
+			     !guest_cpuid_has(vcpu, X86_FEATURE_LM));
+
+		if (smram->smram64.arch_lbr_ctl & ARCH_LBR_CTL_LBREN) {
+			vmcs_set_bits64(GUEST_IA32_LBR_CTL, ARCH_LBR_CTL_LBREN);
+
+			if (!vcpu_to_lbr_desc(vcpu)->event)
+				intel_pmu_create_guest_lbr_event(vcpu);
+		} else {
+			vmcs_clear_bits64(GUEST_IA32_LBR_CTL, ARCH_LBR_CTL_LBREN);
+		}
+	}
+
 	return 0;
 }
 

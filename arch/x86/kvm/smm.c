@@ -87,6 +87,7 @@ static void check_smram_offsets(void)
 	CHECK_SMRAM64_OFFSET(smm_revison,		0xFEFC);
 	CHECK_SMRAM64_OFFSET(smbase,			0xFF00);
 	CHECK_SMRAM64_OFFSET(reserved4,			0xFF04);
+	CHECK_SMRAM64_OFFSET(arch_lbr_ctl,		0xFF10);
 	CHECK_SMRAM64_OFFSET(ssp,			0xFF18);
 	CHECK_SMRAM64_OFFSET(svm_guest_pat,		0xFF20);
 	CHECK_SMRAM64_OFFSET(svm_host_efer,		0xFF28);
