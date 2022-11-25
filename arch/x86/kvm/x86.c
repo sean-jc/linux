@@ -1467,6 +1467,8 @@ static const u32 msrs_to_save_pmu[] = {
 	MSR_F15H_PERF_CTL3, MSR_F15H_PERF_CTL4, MSR_F15H_PERF_CTL5,
 	MSR_F15H_PERF_CTR0, MSR_F15H_PERF_CTR1, MSR_F15H_PERF_CTR2,
 	MSR_F15H_PERF_CTR3, MSR_F15H_PERF_CTR4, MSR_F15H_PERF_CTR5,
+
+	MSR_ARCH_LBR_CTL, MSR_ARCH_LBR_DEPTH,
 };
 
 static u32 msrs_to_save[ARRAY_SIZE(msrs_to_save_base) +
@@ -7118,6 +7120,11 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 		break;
 	case MSR_IA32_XSS:
 		if (!kvm_caps.supported_xss)
+			return;
+		break;
+	case MSR_ARCH_LBR_DEPTH:
+	case MSR_ARCH_LBR_CTL:
+		if (!kvm_cpu_cap_has(X86_FEATURE_ARCH_LBR))
 			return;
 		break;
 	default:
