@@ -5115,7 +5115,7 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 	events->interrupt.shadow = static_call(kvm_x86_get_interrupt_shadow)(vcpu);
 
 	events->nmi.injected = vcpu->arch.nmi_injected;
-	events->nmi.pending = vcpu->arch.nmi_pending != 0;
+	events->nmi.pending = kvm_get_total_nmi_pending(vcpu) != 0;
 	events->nmi.masked = static_call(kvm_x86_get_nmi_mask)(vcpu);
 
 	/* events->sipi_vector is never valid when reporting to user space */
@@ -5203,8 +5203,11 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 
 	vcpu->arch.nmi_injected = events->nmi.injected;
 	if (events->flags & KVM_VCPUEVENT_VALID_NMI_PENDING)
-		vcpu->arch.nmi_pending = events->nmi.pending;
+		atomic_add(events->nmi.pending, &vcpu->arch.nmi_queued);
+
 	static_call(kvm_x86_set_nmi_mask)(vcpu, events->nmi.masked);
+
+	process_nmi(vcpu);
 
 	if (events->flags & KVM_VCPUEVENT_VALID_SIPI_VECTOR &&
 	    lapic_in_kernel(vcpu))
@@ -10127,6 +10130,10 @@ out:
 static void process_nmi(struct kvm_vcpu *vcpu)
 {
 	unsigned limit = 2;
+	int nmi_to_queue = atomic_xchg(&vcpu->arch.nmi_queued, 0);
+
+	if (!nmi_to_queue)
+		return;
 
 	/*
 	 * x86 is limited to one NMI running, and one NMI pending after it.
@@ -10134,11 +10141,32 @@ static void process_nmi(struct kvm_vcpu *vcpu)
 	 * Otherwise, allow two (and we'll inject the first one immediately).
 	 */
 	if (static_call(kvm_x86_get_nmi_mask)(vcpu) || vcpu->arch.nmi_injected)
-		limit = 1;
+		limit--;
 
-	vcpu->arch.nmi_pending += atomic_xchg(&vcpu->arch.nmi_queued, 0);
+	/* Also if there is already a NMI hardware queued to be injected,
+	 * decrease the limit again
+	 */
+	if (static_call(kvm_x86_get_hw_nmi_pending)(vcpu))
+		limit--;
+
+	if (limit <= 0)
+		return;
+
+	/* Attempt to use hardware NMI queueing */
+	if (static_call(kvm_x86_set_hw_nmi_pending)(vcpu)) {
+		limit--;
+		nmi_to_queue--;
+	}
+
+	vcpu->arch.nmi_pending += nmi_to_queue;
 	vcpu->arch.nmi_pending = min(vcpu->arch.nmi_pending, limit);
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
+}
+
+/* Return total number of NMIs pending injection to the VM */
+int kvm_get_total_nmi_pending(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.nmi_pending + static_call(kvm_x86_get_hw_nmi_pending)(vcpu);
 }
 
 void kvm_make_scan_ioapic_request_mask(struct kvm *kvm,

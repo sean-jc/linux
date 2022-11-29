@@ -871,8 +871,13 @@ struct kvm_vcpu_arch {
 	u64 tsc_scaling_ratio; /* current scaling ratio */
 
 	atomic_t nmi_queued;  /* unprocessed asynchronous NMIs */
-	unsigned nmi_pending; /* NMI queued after currently running handler */
+
+	unsigned int nmi_pending; /*
+				   * NMI queued after currently running handler
+				   * (not including a hardware pending NMI (e.g vNMI))
+				   */
 	bool nmi_injected;    /* Trying to inject an NMI this entry */
+
 	bool smi_pending;    /* SMI queued after currently running handler */
 	u8 handling_intr_from_guest;
 
@@ -1622,6 +1627,13 @@ struct kvm_x86_ops {
 	int (*nmi_allowed)(struct kvm_vcpu *vcpu, bool for_injection);
 	bool (*get_nmi_mask)(struct kvm_vcpu *vcpu);
 	void (*set_nmi_mask)(struct kvm_vcpu *vcpu, bool masked);
+
+	/* returns true, if a NMI is pending injection on hardware level (e.g vNMI) */
+	bool (*get_hw_nmi_pending)(struct kvm_vcpu *vcpu);
+
+	/* attempts make a NMI pending via hardware interface (e.g vNMI) */
+	bool (*set_hw_nmi_pending)(struct kvm_vcpu *vcpu);
+
 	void (*enable_nmi_window)(struct kvm_vcpu *vcpu);
 	void (*enable_irq_window)(struct kvm_vcpu *vcpu);
 	void (*update_cr8_intercept)(struct kvm_vcpu *vcpu, int tpr, int irr);
@@ -1986,6 +1998,7 @@ int kvm_pic_set_irq(struct kvm_pic *pic, int irq, int irq_source_id, int level);
 void kvm_pic_clear_all(struct kvm_pic *pic, int irq_source_id);
 
 void kvm_inject_nmi(struct kvm_vcpu *vcpu);
+int kvm_get_total_nmi_pending(struct kvm_vcpu *vcpu);
 
 void kvm_update_dr7(struct kvm_vcpu *vcpu);
 
