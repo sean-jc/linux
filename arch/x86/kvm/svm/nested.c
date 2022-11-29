@@ -633,6 +633,42 @@ static bool is_evtinj_nmi(u32 evtinj)
 	return type == SVM_EVTINJ_TYPE_NMI;
 }
 
+static void nested_svm_save_vnmi(struct vcpu_svm *svm)
+{
+	struct vmcb *vmcb01 = svm->vmcb01.ptr;
+
+	/*
+	 * Copy the vNMI state back to software NMI tracking state
+	 * for the duration of the nested run
+	 */
+
+	svm->nmi_masked = vmcb01->control.int_ctl & V_NMI_MASK;
+	svm->vcpu.arch.nmi_pending += vmcb01->control.int_ctl & V_NMI_PENDING;
+}
+
+static void nested_svm_restore_vnmi(struct vcpu_svm *svm)
+{
+	struct kvm_vcpu *vcpu = &svm->vcpu;
+	struct vmcb *vmcb01 = svm->vmcb01.ptr;
+
+	/*
+	 * Restore the vNMI state from the software NMI tracking state
+	 * after a nested run
+	 */
+
+	if (svm->nmi_masked)
+		vmcb01->control.int_ctl |= V_NMI_MASK;
+	else
+		vmcb01->control.int_ctl &= ~V_NMI_MASK;
+
+	if (vcpu->arch.nmi_pending) {
+		vcpu->arch.nmi_pending--;
+		vmcb01->control.int_ctl |= V_NMI_PENDING;
+	} else
+		vmcb01->control.int_ctl &= ~V_NMI_PENDING;
+}
+
+
 static void nested_vmcb02_prepare_control(struct vcpu_svm *svm,
 					  unsigned long vmcb12_rip,
 					  unsigned long vmcb12_csbase)
@@ -655,6 +691,9 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm,
 		int_ctl_vmcb12_bits |= (V_GIF_MASK | V_GIF_ENABLE_MASK);
 	else
 		int_ctl_vmcb01_bits |= (V_GIF_MASK | V_GIF_ENABLE_MASK);
+
+	if (vnmi)
+		nested_svm_save_vnmi(svm);
 
 	/* Copied from vmcb01.  msrpm_base can be overwritten later.  */
 	vmcb02->control.nested_ctl = vmcb01->control.nested_ctl;
@@ -1042,6 +1081,9 @@ int nested_svm_vmexit(struct vcpu_svm *svm)
 		svm_copy_lbrs(vmcb01, vmcb02);
 		svm_update_lbrv(vcpu);
 	}
+
+	if (vnmi)
+		nested_svm_restore_vnmi(svm);
 
 	/*
 	 * On vmexit the  GIF is set to false and

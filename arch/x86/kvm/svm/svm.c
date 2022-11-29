@@ -230,6 +230,8 @@ module_param(dump_invalid_vmcb, bool, 0644);
 bool intercept_smi = true;
 module_param(intercept_smi, bool, 0444);
 
+bool vnmi = true;
+module_param(vnmi, bool, 0444);
 
 static bool svm_gp_erratum_intercept = true;
 
@@ -1310,6 +1312,9 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 
 	if (kvm_vcpu_apicv_active(vcpu))
 		avic_init_vmcb(svm, vmcb);
+
+	if (vnmi)
+		svm->vmcb->control.int_ctl |= V_NMI_ENABLE;
 
 	if (vgif) {
 		svm_clr_intercept(svm, INTERCEPT_STGI);
@@ -3509,6 +3514,39 @@ static void svm_inject_nmi(struct kvm_vcpu *vcpu)
 	++vcpu->stat.nmi_injections;
 }
 
+
+static bool svm_get_hw_nmi_pending(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (!is_vnmi_enabled(svm))
+		return false;
+
+	return !!(svm->vmcb->control.int_ctl & V_NMI_MASK);
+}
+
+static bool svm_set_hw_nmi_pending(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (!is_vnmi_enabled(svm))
+		return false;
+
+	if (svm->vmcb->control.int_ctl & V_NMI_PENDING)
+		return false;
+
+	svm->vmcb->control.int_ctl |= V_NMI_PENDING;
+	vmcb_mark_dirty(svm->vmcb, VMCB_INTR);
+
+	/*
+	 * NMI isn't yet technically injected but
+	 * this rough estimation should be good enough
+	 */
+	++vcpu->stat.nmi_injections;
+
+	return true;
+}
+
 static void svm_inject_irq(struct kvm_vcpu *vcpu, bool reinjected)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
@@ -3604,6 +3642,34 @@ static void svm_update_cr8_intercept(struct kvm_vcpu *vcpu, int tpr, int irr)
 		svm_set_intercept(svm, INTERCEPT_CR8_WRITE);
 }
 
+static bool svm_get_nmi_mask(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (is_vnmi_enabled(svm))
+		return svm->vmcb->control.int_ctl & V_NMI_MASK;
+	else
+		return svm->nmi_masked;
+}
+
+static void svm_set_nmi_mask(struct kvm_vcpu *vcpu, bool masked)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (is_vnmi_enabled(svm)) {
+		if (masked)
+			svm->vmcb->control.int_ctl |= V_NMI_MASK;
+		else
+			svm->vmcb->control.int_ctl &= ~V_NMI_MASK;
+	} else {
+		svm->nmi_masked = masked;
+		if (masked)
+			svm_enable_iret_interception(svm);
+		else
+			svm_disable_iret_interception(svm);
+	}
+}
+
 bool svm_nmi_blocked(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
@@ -3615,8 +3681,10 @@ bool svm_nmi_blocked(struct kvm_vcpu *vcpu)
 	if (is_guest_mode(vcpu) && nested_exit_on_nmi(svm))
 		return false;
 
-	return (vmcb->control.int_state & SVM_INTERRUPT_SHADOW_MASK) ||
-	       svm->nmi_masked;
+	if (svm_get_nmi_mask(vcpu))
+		return true;
+
+	return vmcb->control.int_state & SVM_INTERRUPT_SHADOW_MASK;
 }
 
 static int svm_nmi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
@@ -3632,24 +3700,6 @@ static int svm_nmi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
 	if (for_injection && is_guest_mode(vcpu) && nested_exit_on_nmi(svm))
 		return -EBUSY;
 	return 1;
-}
-
-static bool svm_get_nmi_mask(struct kvm_vcpu *vcpu)
-{
-	return to_svm(vcpu)->nmi_masked;
-}
-
-static void svm_set_nmi_mask(struct kvm_vcpu *vcpu, bool masked)
-{
-	struct vcpu_svm *svm = to_svm(vcpu);
-
-	if (masked) {
-		svm->nmi_masked = true;
-		svm_enable_iret_interception(svm);
-	} else {
-		svm->nmi_masked = false;
-		svm_disable_iret_interception(svm);
-	}
 }
 
 bool svm_interrupt_blocked(struct kvm_vcpu *vcpu)
@@ -3744,10 +3794,16 @@ static void svm_enable_nmi_window(struct kvm_vcpu *vcpu)
 	/*
 	 * Something prevents NMI from been injected. Single step over possible
 	 * problem (IRET or exception injection or interrupt shadow)
+	 *
+	 * With vNMI we should never need an NMI window
+	 * (we can always inject vNMI either by setting VNMI_PENDING or by EVENTINJ)
 	 */
+	if (WARN_ON_ONCE(is_vnmi_enabled(svm)))
+		return;
+
 	svm->nmi_singlestep_guest_rflags = svm_get_rflags(vcpu);
-	svm->nmi_singlestep = true;
 	svm->vmcb->save.rflags |= (X86_EFLAGS_TF | X86_EFLAGS_RF);
+	svm->nmi_singlestep = true;
 }
 
 static void svm_flush_tlb_current(struct kvm_vcpu *vcpu)
@@ -4781,6 +4837,8 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.patch_hypercall = svm_patch_hypercall,
 	.inject_irq = svm_inject_irq,
 	.inject_nmi = svm_inject_nmi,
+	.get_hw_nmi_pending = svm_get_hw_nmi_pending,
+	.set_hw_nmi_pending = svm_set_hw_nmi_pending,
 	.inject_exception = svm_inject_exception,
 	.cancel_injection = svm_cancel_injection,
 	.interrupt_allowed = svm_interrupt_allowed,
@@ -5069,6 +5127,16 @@ static __init int svm_hardware_setup(void)
 			vgif = false;
 		else
 			pr_info("Virtual GIF supported\n");
+	}
+
+
+	vnmi = vgif && vnmi && boot_cpu_has(X86_FEATURE_AMD_VNMI);
+	if (vnmi)
+		pr_info("Virtual NMI enabled\n");
+
+	if (!vnmi) {
+		svm_x86_ops.get_hw_nmi_pending = NULL;
+		svm_x86_ops.set_hw_nmi_pending = NULL;
 	}
 
 	if (lbrv) {
