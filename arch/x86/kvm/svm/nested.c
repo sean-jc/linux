@@ -1026,6 +1026,15 @@ int nested_svm_vmexit(struct vcpu_svm *svm)
 
 	svm_switch_vmcb(svm, &svm->vmcb01);
 
+	/*
+	 * Re-evaluate events if L1 interrupts were configured to be delivered
+	 * to L2 and KVM has an unresolved interrupt window request.  KVM needs
+	 * to request an interrupt window in vmcb01 if there are still pending
+	 * interrupts, e.g. if RFLAGS.IF=0 after VM-Exit.
+	 */
+	if (!nested_exit_on_intr(svm) && svm_is_intercept(svm, INTERCEPT_VINTR))
+		kvm_make_request(KVM_REQ_EVENT, &svm->vcpu);
+
 	if (unlikely(svm->lbrv_enabled && (svm->nested.ctl.virt_ext & LBR_CTL_ENABLE_MASK))) {
 		svm_copy_lbrs(vmcb12, vmcb02);
 		svm_update_lbrv(vcpu);
