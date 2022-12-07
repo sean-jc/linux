@@ -4459,6 +4459,16 @@ vmx_adjust_secondary_exec_control(struct vcpu_vmx *vmx, u32 *exec_control,
 	 * controls for features that are/aren't exposed to the guest.
 	 */
 	if (nested) {
+		/*
+		 * All features that got grandfathered into KVM's flawed CPUID-
+		 * induced manipulation of VMX MSRs are unconditionally exposed
+		 * to L1 if the feature is supported by KVM (for nested).  I.e.
+		 * KVM should never attempt to stuff a feature that isn't
+		 * already exposed to L1 for nested virtualization.
+		 */
+		if (WARN_ON_ONCE(!(vmcs_config.nested.secondary_ctls_high & control)))
+			enabled = false;
+
 		if (enabled)
 			vmx->nested.msrs.secondary_ctls_high |= control;
 		else
