@@ -601,8 +601,9 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 
 		/* Zero CR4.PCIDE before CR0.PG.  */
 		cr4 = kvm_read_cr4(vcpu);
-		if (cr4 & X86_CR4_PCIDE)
-			kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PCIDE);
+		if (cr4 & X86_CR4_PCIDE &&
+		    WARN_ON_ONCE(kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PCIDE)))
+			return X86EMUL_UNHANDLEABLE;
 
 		/* A 32-bit code segment is required to clear EFER.LMA.  */
 		memset(&cs_desc, 0, sizeof(cs_desc));
@@ -614,8 +615,9 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 
 	/* For the 64-bit case, this will clear EFER.LMA.  */
 	cr0 = kvm_read_cr0(vcpu);
-	if (cr0 & X86_CR0_PE)
-		kvm_set_cr0(vcpu, cr0 & ~(X86_CR0_PG | X86_CR0_PE));
+	if (cr0 & X86_CR0_PE &&
+	    WARN_ON_ONCE(kvm_set_cr0(vcpu, cr0 & ~(X86_CR0_PG | X86_CR0_PE))))
+		return X86EMUL_UNHANDLEABLE;
 
 #ifdef CONFIG_X86_64
 	if (guest_cpuid_has(vcpu, X86_FEATURE_LM)) {
@@ -623,12 +625,14 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 
 		/* Clear CR4.PAE before clearing EFER.LME. */
 		cr4 = kvm_read_cr4(vcpu);
-		if (cr4 & X86_CR4_PAE)
-			kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PAE);
+		if (cr4 & X86_CR4_PAE &&
+		    WARN_ON_ONCE(kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PAE)))
+			return X86EMUL_UNHANDLEABLE;
 
 		/* And finally go back to 32-bit mode.  */
 		efer = 0;
-		kvm_set_msr(vcpu, MSR_EFER, efer);
+		if (WARN_ON_ONCE(kvm_set_msr(vcpu, MSR_EFER, efer)))
+			return X86EMUL_UNHANDLEABLE;
 	}
 #endif
 
