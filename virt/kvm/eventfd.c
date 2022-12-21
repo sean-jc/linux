@@ -682,6 +682,7 @@ struct _ioeventfd {
 	struct kvm_io_device dev;
 	u8                   bus_idx;
 	bool                 wildcard;
+	void __user	     *redirect;
 };
 
 static inline struct _ioeventfd *
@@ -714,6 +715,9 @@ ioeventfd_in_range(struct _ioeventfd *p, gpa_t addr, int len, const void *val)
 	if (len != p->length)
 		/* address-range must be precise for a hit */
 		return false;
+
+	if (p->redirect)
+		return !__copy_to_user(p->redirect, val, len);
 
 	if (p->wildcard)
 		/* all else equal, wildcard is always a hit */
@@ -832,6 +836,17 @@ static int kvm_assign_ioeventfd_idx(struct kvm *kvm,
 	else
 		p->wildcard = true;
 
+	if (args->flags & KVM_IOEVENTFD_FLAG_REDIRECT) {
+		if (!args->len || !args->redirect ||
+		    args->redirect != untagged_addr(args->redirect) ||
+		    !access_ok((void __user *)(unsigned long)args->redirect, args->len)) {
+			ret = -EINVAL;
+			goto fail;
+		}
+
+		p->redirect = (void __user *)(unsigned long)args->redirect;
+	}
+
 	mutex_lock(&kvm->slots_lock);
 
 	/* Verify that there isn't a match already */
@@ -873,12 +888,14 @@ kvm_deassign_ioeventfd_idx(struct kvm *kvm, enum kvm_bus bus_idx,
 	struct kvm_io_bus	 *bus;
 	int                       ret = -ENOENT;
 	bool                      wildcard;
+	bool			  redirect;
 
 	eventfd = eventfd_ctx_fdget(args->fd);
 	if (IS_ERR(eventfd))
 		return PTR_ERR(eventfd);
 
 	wildcard = !(args->flags & KVM_IOEVENTFD_FLAG_DATAMATCH);
+	redirect = args->flags & KVM_IOEVENTFD_FLAG_REDIRECT;
 
 	mutex_lock(&kvm->slots_lock);
 
@@ -888,10 +905,14 @@ kvm_deassign_ioeventfd_idx(struct kvm *kvm, enum kvm_bus bus_idx,
 		    p->eventfd != eventfd  ||
 		    p->addr != args->addr  ||
 		    p->length != args->len ||
-		    p->wildcard != wildcard)
+		    p->wildcard != wildcard ||
+		    !!p->redirect != redirect)
 			continue;
 
 		if (!p->wildcard && p->datamatch != args->datamatch)
+			continue;
+
+		if (p->redirect && (u64)p->redirect != args->redirect)
 			continue;
 
 		kvm_io_bus_unregister_dev(kvm, bus_idx, &p->dev);
