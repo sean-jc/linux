@@ -401,4 +401,9 @@ static inline bool cpu_has_notify_vmexit(void)
 		SECONDARY_EXEC_NOTIFY_VM_EXITING;
 }
 
+static inline bool cpu_has_vmx_arch_lbr(void)
+{
+	return vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_IA32_LBR_CTL;
+}
+
 #endif /* __KVM_X86_VMX_CAPS_H */

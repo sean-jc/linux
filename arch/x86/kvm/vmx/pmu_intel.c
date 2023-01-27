@@ -714,6 +714,11 @@ static void vmx_update_intercept_for_lbr_msrs(struct kvm_vcpu *vcpu, bool set)
 	struct x86_pmu_lbr *lbr = vcpu_to_lbr_records(vcpu);
 	int i;
 
+	/*
+	 * FIXME: Toggle load+clear of MSR_ARCH_LBR_CTL, and save/restore the
+	 * host's value when it's cleared on VM-Exit.  Or prove that that's
+	 * unnecessary.
+	 */
 	for (i = 0; i < lbr->nr; i++) {
 		vmx_set_intercept_for_msr(vcpu, lbr->from + i, MSR_TYPE_RW, set);
 		vmx_set_intercept_for_msr(vcpu, lbr->to + i, MSR_TYPE_RW, set);
