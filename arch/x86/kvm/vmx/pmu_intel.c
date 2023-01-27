@@ -179,9 +179,13 @@ static bool intel_pmu_is_valid_lbr_msr(struct kvm_vcpu *vcpu, u32 index)
 	if (!intel_pmu_lbr_is_enabled(vcpu))
 		return false;
 
-	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR) &&
-	    (index == MSR_LBR_SELECT || index == MSR_LBR_TOS))
-		return true;
+	if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR)) {
+		if (index == MSR_ARCH_LBR_DEPTH)
+			return true;
+	} else {
+		if (index == MSR_LBR_SELECT || index == MSR_LBR_TOS)
+			return true;
+	}
 
 	if ((index >= records->from && index < records->from + records->nr) ||
 	    (index >= records->to && index < records->to + records->nr))
@@ -317,6 +321,29 @@ static bool intel_pmu_handle_lbr_msrs_access(struct kvm_vcpu *vcpu,
 
 	if (!intel_pmu_is_valid_lbr_msr(vcpu, index))
 		return false;
+
+	/*
+	 * KVM advertises only the host's LBR depth as a supported depth, i.e.
+	 * disallows using arch LBRs with a different depth than the host.
+	 * Don't bother checking guest CPUID to see if the requested depth is
+	 * allowed, as the current depth is the only allowed depth as far as
+	 * KVM is concerned.
+	 *
+	 * Perform the actual WRMSR even though the value won't change, a write
+	 * to MSR_ARCH_LBR_DEPTH also clears all of the other arch LBR MSRs,
+	 * and doing a single WRMSR is obviously much faster.
+	 *
+	 * For RDMSR, no need to read the value from hardware.
+	 */
+	if (index == MSR_ARCH_LBR_DEPTH) {
+		if (read) {
+			msr_info->data = lbr_desc->records.nr;
+			return true;
+		}
+
+		if (msr_info->data != lbr_desc->records.nr)
+			return false;
+	}
 
 	if (!lbr_desc->event && intel_pmu_create_guest_lbr_event(vcpu) < 0)
 		goto dummy;
