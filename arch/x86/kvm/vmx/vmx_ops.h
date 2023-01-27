@@ -276,6 +276,20 @@ static __always_inline void vmcs_set_bits(unsigned long field, u32 mask)
 	__vmcs_writel(field, __vmcs_readl(field) | mask);
 }
 
+static __always_inline void vmcs_clear_bits64(unsigned long field, u64 mask)
+{
+	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) != 0x2000,
+			 "vmcs_clear_bits64 only supports 64-bit fields");
+	vmcs_write64(field, vmcs_read64(field) & ~mask);
+}
+
+static __always_inline void vmcs_set_bits64(unsigned long field, u64 mask)
+{
+	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) != 0x2000,
+			 "vmcs_set_bits64 only supports 64-bit fields");
+	vmcs_write64(field, vmcs_read64(field) | mask);
+}
+
 static inline void vmcs_clear(struct vmcs *vmcs)
 {
 	u64 phys_addr = __pa(vmcs);
