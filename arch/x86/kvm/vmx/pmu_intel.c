@@ -180,7 +180,7 @@ static bool intel_pmu_is_valid_lbr_msr(struct kvm_vcpu *vcpu, u32 index)
 		return false;
 
 	if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR)) {
-		if (index == MSR_ARCH_LBR_DEPTH)
+		if (index == MSR_ARCH_LBR_DEPTH || index == MSR_ARCH_LBR_CTL)
 			return true;
 	} else {
 		if (index == MSR_LBR_SELECT || index == MSR_LBR_TOS)
@@ -401,6 +401,9 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_PEBS_DATA_CFG:
 		msr_info->data = pmu->pebs_data_cfg;
 		return 0;
+	case MSR_ARCH_LBR_CTL:
+		msr_info->data = vmcs_read64(GUEST_IA32_LBR_CTL);
+		return 0;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
 		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0))) {
@@ -488,6 +491,14 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 0;
 		}
 		break;
+	case MSR_ARCH_LBR_CTL:
+		if (data & pmu->arch_lbr_ctrl_rsvd_mask)
+			return 1;
+
+		vmcs_write64(GUEST_IA32_LBR_CTL, data);
+		if (!vcpu_to_lbr_desc(vcpu)->event && (data & ARCH_LBR_CTL_LBREN))
+			intel_pmu_create_guest_lbr_event(vcpu);
+		return 0;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
 		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0))) {
@@ -559,6 +570,7 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	pmu->global_ctrl_mask = ~0ull;
 	pmu->global_ovf_ctrl_mask = ~0ull;
 	pmu->fixed_ctr_ctrl_mask = ~0ull;
+	pmu->arch_lbr_ctrl_rsvd_mask = ~0ull;
 	pmu->pebs_enable_mask = ~0ull;
 	pmu->pebs_data_cfg_mask = ~0ull;
 
@@ -717,12 +729,15 @@ static void intel_pmu_reset(struct kvm_vcpu *vcpu)
  */
 static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 {
-	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	u64 debugctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
 
-	if (data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) {
-		data &= ~DEBUGCTLMSR_LBR;
-		vmcs_write64(GUEST_IA32_DEBUGCTL, data);
-	}
+	if (!(debugctl & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI))
+		return;
+
+	if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR))
+		vmcs_clear_bits64(GUEST_IA32_LBR_CTL, ARCH_LBR_CTL_LBREN);
+	else
+		vmcs_write64(GUEST_IA32_DEBUGCTL, debugctl & ~DEBUGCTLMSR_LBR);
 }
 
 static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
@@ -779,6 +794,14 @@ static inline void vmx_enable_lbr_msrs_passthrough(struct kvm_vcpu *vcpu)
 	lbr_desc->msr_passthrough = true;
 }
 
+static bool vmx_lbrs_enabled(void)
+{
+	if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR))
+		return vmcs_read64(GUEST_IA32_LBR_CTL) & ARCH_LBR_CTL_LBREN;
+
+	return (vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR);
+}
+
 /*
  * Higher priority host perf events (e.g. cpu pinned) could reclaim the
  * pmu resources (e.g. LBR) that were assigned to the guest. This is
@@ -796,7 +819,7 @@ void vmx_passthrough_lbr_msrs(struct kvm_vcpu *vcpu)
 
 	if (!lbr_desc->event) {
 		vmx_disable_lbr_msrs_passthrough(vcpu);
-		if (vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR)
+		if (vmx_lbrs_enabled())
 			goto warn;
 		if (test_bit(INTEL_PMC_IDX_FIXED_VLBR, pmu->pmc_in_use))
 			goto warn;
@@ -818,7 +841,7 @@ warn:
 
 static void intel_pmu_cleanup(struct kvm_vcpu *vcpu)
 {
-	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR))
+	if (!vmx_lbrs_enabled())
 		intel_pmu_release_guest_lbr_event(vcpu);
 }
 

@@ -2214,6 +2214,14 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (invalid)
 			return 1;
 
+		/*
+		 * If architectural LBRs are supported, the legacy LBR enable
+		 * bit in IA32_DEBUGCTL is ignored; writes are dropped, reads
+		 * always return 0.
+		 */
+		if (cpu_feature_enabled(X86_FEATURE_ARCH_LBR))
+			data &= ~DEBUGCTLMSR_LBR;
+
 		if (is_guest_mode(vcpu) && get_vmcs12(vcpu)->vm_exit_controls &
 						VM_EXIT_SAVE_DEBUG_CONTROLS)
 			get_vmcs12(vcpu)->guest_ia32_debugctl = data;
