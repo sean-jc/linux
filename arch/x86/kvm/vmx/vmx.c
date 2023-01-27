@@ -1808,6 +1808,9 @@ static void vmx_inject_exception(struct kvm_vcpu *vcpu)
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr_info);
 
 	vmx_clear_hlt(vcpu);
+
+	if (ex->vector == DB_VECTOR && intel_pmu_arch_lbr_is_enabled(vcpu))
+		vmcs_clear_bits64(GUEST_IA32_LBR_CTL, ARCH_LBR_CTL_LBREN);
 }
 
 static void vmx_setup_uret_msr(struct vcpu_vmx *vmx, unsigned int msr,
