@@ -175,19 +175,23 @@ static inline struct kvm_pmc *get_fw_gp_pmc(struct kvm_pmu *pmu, u32 msr)
 static bool intel_pmu_is_valid_lbr_msr(struct kvm_vcpu *vcpu, u32 index)
 {
 	struct x86_pmu_lbr *records = vcpu_to_lbr_records(vcpu);
-	bool ret = false;
 
 	if (!intel_pmu_lbr_is_enabled(vcpu))
-		return ret;
+		return false;
 
-	ret = (index == MSR_LBR_SELECT) || (index == MSR_LBR_TOS) ||
-		(index >= records->from && index < records->from + records->nr) ||
-		(index >= records->to && index < records->to + records->nr);
+	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR) &&
+	    (index == MSR_LBR_SELECT || index == MSR_LBR_TOS))
+		return true;
 
-	if (!ret && records->info)
-		ret = (index >= records->info && index < records->info + records->nr);
+	if ((index >= records->from && index < records->from + records->nr) ||
+	    (index >= records->to && index < records->to + records->nr))
+		return true;
 
-	return ret;
+	if (records->info && index >= records->info &&
+	    index < records->info + records->nr)
+		return true;
+
+	return false;
 }
 
 static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
