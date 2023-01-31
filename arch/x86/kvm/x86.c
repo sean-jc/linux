@@ -10135,6 +10135,12 @@ static void process_nmi(struct kvm_vcpu *vcpu)
 	if (!nmi_to_queue)
 		return;
 
+	if (static_call(kvm_x86_set_vnmi_pending)(vcpu))
+		nmi_to_queue--;
+
+	if (!nmi_to_queue)
+		return;
+
 	/*
 	 * x86 is limited to one NMI running, and one NMI pending after it.
 	 * If an NMI is already in progress, limit further NMIs to just one.
@@ -10143,7 +10149,8 @@ static void process_nmi(struct kvm_vcpu *vcpu)
 	if (static_call(kvm_x86_get_nmi_mask)(vcpu) || vcpu->arch.nmi_injected)
 		limit--;
 
-	/* Also if there is already a NMI hardware queued to be injected,
+	/*
+	 * In addition, if a virtual NMI is Also if there is already a NMI hardware queued to be injected,
 	 * decrease the limit again
 	 */
 	if (static_call(kvm_x86_get_hw_nmi_pending)(vcpu))
@@ -10153,7 +10160,7 @@ static void process_nmi(struct kvm_vcpu *vcpu)
 		return;
 
 	/* Attempt to use hardware NMI queueing */
-	if (static_call(kvm_x86_set_hw_nmi_pending)(vcpu)) {
+	if (static_call(kvm_x86_set_vnmi_pending)(vcpu)) {
 		limit--;
 		nmi_to_queue--;
 	}

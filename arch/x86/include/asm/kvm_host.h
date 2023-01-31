@@ -1627,12 +1627,8 @@ struct kvm_x86_ops {
 	int (*nmi_allowed)(struct kvm_vcpu *vcpu, bool for_injection);
 	bool (*get_nmi_mask)(struct kvm_vcpu *vcpu);
 	void (*set_nmi_mask)(struct kvm_vcpu *vcpu, bool masked);
-
-	/* returns true, if a NMI is pending injection on hardware level (e.g vNMI) */
-	bool (*get_hw_nmi_pending)(struct kvm_vcpu *vcpu);
-
-	/* attempts make a NMI pending via hardware interface (e.g vNMI) */
-	bool (*set_hw_nmi_pending)(struct kvm_vcpu *vcpu);
+	bool (*is_vnmi_pending)(struct kvm_vcpu *vcpu);
+	bool (*set_vnmi_pending)(struct kvm_vcpu *vcpu);
 
 	void (*enable_nmi_window)(struct kvm_vcpu *vcpu);
 	void (*enable_irq_window)(struct kvm_vcpu *vcpu);
