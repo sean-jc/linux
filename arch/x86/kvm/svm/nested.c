@@ -139,13 +139,18 @@ void recalc_intercepts(struct vcpu_svm *svm)
 
 	if (g->int_ctl & V_INTR_MASKING_MASK) {
 		/*
-		 * Once running L2 with HF_VINTR_MASK, EFLAGS.IF and CR8
-		 * does not affect any interrupt we may want to inject;
-		 * therefore, writes to CR8 are irrelevant to L0, as are
-		 * interrupt window vmexits.
+		 * If L2 is active and V_INTR_MASKING is enabled in vmcb12,
+		 * disable intercept of CR8 writes as L2's CR8 does not affect
+		 * any interrupt KVM may want to inject.
+		 *
+		 * Similarly, disable intercept of virtual interrupts (used to
+		 * detect interrupt windows) if the saved RFLAGS.IF is '0', as
+		 * the effective RFLAGS.IF for L1 interrupts will never be set
+		 * while L2 is running (L2's RFLAGS.IF doesn't affect L1 IRQs).
 		 */
 		vmcb_clr_intercept(c, INTERCEPT_CR8_WRITE);
-		vmcb_clr_intercept(c, INTERCEPT_VINTR);
+		if (!(svm->vmcb01.ptr->save.rflags & X86_EFLAGS_IF))
+			vmcb_clr_intercept(c, INTERCEPT_VINTR);
 	}
 
 	/*
@@ -416,18 +421,18 @@ void nested_sync_control_from_vmcb02(struct vcpu_svm *svm)
 
 	/* Only a few fields of int_ctl are written by the processor.  */
 	mask = V_IRQ_MASK | V_TPR_MASK;
-	if (!(svm->nested.ctl.int_ctl & V_INTR_MASKING_MASK) &&
-	    svm_is_intercept(svm, INTERCEPT_VINTR)) {
-		/*
-		 * In order to request an interrupt window, L0 is usurping
-		 * svm->vmcb->control.int_ctl and possibly setting V_IRQ
-		 * even if it was clear in L1's VMCB.  Restoring it would be
-		 * wrong.  However, in this case V_IRQ will remain true until
-		 * interrupt_window_interception calls svm_clear_vintr and
-		 * restores int_ctl.  We can just leave it aside.
-		 */
+
+	/*
+	 * Don't sync vmcb02 V_IRQ back to vmcb12 if KVM (L0) is intercepting
+	 * virtual interrupts in order to request an interrupt window, as KVM
+	 * has usurped vmcb02's int_ctl.  If an interrupt window opens before
+	 * the next VM-Exit, svm_clear_vintr() will restore vmcb12's int_ctl.
+	 * If no window opens, V_IRQ will be correctly preserved in vmcb12's
+	 * int_ctl (because it was never recognized while L2 was running).
+	 */
+	if (svm_is_intercept(svm, INTERCEPT_VINTR) &&
+	    !test_bit(INTERCEPT_VINTR, (unsigned long *)svm->nested.ctl.intercepts))
 		mask &= ~V_IRQ_MASK;
-	}
 
 	if (nested_vgif_enabled(svm))
 		mask |= V_GIF_MASK;
