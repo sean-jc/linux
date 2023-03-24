@@ -8,6 +8,7 @@
 struct kvm_vm_arch {
 	uint64_t c_bit;
 	uint64_t s_bit;
+	int sev_fd;
 };
 
 #endif  // _TOOLS_LINUX_ASM_X86_KVM_HOST_H
