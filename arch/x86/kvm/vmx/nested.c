@@ -4274,12 +4274,7 @@ static int vmx_check_nested_events(struct kvm_vcpu *vcpu)
 		nested_vmx_vmexit(vcpu, EXIT_REASON_EXCEPTION_NMI,
 				  NMI_VECTOR | INTR_TYPE_NMI_INTR |
 				  INTR_INFO_VALID_MASK, 0);
-		/*
-		 * The NMI-triggered VM exit counts as injection:
-		 * clear this one and block further NMIs.
-		 */
 		vcpu->arch.nmi_pending = 0;
-		vmx_set_nmi_mask(vcpu, true);
 		return 0;
 	}
 
@@ -4976,6 +4971,13 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 			vmcs12->vm_exit_intr_info = irq |
 				INTR_INFO_VALID_MASK | INTR_TYPE_EXT_INTR;
 		}
+
+		/*
+		 * NMIs are blocked on VM-Exit due to NMI, and unblocked by all
+		 * other VM-Exit types.
+		 */
+		vmx_set_nmi_mask(vcpu, (u16)vm_exit_reason == EXIT_REASON_EXCEPTION_NMI &&
+				       !is_nmi(vmcs12->vm_exit_intr_info));
 
 		if (vm_exit_reason != -1)
 			trace_kvm_nested_vmexit_inject(vmcs12->vm_exit_reason,
