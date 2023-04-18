@@ -7257,61 +7257,58 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 }
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
-static bool linfo_is_mixed(struct kvm_lpage_info *linfo)
+static bool hugepage_test_mixed(struct kvm_memory_slot *slot, gfn_t gfn,
+				int level)
 {
-	return linfo->disallow_lpage & KVM_LPAGE_MIXED_FLAG;
+	return lpage_info_slot(gfn, slot, level)->disallow_lpage & KVM_LPAGE_MIXED_FLAG;
 }
 
-static void linfo_update_mixed(gfn_t gfn, struct kvm_memory_slot *slot,
-			       int level, bool mixed)
+static void hugepage_clear_mixed(struct kvm_memory_slot *slot, gfn_t gfn,
+				 int level)
 {
-	struct kvm_lpage_info *linfo = lpage_info_slot(gfn, slot, level);
-
-	if (mixed)
-		linfo->disallow_lpage |= KVM_LPAGE_MIXED_FLAG;
-	else
-		linfo->disallow_lpage &= ~KVM_LPAGE_MIXED_FLAG;
+	lpage_info_slot(gfn, slot, level)->disallow_lpage &= ~KVM_LPAGE_MIXED_FLAG;
 }
 
-static bool has_mixed_attrs_2m(struct kvm *kvm, unsigned long attrs,
-			       gfn_t start, gfn_t end)
+static void hugepage_set_mixed(struct kvm_memory_slot *slot, gfn_t gfn,
+			       int level)
+{
+	lpage_info_slot(gfn, slot, level)->disallow_lpage |= KVM_LPAGE_MIXED_FLAG;
+}
+
+static bool range_has_mixed_attrs(struct kvm *kvm, unsigned long attrs,
+				  gfn_t start, gfn_t end)
 {
 	XA_STATE(xas, &kvm->mem_attr_array, start);
-	gfn_t gfn = start;
-	void *entry;
 	bool mixed = false;
+	void *entry;
 
 	rcu_read_lock();
-	entry = xas_load(&xas);
-	while (gfn < end) {
+
+	xas_for_each(&xas, entry, end - 1) {
 		if (xas_retry(&xas, entry))
 			continue;
 
-		if (KVM_BUG_ON(gfn != xas.xa_index, kvm) ||
-		    attrs != kvm_get_memory_attributes(kvm, gfn)) {
+		if (xa_to_value(entry) != attrs) {
 			mixed = true;
 			break;
 		}
-
-		entry = xas_next(&xas);
-		gfn++;
 	}
 
 	rcu_read_unlock();
 	return mixed;
 }
 
-static bool has_mixed_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
-			    int level, unsigned long attrs, gfn_t start,
-			    gfn_t end)
+static bool hugepage_has_mixed_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
+				     int level, unsigned long attrs, gfn_t gfn)
 {
-	unsigned long gfn;
+	const unsigned long start = gfn;
+	const unsigned long end = start + KVM_PAGES_PER_HPAGE(level);
 
 	if (level == PG_LEVEL_2M)
-		return has_mixed_attrs_2m(kvm, attrs, start, end);
+		return range_has_mixed_attrs(kvm, attrs, start, end);
 
 	for (gfn = start; gfn < end; gfn += KVM_PAGES_PER_HPAGE(level - 1)) {
-		if (linfo_is_mixed(lpage_info_slot(gfn, slot, level - 1)) ||
+		if (hugepage_test_mixed(slot, gfn, level - 1) ||
 		    attrs != kvm_get_memory_attributes(kvm, gfn))
 			return true;
 	}
@@ -7323,10 +7320,8 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 				    unsigned long attrs,
 				    gfn_t start, gfn_t end)
 {
-	unsigned long pages, mask;
-	gfn_t gfn, gfn_end, first, last;
+	gfn_t gfn;
 	int level;
-	bool mixed;
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 	lockdep_assert_held(&kvm->slots_lock);
@@ -7343,30 +7338,24 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 	 * level's scanning.
 	 */
 	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
-		pages = KVM_PAGES_PER_HPAGE(level);
-		mask = ~(pages - 1);
-		first = start & mask;
-		last = (end - 1) & mask;
+		gfn = gfn_round_for_level(start, level);
+		if (gfn != start) {
+			if (hugepage_has_mixed_attrs(kvm, slot, gfn, level, attrs))
+				hugepage_set_mixed(slot, gfn, level);
+			else
+				hugepage_clear_mixed(slot, gfn, level);
+		}
 
-		/*
-		 * We only need to scan the head and tail page, for middle pages
-		 * we know they will not be mixed.
-		 */
-		gfn = max(first, slot->base_gfn);
-		gfn_end = min(first + pages, slot->base_gfn + slot->npages);
-		mixed = has_mixed_attrs(kvm, slot, level, attrs, gfn, gfn_end);
-		linfo_update_mixed(gfn, slot, level, mixed);
+		for (gfn += 1; gfn < end; gfn += KVM_PAGES_PER_HPAGE(level))
+			hugepage_clear_mixed(slot, gfn, level);
 
-		if (first == last)
-			return;
-
-		for (gfn = first + pages; gfn < last; gfn += pages)
-			linfo_update_mixed(gfn, slot, level, false);
-
-		gfn = last;
-		gfn_end = min(last + pages, slot->base_gfn + slot->npages);
-		mixed = has_mixed_attrs(kvm, slot, level, attrs, gfn, gfn_end);
-		linfo_update_mixed(gfn, slot, level, mixed);
+		gfn = gfn_round_for_level(end, level);
+		if (gfn != end) {
+			if (hugepage_has_mixed_attrs(kvm, slot, gfn, level, attrs))
+				hugepage_set_mixed(slot, gfn, level);
+			else
+				hugepage_clear_mixed(slot, gfn, level);
+		}
 	}
 }
 #endif
