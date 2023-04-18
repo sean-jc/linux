@@ -37,4 +37,30 @@ static inline void gfn_to_pfn_cache_invalidate_start(struct kvm *kvm,
 }
 #endif /* HAVE_KVM_PFNCACHE */
 
+#ifdef CONFIG_KVM_PRIVATE_MEM
+int kvm_restrictedmem_create(struct kvm *kvm, unsigned int flag, int mount_fd);
+int kvm_restrictedmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+			   unsigned int fd, loff_t offset);
+void kvm_restrictedmem_unbind(struct kvm_memory_slot *slot);
+#else
+static inline int kvm_restrictedmem_create(struct kvm *kvm, unsigned int flag,
+					   int mount_fd)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int kvm_restrictedmem_bind(struct kvm *kvm,
+					 struct kvm_memory_slot *slot,
+					 unsigned int fd, loff_t offset)
+{
+	WARN_ON_ONCE(1);
+	return -EIO;
+}
+
+static inline void kvm_restrictedmem_unbind(struct kvm_memory_slot *slot)
+{
+	WARN_ON_ONCE(1);
+}
+#endif /* CONFIG_KVM_PRIVATE_MEM */
+
 #endif /* __KVM_MM_H__ */
