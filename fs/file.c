@@ -1035,6 +1035,7 @@ unsigned long __fdget_raw(unsigned int fd)
 {
 	return __fget_light(fd, 0);
 }
+EXPORT_SYMBOL_GPL(__fdget_raw);
 
 unsigned long __fdget_pos(unsigned int fd)
 {
