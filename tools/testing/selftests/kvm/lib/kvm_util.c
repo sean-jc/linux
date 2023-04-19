@@ -32,11 +32,6 @@ int open_path_or_exit(const char *path, int flags)
 	return fd;
 }
 
-static int memfd_restricted(unsigned int flags)
-{
-	return syscall(__NR_memfd_restricted, flags);
-}
-
 /*
  * Open KVM_DEV_PATH if available, otherwise exit the entire program.
  *
@@ -993,10 +988,10 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	region->backing_src_type = src_type;
 
 	if (flags & KVM_MEM_PRIVATE) {
-		region->region.restrictedmem_fd = memfd_restricted(0);
+		region->region.restrictedmem_fd = vm_create_restricted_memfd(vm, 0, -1);
 		region->region.restrictedmem_offset = 0;
 
-		TEST_ASSERT(region->region.restrictedmem_fd >= 0,
+		TEST_ASSERT((int)region->region.restrictedmem_fd >= 0,
 			    "Failed to create restricted memfd");
 	}
 

@@ -461,6 +461,19 @@ static inline uint64_t vm_get_stat(struct kvm_vm *vm, const char *stat_name)
 }
 
 void vm_create_irqchip(struct kvm_vm *vm);
+static inline int vm_create_restricted_memfd(struct kvm_vm *vm, uint32_t flags,
+					     int mount_fd)
+{
+	struct kvm_create_restricted_memfd rmem = {
+		.flags = flags,
+		.mount_fd = mount_fd,
+	};
+
+	int fd = __vm_ioctl(vm, KVM_CREATE_RESTRICTED_MEMFD, &rmem);
+
+	TEST_ASSERT(fd >= 0, KVM_IOCTL_ERROR(KVM_CREATE_RESTRICTED_MEMFD, fd));
+	return fd;
+}
 
 void vm_set_user_memory_region(struct kvm_vm *vm, uint32_t slot, uint32_t flags,
 			       uint64_t gpa, uint64_t size, void *hva);
