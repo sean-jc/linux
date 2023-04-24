@@ -55,6 +55,7 @@ static struct ucall *ucall_alloc(void)
 		if (!test_and_set_bit(i, ucall_pool->in_use)) {
 			uc = &ucall_pool->ucalls[i];
 			memset(uc->args, 0, sizeof(uc->args));
+			memset(uc->buffer, 0, sizeof(uc->buffer));
 			return uc;
 		}
 	}
@@ -73,6 +74,23 @@ static void ucall_free(struct ucall *uc)
 {
 	/* Beware, here be pointer arithmetic.  */
 	clear_bit(uc - ucall_pool->ucalls, ucall_pool->in_use);
+}
+
+void ucall_fmt(uint64_t cmd, const char *fmt, ...)
+{
+	struct ucall *uc;
+	va_list va;
+
+	uc = ucall_alloc();
+	uc->cmd = cmd;
+
+	va_start(va, fmt);
+	kvm_vsnprintf(uc->buffer, UCALL_BUFFER_LEN, fmt, va);
+	va_end(va);
+
+	ucall_arch_do_ucall((vm_vaddr_t)uc->hva);
+
+	ucall_free(uc);
 }
 
 void ucall(uint64_t cmd, int nargs, ...)
