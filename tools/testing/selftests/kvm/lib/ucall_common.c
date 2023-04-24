@@ -76,6 +76,30 @@ static void ucall_free(struct ucall *uc)
 	clear_bit(uc - ucall_pool->ucalls, ucall_pool->in_use);
 }
 
+void ucall_fmt2(uint64_t cmd, const char *fmt1, const char *fmt2, ...)
+{
+	const int fmt_len = 128;
+	char fmt[fmt_len];
+	struct ucall *uc;
+	va_list va;
+	int len;
+
+	len = kvm_snprintf(fmt, fmt_len, "%s%s", fmt1, fmt2);
+	if (len > fmt_len)
+		ucall_arch_do_ucall(GUEST_UCALL_FAILED);
+
+	uc = ucall_alloc();
+	uc->cmd = cmd;
+
+	va_start(va, fmt2);
+	kvm_vsnprintf(uc->buffer, UCALL_BUFFER_LEN, fmt, va);
+	va_end(va);
+
+	ucall_arch_do_ucall((vm_vaddr_t)uc->hva);
+
+	ucall_free(uc);
+}
+
 void ucall_fmt(uint64_t cmd, const char *fmt, ...)
 {
 	struct ucall *uc;

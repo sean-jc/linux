@@ -36,6 +36,7 @@ void *ucall_arch_get_ucall(struct kvm_vcpu *vcpu);
 
 void ucall(uint64_t cmd, int nargs, ...);
 void ucall_fmt(uint64_t cmd, const char *fmt, ...);
+void ucall_fmt2(uint64_t cmd, const char *fmt1, const char *fmt2, ...);
 uint64_t get_ucall(struct kvm_vcpu *vcpu, struct ucall *uc);
 void ucall_init(struct kvm_vm *vm, vm_paddr_t mmio_gpa);
 int ucall_nr_pages_required(uint64_t page_size);
@@ -61,12 +62,12 @@ enum guest_assert_builtin_args {
 	GUEST_ASSERT_BUILTIN_NARGS
 };
 
-#define __GUEST_ASSERT_FMT(_condition, _condstr, _fmt, _args...)		  \
-do {										  \
-	if (!(_condition))							  \
-		ucall_fmt(UCALL_ABORT,						  \
-			  "Failed guest assert: " _condstr " at %s:%ld\n  " _fmt, \
-			  , __FILE__, __LINE__, ##_args);			  \
+#define __GUEST_ASSERT_FMT(_condition, _condstr, _fmt, _args...)	     \
+do {									     \
+	if (!(_condition))						     \
+		ucall_fmt2(UCALL_ABORT,					     \
+			   "Failed guest assert: " _condstr " at %s:%ld\n  ",\
+			   _fmt, __FILE__, __LINE__, ##_args);		     \
 } while (0)
 
 #define GUEST_ASSERT_FMT(_condition, _fmt, _args...)	\
