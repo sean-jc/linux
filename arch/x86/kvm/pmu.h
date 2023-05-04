@@ -79,7 +79,7 @@ static inline void pmc_write_counter(struct kvm_pmc *pmc, u64 val)
 	if (pmc->perf_event && !pmc->is_paused)
 		perf_event_set_count(pmc->perf_event, val);
 
-	pmc->counter = val;
+	pmc->counter = val & pmc_bitmask(pmc);
 }
 
 static inline void pmc_release_perf_event(struct kvm_pmc *pmc)
