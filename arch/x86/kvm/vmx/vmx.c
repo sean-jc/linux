@@ -7994,6 +7994,12 @@ static void vmx_sched_in(struct kvm_vcpu *vcpu, int cpu)
 		shrink_ple_window(vcpu);
 }
 
+static void vmx_sched_out(struct kvm_vcpu *vcpu)
+{
+	if (cpumask_weight(&current->cpus_mask) > 1)
+		__loaded_vmcs_clear(to_vmx(vcpu)->loaded_vmcs);
+}
+
 void vmx_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -8235,6 +8241,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.request_immediate_exit = vmx_request_immediate_exit,
 
 	.sched_in = vmx_sched_in,
+	.sched_out = vmx_sched_out,
 
 	.cpu_dirty_log_size = PML_ENTITY_NUM,
 	.update_cpu_dirty_logging = vmx_update_cpu_dirty_logging,

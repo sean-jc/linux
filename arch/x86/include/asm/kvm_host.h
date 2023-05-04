@@ -1674,6 +1674,7 @@ struct kvm_x86_ops {
 	void (*request_immediate_exit)(struct kvm_vcpu *vcpu);
 
 	void (*sched_in)(struct kvm_vcpu *kvm, int cpu);
+	void (*sched_out)(struct kvm_vcpu *kvm);
 
 	/*
 	 * Size of the CPU's dirty log buffer, i.e. VMX's PML buffer.  A zero

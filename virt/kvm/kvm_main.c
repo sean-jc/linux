@@ -5861,6 +5861,11 @@ __weak void kvm_arch_sched_in(struct kvm_vcpu *vcpu, int cpu)
 
 }
 
+__weak void kvm_arch_sched_out(struct kvm_vcpu *vcpu)
+{
+
+}
+
 static void kvm_sched_in(struct preempt_notifier *pn, int cpu)
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
@@ -5883,6 +5888,7 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 		WRITE_ONCE(vcpu->ready, true);
 	}
 	kvm_arch_vcpu_put(vcpu);
+	kvm_arch_sched_out(vcpu);
 	__this_cpu_write(kvm_running_vcpu, NULL);
 }
 

@@ -12240,6 +12240,11 @@ void kvm_arch_sched_in(struct kvm_vcpu *vcpu, int cpu)
 	static_call(kvm_x86_sched_in)(vcpu, cpu);
 }
 
+void kvm_arch_sched_out(struct kvm_vcpu *vcpu)
+{
+	static_call_cond(kvm_x86_sched_out)(vcpu);
+}
+
 void kvm_arch_free_vm(struct kvm *kvm)
 {
 	kfree(to_kvm_hv(kvm)->hv_pa_pg);
