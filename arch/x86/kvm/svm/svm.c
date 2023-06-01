@@ -2959,21 +2959,10 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 			svm->vmcb->save.spec_ctrl = data;
 		else
 			svm->spec_ctrl = data;
-		if (!data)
-			break;
 
-		/*
-		 * For non-nested:
-		 * When it's written (to non-zero) for the first time, pass
-		 * it through.
-		 *
-		 * For nested:
-		 * The handling of the MSR bitmap for L2 guests is done in
-		 * nested_svm_vmrun_msrpm.
-		 * We update the L1 MSR bit as well since it will end up
-		 * touching the MSR anyway now.
-		 */
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
+		if (!msr->host_initiated &&
+		    kvm_account_msr_spec_ctrl_write(vcpu))
+			set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
 		break;
 	case MSR_AMD64_VIRT_SPEC_CTRL:
 		if (!msr->host_initiated &&
@@ -4157,6 +4146,11 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
 		svm_handle_mce(vcpu);
 
 	svm_complete_interrupts(vcpu);
+
+	if (!static_cpu_has(X86_FEATURE_V_SPEC_CTRL) &&
+	    !spec_ctrl_intercepted &&
+	    kvm_account_msr_spec_ctrl_passthrough(vcpu))
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SPEC_CTRL, 0, 0);
 
 	if (is_guest_mode(vcpu))
 		return EXIT_FASTPATH_NONE;

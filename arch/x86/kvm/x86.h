@@ -492,7 +492,31 @@ static inline void kvm_machine_check(void)
 
 void kvm_load_guest_xsave_state(struct kvm_vcpu *vcpu);
 void kvm_load_host_xsave_state(struct kvm_vcpu *vcpu);
+
 int kvm_spec_ctrl_test_value(u64 value);
+
+static inline bool kvm_account_msr_spec_ctrl_write(struct kvm_vcpu *vcpu)
+{
+	if ((vcpu->stat.exits - vcpu->arch.spec_ctrl_nr_exits_snapshot) < 20)
+		vcpu->arch.nr_quick_spec_ctrl_writes++;
+	else
+		vcpu->arch.nr_quick_spec_ctrl_writes = 0;
+
+	vcpu->arch.spec_ctrl_nr_exits_snapshot = vcpu->stat.exits;
+
+	return vcpu->arch.nr_quick_spec_ctrl_writes >= 10;
+}
+
+static inline bool kvm_account_msr_spec_ctrl_passthrough(struct kvm_vcpu *vcpu)
+{
+	if ((vcpu->stat.exits - vcpu->arch.spec_ctrl_nr_exits_snapshot) < 100000)
+		return false;
+
+	vcpu->arch.spec_ctrl_nr_exits_snapshot = vcpu->stat.exits;
+	vcpu->arch.nr_quick_spec_ctrl_writes = 0;
+	return true;
+}
+
 bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4);
 int kvm_handle_memory_failure(struct kvm_vcpu *vcpu, int r,
 			      struct x86_exception *e);

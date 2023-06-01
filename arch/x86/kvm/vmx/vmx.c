@@ -2260,24 +2260,11 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 
 		vmx->spec_ctrl = data;
-		if (!data)
-			break;
 
-		/*
-		 * For non-nested:
-		 * When it's written (to non-zero) for the first time, pass
-		 * it through.
-		 *
-		 * For nested:
-		 * The handling of the MSR bitmap for L2 guests is done in
-		 * nested_vmx_prepare_msr_bitmap. We should not touch the
-		 * vmcs02.msr_bitmap here since it gets completely overwritten
-		 * in the merging. We update the vmcs01 here for L1 as well
-		 * since it will end up touching the MSR anyway now.
-		 */
-		vmx_disable_intercept_for_msr(vcpu,
-					      MSR_IA32_SPEC_CTRL,
-					      MSR_TYPE_RW);
+		if (msr_info->host_initiated &&
+		    kvm_account_msr_spec_ctrl_write(vcpu))
+			vmx_disable_intercept_for_msr(vcpu, MSR_IA32_SPEC_CTRL,
+						      MSR_TYPE_RW);
 		break;
 	case MSR_IA32_TSX_CTRL:
 		if (!msr_info->host_initiated &&
@@ -7192,6 +7179,7 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	unsigned int run_flags = __vmx_vcpu_run_flags(vmx);
 	unsigned long cr3, cr4;
 
 	/* Record the guest's net vcpu time for enforced NMI injections. */
@@ -7280,7 +7268,7 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	kvm_wait_lapic_expire(vcpu);
 
 	/* The actual VMENTER/EXIT is in the .noinstr.text section. */
-	vmx_vcpu_enter_exit(vcpu, __vmx_vcpu_run_flags(vmx));
+	vmx_vcpu_enter_exit(vcpu, run_flags);
 
 	/* All fields are clean at this point */
 	if (kvm_is_using_evmcs()) {
@@ -7345,6 +7333,10 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	vmx_recover_nmi_blocking(vmx);
 	vmx_complete_interrupts(vmx);
+
+	if ((run_flags & VMX_RUN_SAVE_SPEC_CTRL) &&
+	    kvm_account_msr_spec_ctrl_passthrough(vcpu))
+		vmx_enable_intercept_for_msr(vcpu, MSR_IA32_SPEC_CTRL, MSR_TYPE_RW);
 
 	if (is_guest_mode(vcpu))
 		return EXIT_FASTPATH_NONE;

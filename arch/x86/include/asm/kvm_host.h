@@ -966,6 +966,9 @@ struct kvm_vcpu_arch {
 	/* Host CPU on which VM-entry was most recently attempted */
 	int last_vmentry_cpu;
 
+	u32 nr_quick_spec_ctrl_writes;
+	u64 spec_ctrl_nr_exits_snapshot;
+
 	/* AMD MSRC001_0015 Hardware Configuration */
 	u64 msr_hwcr;
 
