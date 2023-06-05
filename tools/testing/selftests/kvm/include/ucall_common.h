@@ -65,9 +65,9 @@ enum guest_assert_builtin_args {
 #define __GUEST_ASSERT_FMT(_condition, _condstr, _fmt, _args...)	     \
 do {									     \
 	if (!(_condition))						     \
-		ucall_fmt2(UCALL_ABORT,					     \
-			   "Failed guest assert: " _condstr " at %s:%ld\n  ",\
-			   _fmt, __FILE__, __LINE__, ##_args);		     \
+		ucall_fmt(UCALL_ABORT,					     \
+			   "Failed guest assert: " _condstr " at %s:%ld\n  " _fmt,\
+			   __FILE__, __LINE__, ##_args);		     \
 } while (0)
 
 #define GUEST_ASSERT_FMT(_condition, _fmt, _args...)	\

@@ -27,7 +27,7 @@ TYPE(test_type_X32,  U32X, "0x%X",  uint32_t)		\
 TYPE(test_type_int,  INT,  "%d",    int)		\
 TYPE(test_type_char, CHAR, "%c",    char)		\
 TYPE(test_type_str,  STR,  "'%s'",  const char *)	\
-TYPE(test_type_ptr,  PTR,  "%p",    uintptr_t)
+TYPE(test_type_ptr,  PTR,  "%p",    void *)
 
 enum args_type {
 #define TYPE(fn, ext, fmt_t, T) TYPE_##ext,
@@ -39,15 +39,15 @@ static void run_test(struct kvm_vcpu *vcpu, const char *expected_printf,
 		     const char *expected_assert);
 
 #define BUILD_TYPE_STRINGS_AND_HELPER(fn, ext, fmt_t, T)		     \
-const char *PRINTF_FMT_##ext = "Got params a = " fmt_t " and b = " fmt_t;    \
-const char *ASSERT_FMT_##ext = "Expected " fmt_t ", got " fmt_t " instead";  \
 static void fn(struct kvm_vcpu *vcpu, T a, T b)				     \
 {									     \
 	char expected_printf[UCALL_BUFFER_LEN];				     \
 	char expected_assert[UCALL_BUFFER_LEN];				     \
 									     \
-	snprintf(expected_printf, UCALL_BUFFER_LEN, PRINTF_FMT_##ext, a, b); \
-	snprintf(expected_assert, UCALL_BUFFER_LEN, ASSERT_FMT_##ext, a, b); \
+	snprintf(expected_printf, UCALL_BUFFER_LEN,\
+		 "Got params a = " fmt_t " and b = " fmt_t, a, b); \
+	snprintf(expected_assert, UCALL_BUFFER_LEN,				\
+		 "Expected " fmt_t ", got " fmt_t " instead", a, b); \
 	vcpu_args_set(vcpu, 3, a, b, TYPE_##ext);			     \
 	run_test(vcpu, expected_printf, expected_assert);		     \
 }
@@ -61,8 +61,8 @@ static void guest_code(uint64_t a, uint64_t b, uint64_t type)
 {
 	switch (type) {
 #define TYPE(fn, ext, fmt_t, T) case TYPE_##ext:			\
-		GUEST_PRINTF(PRINTF_FMT_##ext, a, b);			\
-		GUEST_ASSERT_FMT(a == b, ASSERT_FMT_##ext, a, b);	\
+		GUEST_PRINTF("Got params a = " fmt_t " and b = " fmt_t, a, b);			\
+		GUEST_ASSERT_FMT(a == b, "Expected " fmt_t ", got " fmt_t " instead", a, b);	\
 		break;
 	TYPE_LIST
 #undef TYPE
@@ -196,8 +196,8 @@ int main(int argc, char *argv[])
 	test_type_str(vcpu, "foo", "foo");
 	test_type_str(vcpu, "foo", "bar");
 
-	test_type_ptr(vcpu, 0x1234567890abcdef, 0x1234567890abcdef);
-	test_type_ptr(vcpu, 0x1234567890abcdef, 0x1234567890abcdee);
+	test_type_ptr(vcpu, (void *)0x1234567890abcdef, (void *)0x1234567890abcdef);
+	test_type_ptr(vcpu, (void *)0x1234567890abcdef, (void *)0x1234567890abcdee);
 
 	kvm_vm_free(vm);
 
