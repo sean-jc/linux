@@ -5646,6 +5646,17 @@ static void _perf_event_reset(struct perf_event *event)
 	perf_event_update_userpage(event);
 }
 
+void perf_event_set_count(struct perf_event *event, u64 count)
+{
+	struct perf_event_context *ctx;
+
+	ctx = perf_event_ctx_lock(event);
+	(void)perf_event_read(event, false);
+	local64_set(&event->count, count);
+	perf_event_ctx_unlock(event, ctx);
+}
+EXPORT_SYMBOL_GPL(perf_event_set_count);
+
 /* Assume it's not an event with inherit set. */
 u64 perf_event_pause(struct perf_event *event, bool reset)
 {

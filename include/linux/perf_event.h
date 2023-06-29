@@ -1677,6 +1677,7 @@ extern void perf_event_disable_inatomic(struct perf_event *event);
 extern void perf_event_task_tick(void);
 extern int perf_event_account_interrupt(struct perf_event *event);
 extern int perf_event_period(struct perf_event *event, u64 value);
+extern void perf_event_set_count(struct perf_event *event, u64 count);
 extern u64 perf_event_pause(struct perf_event *event, bool reset);
 #else /* !CONFIG_PERF_EVENTS: */
 static inline void *
@@ -1760,6 +1761,7 @@ static inline int perf_event_period(struct perf_event *event, u64 value)
 {
 	return -EINVAL;
 }
+static inline perf_event_set_count(struct perf_event *event, u64 count) { }
 static inline u64 perf_event_pause(struct perf_event *event, bool reset)
 {
 	return 0;
