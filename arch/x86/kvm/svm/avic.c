@@ -308,7 +308,7 @@ static int avic_init_backing_page(struct kvm_vcpu *vcpu)
 	if (!entry)
 		return -EINVAL;
 
-	BUILD_BUG_ON(fls64(__PHYSICAL_MASK_SHIFT) >
+	BUILD_BUG_ON((__PHYSICAL_MASK_SHIFT - 1) >
 		     fls64(AVIC_PHYSICAL_ID_ENTRY_BACKING_PAGE_MASK));
 
 	new_entry = __sme_set(page_to_phys(svm->avic_backing_page)) |
