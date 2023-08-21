@@ -16,7 +16,6 @@
 #include <linux/mman.h>
 #include <linux/sched.h>
 #include <linux/kvm.h>
-#include <linux/kvm_irqfd.h>
 #include <linux/irqbypass.h>
 #include <linux/sched/stat.h>
 #include <linux/psci.h>
@@ -43,6 +42,7 @@
 
 #include "arm_hypercalls.h"
 #include "arm_psci.h"
+#include "kvm_irqfd.h"
 
 static enum kvm_mode kvm_mode = KVM_MODE_DEFAULT;
 
