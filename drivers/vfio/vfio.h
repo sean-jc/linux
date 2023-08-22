@@ -24,6 +24,8 @@ void vfio_device_close(struct vfio_device *device,
 
 extern const struct file_operations vfio_device_fops;
 
+struct kvm;
+
 enum vfio_group_type {
 	/*
 	 * Physical device with IOMMU backing.
@@ -70,6 +72,8 @@ struct vfio_group {
 	enum vfio_group_type		type;
 	struct mutex			group_lock;
 	struct kvm			*kvm;
+	int				(*get_kvm)(struct kvm *kvm);
+	void				(*put_kvm)(struct kvm *kvm);
 	struct file			*opened_file;
 	struct blocking_notifier_head	notifier;
 	struct iommufd_ctx		*iommufd;
@@ -248,20 +252,6 @@ static inline void vfio_virqfd_exit(void)
 extern bool vfio_noiommu __read_mostly;
 #else
 enum { vfio_noiommu = false };
-#endif
-
-#ifdef CONFIG_HAVE_KVM
-void _vfio_device_get_kvm_safe(struct vfio_device *device, struct kvm *kvm);
-void vfio_device_put_kvm(struct vfio_device *device);
-#else
-static inline void _vfio_device_get_kvm_safe(struct vfio_device *device,
-					     struct kvm *kvm)
-{
-}
-
-static inline void vfio_device_put_kvm(struct vfio_device *device)
-{
-}
 #endif
 
 #endif

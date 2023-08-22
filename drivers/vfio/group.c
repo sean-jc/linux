@@ -157,17 +157,44 @@ out_unlock:
 	return ret;
 }
 
-static void vfio_device_group_get_kvm_safe(struct vfio_device *device)
+#ifdef CONFIG_HAVE_KVM
+static int vfio_device_group_get_kvm_safe(struct vfio_device *device)
 {
+	int ret = 0;
+
+	lockdep_assert_held(&device->dev_set->lock);
+
 	spin_lock(&device->group->kvm_ref_lock);
 	if (!device->group->kvm)
 		goto unlock;
 
-	_vfio_device_get_kvm_safe(device, device->group->kvm);
+	ret = device->group->get_kvm(device->group->kvm);
+	if (WARN_ON_ONCE(ret))
+		goto unlock;
 
+	device->kvm = device->group->kvm;
+	device->put_kvm = device->group->put_kvm;
 unlock:
 	spin_unlock(&device->group->kvm_ref_lock);
+	return ret;
 }
+
+
+static void vfio_device_put_kvm(struct vfio_device *device)
+{
+	lockdep_assert_held(&device->dev_set->lock);
+
+	device->put_kvm(device->group->kvm);
+}
+#else
+static inline void vfio_device_get_kvm_safe(struct vfio_device *device)
+{
+}
+
+static inline void vfio_device_put_kvm(struct vfio_device *device)
+{
+}
+#endif
 
 static int vfio_device_group_open(struct vfio_device *device)
 {
@@ -187,16 +214,22 @@ static int vfio_device_group_open(struct vfio_device *device)
 	 * now that will be held until the open_count reaches 0 again.  Save
 	 * the pointer in the device for use by drivers.
 	 */
-	if (device->open_count == 0)
-		vfio_device_group_get_kvm_safe(device);
+	if (device->open_count == 0) {
+		ret = vfio_device_group_get_kvm_safe(device);
+		if (ret)
+			goto out_unlock_device;
+	}
 
 	ret = vfio_device_open(device, device->group->iommufd);
 
-	if (device->open_count == 0)
-		vfio_device_put_kvm(device);
+	if (device->open_count == 0) {
+		ret = vfio_device_group_get_kvm_safe(device);
+		if (ret)
+			goto out_unlock_device;
+	}
 
+out_unlock_device:
 	mutex_unlock(&device->dev_set->lock);
-
 out_unlock:
 	mutex_unlock(&device->group->group_lock);
 	return ret;
@@ -829,7 +862,9 @@ EXPORT_SYMBOL_GPL(vfio_file_enforced_coherent);
  * When a VFIO device is first opened the KVM will be available in
  * device->kvm if one was associated with the group.
  */
-void vfio_file_set_kvm(struct file *file, struct kvm *kvm)
+void vfio_file_set_kvm(struct file *file, struct kvm *kvm,
+		       int (*get_kvm)(struct kvm *kvm),
+		       void (*put_kvm)(struct kvm *kvm))
 {
 	struct vfio_group *group = file->private_data;
 
@@ -838,6 +873,8 @@ void vfio_file_set_kvm(struct file *file, struct kvm *kvm)
 
 	spin_lock(&group->kvm_ref_lock);
 	group->kvm = kvm;
+	group->get_kvm = get_kvm;
+	group->put_kvm = put_kvm;
 	spin_unlock(&group->kvm_ref_lock);
 }
 EXPORT_SYMBOL_GPL(vfio_file_set_kvm);

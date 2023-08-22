@@ -14,10 +14,10 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 #include <linux/nmi.h>
-#include <linux/kvm_host.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hardirq.h>
+#include <asm/kvm_host.h>
 #include <asm/intel-family.h>
 #include <asm/intel_pt.h>
 #include <asm/apic.h>
