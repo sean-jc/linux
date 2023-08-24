@@ -65,7 +65,7 @@
 #include <trace/events/ipi.h>
 
 #define CREATE_TRACE_POINTS
-#include <trace/events/kvm.h>
+#include "kvm_trace.h"
 
 #include <linux/kvm_dirty_ring.h>
 

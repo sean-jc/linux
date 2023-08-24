@@ -15,7 +15,7 @@
 #include <linux/sched/mm.h>
 
 #include "async_pf.h"
-#include <trace/events/kvm.h>
+#include "kvm_trace.h"
 
 static struct kmem_cache *async_pf_cache;
 

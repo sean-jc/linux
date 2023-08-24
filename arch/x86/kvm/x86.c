@@ -26,6 +26,7 @@
 #include "kvm_cache_regs.h"
 #include "kvm_emulate.h"
 #include "kvm_irqfd.h"
+#include "kvm_trace.h"
 #include "mmu/page_track.h"
 #include "x86.h"
 #include "cpuid.h"
@@ -63,7 +64,6 @@
 #include <linux/smp.h>
 
 #include <trace/events/ipi.h>
-#include <trace/events/kvm.h>
 
 #include <asm/debugreg.h>
 #include <asm/msr.h>

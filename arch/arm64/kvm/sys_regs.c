@@ -29,8 +29,8 @@
 #include <asm/perf_event.h>
 #include <asm/sysreg.h>
 
-#include <trace/events/kvm.h>
 
+#include "kvm_trace.h"
 #include "sys_regs.h"
 
 #include "trace.h"

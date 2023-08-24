@@ -36,8 +36,8 @@
 
 #include <asm/apicdef.h>
 #include <asm/mshyperv.h>
-#include <trace/events/kvm.h>
 
+#include "kvm_trace.h"
 #include "trace.h"
 #include "irq.h"
 #include "fpu.h"

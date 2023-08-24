@@ -41,8 +41,8 @@
 #include <asm/processor.h>
 #include <asm/page.h>
 #include <asm/current.h>
-#include <trace/events/kvm.h>
 
+#include "kvm_trace.h"
 #include "ioapic.h"
 #include "lapic.h"
 #include "irq.h"

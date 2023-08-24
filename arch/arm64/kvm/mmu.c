@@ -9,7 +9,6 @@
 #include <linux/io.h>
 #include <linux/hugetlb.h>
 #include <linux/sched/signal.h>
-#include <trace/events/kvm.h>
 #include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/kvm_arm.h>
@@ -20,6 +19,7 @@
 #include <asm/kvm_emulate.h>
 #include <asm/virt.h>
 
+#include "kvm_trace.h"
 #include "trace.h"
 
 static struct kvm_pgtable *hyp_pgtable;

@@ -16,7 +16,6 @@
 #include <linux/kvm_host.h>
 #include <linux/sched/stat.h>
 
-#include <trace/events/kvm.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/vcpu.h>
 #include <xen/interface/version.h>
@@ -26,6 +25,7 @@
 #include <asm/xen/cpuid.h>
 
 #include "cpuid.h"
+#include "kvm_trace.h"
 #include "trace.h"
 
 static int kvm_xen_set_evtchn(struct kvm_xen_evtchn *xe, struct kvm *kvm);

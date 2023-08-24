@@ -2,6 +2,7 @@
 #if !defined(_TRACE_KVM_MAIN_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _TRACE_KVM_MAIN_H
 
+#include <linux/kvm_host.h>
 #include <linux/tracepoint.h>
 
 #undef TRACE_SYSTEM
@@ -505,6 +506,11 @@ TRACE_EVENT(kvm_test_age_hva,
 );
 
 #endif /* _TRACE_KVM_MAIN_H */
+
+#undef TRACE_INCLUDE_PATH
+#define TRACE_INCLUDE_PATH ../../virt/kvm/include
+#undef TRACE_INCLUDE_FILE
+#define TRACE_INCLUDE_FILE kvm_trace
 
 /* This part must be outside protection */
 #include <trace/define_trace.h>

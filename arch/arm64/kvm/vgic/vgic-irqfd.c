@@ -5,8 +5,8 @@
 
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
-#include <trace/events/kvm.h>
 #include <kvm/arm_vgic.h>
+#include "kvm_trace.h"
 #include "vgic.h"
 
 /**

@@ -6,8 +6,8 @@
 
 #include <linux/kvm_host.h>
 #include <asm/kvm_emulate.h>
-#include <trace/events/kvm.h>
 
+#include "kvm_trace.h"
 #include "trace.h"
 
 void kvm_mmio_write_buf(void *buf, unsigned int len, unsigned long data)

@@ -16,7 +16,8 @@
 #include <linux/slab.h>
 #include <linux/srcu.h>
 #include <linux/export.h>
-#include <trace/events/kvm.h>
+
+#include "kvm_trace.h"
 
 int kvm_irq_map_gsi(struct kvm *kvm,
 		    struct kvm_kernel_irq_routing_entry *entries, int gsi)

@@ -8,8 +8,8 @@
 #include <linux/kvm.h>
 #include <linux/vmalloc.h>
 #include <linux/kvm_dirty_ring.h>
-#include <trace/events/kvm.h>
 #include "kvm_mm.h"
+#include "kvm_trace.h"
 
 int __weak kvm_cpu_dirty_log_size(void)
 {

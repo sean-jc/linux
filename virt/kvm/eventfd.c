@@ -23,11 +23,10 @@
 #include <linux/slab.h>
 #include <linux/seqlock.h>
 #include <linux/irqbypass.h>
-#include <trace/events/kvm.h>
-
 #include <kvm/iodev.h>
 
 #include "kvm_irqfd.h"
+#include "kvm_trace.h"
 
 #ifdef CONFIG_HAVE_KVM_IRQFD
 

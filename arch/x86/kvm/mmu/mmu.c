@@ -118,7 +118,7 @@ static int max_tdp_level __read_mostly;
 
 #define PTE_PREFETCH_NUM		8
 
-#include <trace/events/kvm.h>
+#include "kvm_trace.h"
 
 /* make pte_list_desc fit well in cache lines */
 #define PTE_LIST_EXT 14

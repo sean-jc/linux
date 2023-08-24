@@ -19,7 +19,7 @@
 #include <linux/irqbypass.h>
 #include <linux/sched/stat.h>
 #include <linux/psci.h>
-#include <trace/events/kvm.h>
+#include "kvm_trace.h"
 
 #define CREATE_TRACE_POINTS
 #include "trace_arm.h"
