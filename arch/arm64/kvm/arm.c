@@ -39,9 +39,10 @@
 #include <asm/kvm_emulate.h>
 #include <asm/sections.h>
 
-#include <kvm/arm_hypercalls.h>
 #include <kvm/arm_pmu.h>
 #include <kvm/arm_psci.h>
+
+#include "arm_hypercalls.h"
 
 static enum kvm_mode kvm_mode = KVM_MODE_DEFAULT;
 
