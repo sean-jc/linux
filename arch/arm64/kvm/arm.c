@@ -40,9 +40,9 @@
 #include <asm/sections.h>
 
 #include <kvm/arm_pmu.h>
-#include <kvm/arm_psci.h>
 
 #include "arm_hypercalls.h"
+#include "arm_psci.h"
 
 static enum kvm_mode kvm_mode = KVM_MODE_DEFAULT;
 
