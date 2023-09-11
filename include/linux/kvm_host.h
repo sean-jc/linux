@@ -1164,10 +1164,31 @@ struct kvm_follow_pfn {
 	bool atomic;
 	/* Try to create a writable mapping even for a read fault */
 	bool try_map_writable;
+	/* Usage of the returned pfn will be guared by a mmu notifier. */
+	bool guarded_by_mmu_notifier;
+	/*
+	 * When false, do not return pfns for non-refcounted struct pages.
+	 *
+	 * TODO: This allows callers to use kvm_release_pfn on the pfns
+	 * returned by gfn_to_pfn without worrying about corrupting the
+	 * refcounted of non-refcounted pages. Once all callers respect
+	 * is_refcounted_page, this flag should be removed.
+	 */
+	bool allow_non_refcounted_struct_page;
 
 	/* Outputs of __kvm_follow_pfn */
 	hva_t hva;
 	bool writable;
+	/*
+	 * True if the returned pfn is for a page with a valid refcount. False
+	 * if the returned pfn has no struct page or if the struct page is not
+	 * being refcounted (e.g. tail pages of non-compound higher order
+	 * allocations from IO/PFNMAP mappings).
+	 *
+	 * When this output flag is false, callers should not try to convert
+	 * the pfn to a struct page.
+	 */
+	bool is_refcounted_page;
 };
 
 kvm_pfn_t __kvm_follow_pfn(struct kvm_follow_pfn *foll);
