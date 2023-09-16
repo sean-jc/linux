@@ -6,7 +6,7 @@
 #ifndef __ASM_KVM_IPI_H
 #define __ASM_KVM_IPI_H
 
-#include <kvm/iodev.h>
+#include <linux/kvm_iodev.h>
 
 #define LARCH_INT_IPI			12
 

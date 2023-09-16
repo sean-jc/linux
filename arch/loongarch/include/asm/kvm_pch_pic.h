@@ -6,7 +6,7 @@
 #ifndef __ASM_KVM_PCH_PIC_H
 #define __ASM_KVM_PCH_PIC_H
 
-#include <kvm/iodev.h>
+#include <linux/kvm_iodev.h>
 
 #define PCH_PIC_SIZE			0x3e8
 

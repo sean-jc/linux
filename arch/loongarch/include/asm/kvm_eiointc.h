@@ -6,7 +6,7 @@
 #ifndef __ASM_KVM_EIOINTC_H
 #define __ASM_KVM_EIOINTC_H
 
-#include <kvm/iodev.h>
+#include <linux/kvm_iodev.h>
 
 #define EIOINTC_IRQS			256
 #define EIOINTC_ROUTE_MAX_VCPUS		256
