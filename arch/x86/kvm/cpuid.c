@@ -237,7 +237,11 @@ static struct kvm_cpuid_entry2 *kvm_find_kvm_cpuid_features(struct kvm_vcpu *vcp
 
 void kvm_update_pv_runtime(struct kvm_vcpu *vcpu)
 {
+	const u32 pvclock_features = BIT(KVM_FEATURE_CLOCKSOURCE) |
+				     BIT(KVM_FEATURE_CLOCKSOURCE2);
+
 	struct kvm_cpuid_entry2 *best = kvm_find_kvm_cpuid_features(vcpu);
+	u32 old = vcpu->arch.pv_cpuid.features;
 
 	/*
 	 * save the feature bitmap to avoid cpuid lookup for every PV
@@ -245,6 +249,12 @@ void kvm_update_pv_runtime(struct kvm_vcpu *vcpu)
 	 */
 	if (best)
 		vcpu->arch.pv_cpuid.features = best->eax;
+
+	if (!((old ^ vcpu->arch.pv_cpuid.features) & pvclock_features))
+		return;
+
+	kvm_adjust_pv_clock_users(vcpu->kvm,
+				  vcpu->arch.pv_cpuid.features & pvclock_features);
 }
 
 /*

@@ -3276,6 +3276,29 @@ static void kvmclock_sync_fn(struct work_struct *work)
 				      KVMCLOCK_SYNC_PERIOD);
 }
 
+void kvm_adjust_pv_clock_users(struct kvm *kvm, bool add_user)
+{
+	/*
+	 * Doesn't need to be a spinlock, but can't be kvm->lock as this is
+	 * call while holding a vCPU's mutext.
+	 */
+	raw_spin_lock(&kvm->arch.tsc_write_lock);
+
+	if (add_user) {
+		kvm->arch.nr_vcpus_with_pv_clock++;
+		if (kvmclock_periodic_sync &&
+		    kvm->arch.nr_vcpus_with_pv_clock == 1)
+			schedule_delayed_work(&kvm->arch.kvmclock_sync_work,
+					KVMCLOCK_SYNC_PERIOD);
+	} else {
+		kvm->arch.nr_vcpus_with_pv_clock--;
+		if (!kvm->arch.nr_vcpus_with_pv_clock)
+			cancel_delayed_work(&kvm->arch.kvmclock_sync_work);
+	}
+	raw_spin_unlock(&kvm->arch.tsc_write_lock);
+
+}
+
 /* These helpers are safe iff @msr is known to be an MCx bank MSR. */
 static bool is_mci_control_msr(u32 msr)
 {
@@ -10508,7 +10531,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			 * that all vCPUs recognize NTP corrections and drift
 			 * corrections (relative to the kernel's raw clock).
 			 */
-			if (!kvmclock_periodic_sync)
+			if (!kvmclock_periodic_sync &&
+			    vcpu->kvm->arch.nr_vcpus_with_pv_clock)
 				schedule_delayed_work(&vcpu->kvm->arch.kvmclock_sync_work,
 						      KVMCLOCK_UPDATE_DELAY);
 		}
@@ -11942,8 +11966,6 @@ fail_mmu_destroy:
 
 void kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
 {
-	struct kvm *kvm = vcpu->kvm;
-
 	if (mutex_lock_killable(&vcpu->mutex))
 		return;
 	vcpu_load(vcpu);
@@ -11954,10 +11976,6 @@ void kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
 	vcpu->arch.msr_kvm_poll_control = 1;
 
 	mutex_unlock(&vcpu->mutex);
-
-	if (kvmclock_periodic_sync && vcpu->vcpu_idx == 0)
-		schedule_delayed_work(&kvm->arch.kvmclock_sync_work,
-						KVMCLOCK_SYNC_PERIOD);
 }
 
 void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)

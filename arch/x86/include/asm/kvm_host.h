@@ -1333,6 +1333,7 @@ struct kvm_arch {
 	u32 default_tsc_khz;
 
 	seqcount_raw_spinlock_t pvclock_sc;
+	int nr_vcpus_with_pv_clock;
 	bool use_master_clock;
 	u64 master_kernel_ns;
 	u64 master_cycle_now;
