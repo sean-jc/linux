@@ -2367,7 +2367,7 @@ static void kvm_write_system_time(struct kvm_vcpu *vcpu, gpa_t system_time,
 	}
 
 	vcpu->arch.time = system_time;
-	kvm_make_request(KVM_REQ_GLOBAL_CLOCK_UPDATE, vcpu);
+	kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
 
 	/* we verify if the enable bit is set... */
 	if (system_time & 1)
@@ -3257,30 +3257,6 @@ static int kvm_guest_time_update(struct kvm_vcpu *v)
 
 #define KVMCLOCK_UPDATE_DELAY msecs_to_jiffies(100)
 
-static void kvmclock_update_fn(struct work_struct *work)
-{
-	unsigned long i;
-	struct delayed_work *dwork = to_delayed_work(work);
-	struct kvm_arch *ka = container_of(dwork, struct kvm_arch,
-					   kvmclock_update_work);
-	struct kvm *kvm = container_of(ka, struct kvm, arch);
-	struct kvm_vcpu *vcpu;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
-		kvm_vcpu_kick(vcpu);
-	}
-}
-
-static void kvm_gen_kvmclock_update(struct kvm_vcpu *v)
-{
-	struct kvm *kvm = v->kvm;
-
-	kvm_make_request(KVM_REQ_CLOCK_UPDATE, v);
-	schedule_delayed_work(&kvm->arch.kvmclock_update_work,
-					KVMCLOCK_UPDATE_DELAY);
-}
-
 #define KVMCLOCK_SYNC_PERIOD (300 * HZ)
 
 static void kvmclock_sync_fn(struct work_struct *work)
@@ -3290,12 +3266,14 @@ static void kvmclock_sync_fn(struct work_struct *work)
 					   kvmclock_sync_work);
 	struct kvm *kvm = container_of(ka, struct kvm, arch);
 
-	if (!kvmclock_periodic_sync)
-		return;
+	if (ka->use_master_clock)
+		kvm_update_masterclock(kvm);
+	else
+		kvm_make_all_cpus_request(kvm, KVM_REQ_CLOCK_UPDATE);
 
-	schedule_delayed_work(&kvm->arch.kvmclock_update_work, 0);
-	schedule_delayed_work(&kvm->arch.kvmclock_sync_work,
-					KVMCLOCK_SYNC_PERIOD);
+	if (kvmclock_periodic_sync)
+		schedule_delayed_work(&kvm->arch.kvmclock_sync_work,
+				      KVMCLOCK_SYNC_PERIOD);
 }
 
 /* These helpers are safe iff @msr is known to be an MCx bank MSR. */
@@ -4845,7 +4823,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		 * kvmclock on vcpu->cpu migration
 		 */
 		if (!vcpu->kvm->arch.use_master_clock || vcpu->cpu == -1)
-			kvm_make_request(KVM_REQ_GLOBAL_CLOCK_UPDATE, vcpu);
+			kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
 		if (vcpu->cpu != cpu)
 			kvm_make_request(KVM_REQ_MIGRATE_TIMER, vcpu);
 		vcpu->cpu = cpu;
@@ -10520,12 +10498,19 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			__kvm_migrate_timers(vcpu);
 		if (kvm_check_request(KVM_REQ_MASTERCLOCK_UPDATE, vcpu))
 			kvm_update_masterclock(vcpu->kvm);
-		if (kvm_check_request(KVM_REQ_GLOBAL_CLOCK_UPDATE, vcpu))
-			kvm_gen_kvmclock_update(vcpu);
 		if (kvm_check_request(KVM_REQ_CLOCK_UPDATE, vcpu)) {
 			r = kvm_guest_time_update(vcpu);
 			if (unlikely(r))
 				goto out;
+
+			/*
+			 * Ensure all other vCPUs synchronize "soon", e.g. so
+			 * that all vCPUs recognize NTP corrections and drift
+			 * corrections (relative to the kernel's raw clock).
+			 */
+			if (!kvmclock_periodic_sync)
+				schedule_delayed_work(&vcpu->kvm->arch.kvmclock_sync_work,
+						      KVMCLOCK_UPDATE_DELAY);
 		}
 		if (kvm_check_request(KVM_REQ_MMU_SYNC, vcpu))
 			kvm_mmu_sync_roots(vcpu);
@@ -12345,7 +12330,6 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm->arch.hv_root_tdp = INVALID_PAGE;
 #endif
 
-	INIT_DELAYED_WORK(&kvm->arch.kvmclock_update_work, kvmclock_update_fn);
 	INIT_DELAYED_WORK(&kvm->arch.kvmclock_sync_work, kvmclock_sync_fn);
 
 	kvm_apicv_init(kvm);
@@ -12387,7 +12371,6 @@ static void kvm_unload_vcpu_mmus(struct kvm *kvm)
 void kvm_arch_sync_events(struct kvm *kvm)
 {
 	cancel_delayed_work_sync(&kvm->arch.kvmclock_sync_work);
-	cancel_delayed_work_sync(&kvm->arch.kvmclock_update_work);
 	kvm_free_pit(kvm);
 }
 
