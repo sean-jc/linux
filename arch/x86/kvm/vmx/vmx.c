@@ -1003,7 +1003,7 @@ static void clear_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr)
 		goto skip_guest;
 	--m->guest.nr;
 	m->guest.val[i] = m->guest.val[m->guest.nr];
-	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, m->guest.nr);
+	vm_entry_msr_load_count_set(vmx, m->guest.nr);
 
 skip_guest:
 	i = vmx_find_loadstore_msr_slot(&m->host, msr);
@@ -1012,7 +1012,7 @@ skip_guest:
 
 	--m->host.nr;
 	m->host.val[i] = m->host.val[m->host.nr];
-	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, m->host.nr);
+	vm_exit_msr_load_count_set(vmx, m->host.nr);
 }
 
 static __always_inline void add_atomic_switch_msr_special(struct vcpu_vmx *vmx,
@@ -1077,7 +1077,7 @@ static void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
 	}
 	if (i < 0) {
 		i = m->guest.nr++;
-		vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, m->guest.nr);
+		vm_entry_msr_load_count_set(vmx, m->guest.nr);
 	}
 	m->guest.val[i].index = msr;
 	m->guest.val[i].value = guest_val;
@@ -1087,7 +1087,7 @@ static void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
 
 	if (j < 0) {
 		j = m->host.nr++;
-		vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, m->host.nr);
+		vm_exit_msr_load_count_set(vmx, m->host.nr);
 	}
 	m->host.val[j].index = msr;
 	m->host.val[j].value = host_val;

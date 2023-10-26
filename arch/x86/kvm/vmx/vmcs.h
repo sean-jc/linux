@@ -45,6 +45,8 @@ struct vmcs_host_state {
 };
 
 struct vmcs_controls_shadow {
+	u32 vm_entry_msr_load_count;
+	u32 vm_exit_msr_load_count;
 	u32 vm_entry;
 	u32 vm_exit;
 	u32 pin;

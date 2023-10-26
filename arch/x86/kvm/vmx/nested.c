@@ -2543,9 +2543,6 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 			  HV_VMX_ENLIGHTENED_CLEAN_FIELD_GUEST_GRP1);
 	}
 
-	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, vmx->msr_autoload.host.nr);
-	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, vmx->msr_autoload.guest.nr);
-
 	if (vmx->nested.nested_run_pending &&
 	    (vmcs12->vm_entry_controls & VM_ENTRY_LOAD_DEBUG_CONTROLS)) {
 		kvm_set_dr(vcpu, 7, vmcs12->guest_dr7);
@@ -2607,6 +2604,9 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 	vcpu->arch.efer = nested_vmx_calc_efer(vmx, vmcs12);
 	/* Note: may modify VM_ENTRY/EXIT_CONTROLS and GUEST/HOST_IA32_EFER */
 	vmx_set_efer(vcpu, vcpu->arch.efer);
+
+	vm_exit_msr_load_count_set(vmx, vmx->msr_autoload.host.nr);
+	vm_entry_msr_load_count_set(vmx, vmx->msr_autoload.guest.nr);
 
 	/*
 	 * Guest state is invalid and unrestricted guest is disabled,
@@ -3092,10 +3092,8 @@ static int nested_vmx_check_vmentry_hw(struct kvm_vcpu *vcpu)
 	if (!nested_early_check)
 		return 0;
 
-	if (vmx->msr_autoload.host.nr)
-		vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, 0);
-	if (vmx->msr_autoload.guest.nr)
-		vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, 0);
+	vm_exit_msr_load_count_set(vmx, 0);
+	vm_entry_msr_load_count_set(vmx, 0);
 
 	preempt_disable();
 
@@ -3124,10 +3122,9 @@ static int nested_vmx_check_vmentry_hw(struct kvm_vcpu *vcpu)
 	vm_fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
 				 __vmx_vcpu_run_flags(vmx));
 
-	if (vmx->msr_autoload.host.nr)
-		vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, vmx->msr_autoload.host.nr);
-	if (vmx->msr_autoload.guest.nr)
-		vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, vmx->msr_autoload.guest.nr);
+
+	vm_exit_msr_load_count_set(vmx, vmx->msr_autoload.host.nr);
+	vm_entry_msr_load_count_set(vmx, vmx->msr_autoload.guest.nr);
 
 	if (vm_fail) {
 		u32 error = vmcs_read32(VM_INSTRUCTION_ERROR);
@@ -4818,8 +4815,8 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 		indirect_branch_prediction_barrier();
 
 	/* Update any VMCS fields that might have changed while L2 ran */
-	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, vmx->msr_autoload.host.nr);
-	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, vmx->msr_autoload.guest.nr);
+	vm_exit_msr_load_count_set(vmx, vmx->msr_autoload.host.nr);
+	vm_entry_msr_load_count_set(vmx, vmx->msr_autoload.guest.nr);
 	vmcs_write64(TSC_OFFSET, vcpu->arch.tsc_offset);
 	if (kvm_caps.has_tsc_control)
 		vmcs_write64(TSC_MULTIPLIER, vcpu->arch.tsc_scaling_ratio);
