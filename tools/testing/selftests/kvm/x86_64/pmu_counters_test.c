@@ -722,6 +722,38 @@ static void set_amd_counters(uint8_t *nr_amd_ounters, uint64_t *ctrl_msr,
 	}
 }
 
+static void guest_test_amd_perfmonv2(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < AMD64_NR_COUNTERS_CORE; i++) {
+		wrmsr(MSR_F15H_PERF_CTL0 + i * 2, 0);
+		wrmsr(MSR_F15H_PERF_CTR0 + i * 2, ARCH_PERFMON_EVENTSEL_OS |
+		      ARCH_PERFMON_EVENTSEL_ENABLE | AMD_ZEN_CORE_CYCLES);
+
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, 0);
+		__asm__ __volatile__("loop ." : "+c"((int){NUM_BRANCHES}));
+		GUEST_ASSERT(!_rdpmc(i));
+
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, BIT_ULL(i));
+		__asm__ __volatile__("loop ." : "+c"((int){NUM_BRANCHES}));
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, 0);
+		GUEST_ASSERT(_rdpmc(i));
+
+		wrmsr(MSR_F15H_PERF_CTL0 + i * 2, (1ULL << 48) - 2);
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR, 0xff);
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, BIT_ULL(i));
+		__asm__ __volatile__("loop ." : "+c"((int){NUM_BRANCHES}));
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, 0);
+		GUEST_ASSERT(rdmsr(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS) &
+			     BIT_ULL(i));
+
+		wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR, BIT_ULL(i));
+		GUEST_ASSERT(!(rdmsr(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS) &
+			     BIT_ULL(i)));
+	}
+}
+
 static void guest_test_amd_counters(void)
 {
 	bool guest_pmu_is_perfmonv2 = this_cpu_has(X86_FEATURE_PERFMON_V2);
@@ -746,6 +778,9 @@ static void guest_test_amd_counters(void)
 			GUEST_ASSERT(rdmsr(pmc_msr + i * flag));
 		}
 	}
+
+	if (guest_pmu_is_perfmonv2)
+		guest_test_amd_perfmonv2();
 
 	GUEST_DONE();
 }
