@@ -761,6 +761,64 @@ static void test_amd_zen_events(void)
 	kvm_vm_free(vm);
 }
 
+static void guest_wr_rd_amd_counters(uint32_t pmc_msr, bool expect_gp,
+				     uint64_t test_val)
+{
+	uint8_t vector;
+	uint64_t val;
+
+	vector = wrmsr_safe(pmc_msr, test_val);
+	GUEST_ASSERT_PMC_MSR_ACCESS(WRMSR, pmc_msr, expect_gp, vector);
+
+	vector = rdmsr_safe(pmc_msr, &val);
+	GUEST_ASSERT_PMC_MSR_ACCESS(RDMSR, pmc_msr, expect_gp, vector);
+
+	if (!expect_gp)
+		GUEST_ASSERT_EQ(val, test_val);
+}
+
+static void guest_test_amd_counters_num(void)
+{
+	uint8_t i, flag, nr_amd_counters;
+	uint64_t ctrl_msr;
+	uint32_t pmc_msr;
+	bool expect_gp;
+
+	set_amd_counters(&nr_amd_counters, &ctrl_msr, &pmc_msr, &flag);
+
+	for (i = 0; i < nr_amd_counters * flag; i++) {
+		expect_gp = i >= nr_amd_counters;
+
+		guest_wr_rd_amd_counters(pmc_msr + i * flag, expect_gp, 0xffff);
+		guest_wr_rd_amd_counters(ctrl_msr + i * flag, expect_gp, 0);
+	}
+
+	GUEST_DONE();
+}
+
+static void test_amd_counters_num(void)
+{
+	bool kvm_pmu_is_perfmonv2 = kvm_cpu_has(X86_FEATURE_PERFMON_V2);
+	unsigned int i, nr_test = 1;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+
+	if (kvm_pmu_is_perfmonv2)
+		nr_test = AMD64_NR_COUNTERS_CORE;
+
+	for (i = 0; i <= nr_test; i++) {
+		vm = pmu_vm_create_with_one_vcpu(&vcpu,
+						 guest_test_amd_counters_num);
+
+		if (kvm_pmu_is_perfmonv2)
+			vcpu_set_cpuid_property(vcpu,
+						X86_PROPERTY_PMU_NR_CORE_COUNTERS, i);
+
+		run_vcpu(vcpu);
+		kvm_vm_free(vm);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_is_pmu_enabled());
@@ -777,6 +835,7 @@ int main(int argc, char *argv[])
 		test_intel_counters();
 	} else if (host_cpu_is_amd) {
 		test_amd_zen_events();
+		test_amd_counters_num();
 	} else {
 		TEST_FAIL("Unknown CPU vendor");
 	}
