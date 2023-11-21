@@ -551,9 +551,8 @@ static void test_pmi_init_x2apic(void)
 	pmi_irq_called = false;
 }
 
-static void guest_test_gp_counter_pmi(void)
+static void guest_test_gp_counter_pmi(uint8_t guest_pmu_version)
 {
-	uint8_t guest_pmu_version = guest_get_pmu_version();
 	uint32_t base_msr = get_pmc_msr();
 
 	test_pmi_init_x2apic();
@@ -569,6 +568,33 @@ static void guest_test_gp_counter_pmi(void)
 	guest_test_counters_pmi_workload();
 
 	GUEST_ASSERT(pmi_irq_called);
+}
+
+static void guest_test_fixed_counter_pmi(uint8_t guest_pmu_version)
+{
+	if (guest_pmu_version < 2)
+		return;
+
+	test_pmi_init_x2apic();
+
+	wrmsr(MSR_CORE_PERF_GLOBAL_CTRL, 0);
+	wrmsr(MSR_CORE_PERF_FIXED_CTR0,
+	      (1ULL << this_cpu_property(X86_PROPERTY_PMU_FIXED_COUNTERS_BIT_WIDTH)) - 2);
+	wrmsr(MSR_CORE_PERF_FIXED_CTR_CTRL, FIXED_PMC_CTRL(0, FIXED_PMC_ENABLE_PMI));
+
+	wrmsr(MSR_CORE_PERF_GLOBAL_CTRL, FIXED_PMC_GLOBAL_CTRL_ENABLE(0));
+	guest_test_counters_pmi_workload();
+
+	GUEST_ASSERT(pmi_irq_called);
+}
+
+static void guest_test_counters_pmi(void)
+{
+	uint8_t guest_pmu_version = guest_get_pmu_version();
+
+	guest_test_gp_counter_pmi(guest_pmu_version);
+	guest_test_fixed_counter_pmi(guest_pmu_version);
+
 	GUEST_DONE();
 }
 
@@ -580,7 +606,7 @@ static void test_intel_ovf_pmi(uint8_t pmu_version, uint64_t perf_capabilities)
 	if (!pmu_version)
 		return;
 
-	vm = intel_pmu_vm_create(&vcpu, guest_test_gp_counter_pmi, pmu_version,
+	vm = intel_pmu_vm_create(&vcpu, guest_test_counters_pmi, pmu_version,
 				 perf_capabilities);
 
 	vm_install_exception_handler(vm, PMI_VECTOR, pmi_irq_handler);
