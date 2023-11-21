@@ -863,6 +863,36 @@ static void test_amd_pmu_version(void)
 	}
 }
 
+static void guest_test_perfctr_core(void)
+{
+	bool expect_gp = !this_cpu_has(X86_FEATURE_PERFCTR_CORE);
+	unsigned int i;
+
+	for (i = 0; i < AMD64_NR_COUNTERS_CORE; i++) {
+		guest_wr_rd_amd_counters(MSR_F15H_PERF_CTR0 + i * 2, expect_gp, 0xffff);
+		guest_wr_rd_amd_counters(MSR_F15H_PERF_CTL0 + i * 2, expect_gp, 0);
+	}
+
+	GUEST_DONE();
+}
+
+static void test_amd_perfctr_core(void)
+{
+	bool kvm_pmu_has_perfctr_core = kvm_cpu_has(X86_FEATURE_PERFCTR_CORE);
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	unsigned int i;
+
+	for (i = 0; i <= kvm_pmu_has_perfctr_core; i++) {
+		vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_perfctr_core);
+
+		vcpu_set_or_clear_cpuid_feature(vcpu, X86_FEATURE_PERFCTR_CORE, i);
+
+		run_vcpu(vcpu);
+		kvm_vm_free(vm);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_is_pmu_enabled());
@@ -881,6 +911,7 @@ int main(int argc, char *argv[])
 		test_amd_zen_events();
 		test_amd_counters_num();
 		test_amd_pmu_version();
+		test_amd_perfctr_core();
 	} else {
 		TEST_FAIL("Unknown CPU vendor");
 	}
