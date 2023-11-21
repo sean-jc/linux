@@ -21,6 +21,8 @@
 #define NUM_INSNS_RETIRED	(NUM_BRANCHES + NUM_EXTRA_INSNS)
 
 #define PMI_VECTOR		0x20
+#define AMD64_NR_COUNTERS	4
+#define AMD64_NR_COUNTERS_CORE	6
 
 static uint8_t kvm_pmu_version;
 static bool kvm_has_perf_caps;
@@ -411,7 +413,6 @@ static void guest_rd_wr_counters(uint32_t base_msr, uint8_t nr_possible_counters
 		rdpmc_idx = i;
 		if (base_msr == MSR_CORE_PERF_FIXED_CTR0)
 			rdpmc_idx |= INTEL_RDPMC_FIXED;
-
 		guest_test_rdpmc(rdpmc_idx, expect_success, expected_val);
 
 		/*
@@ -421,7 +422,6 @@ static void guest_rd_wr_counters(uint32_t base_msr, uint8_t nr_possible_counters
 		 */
 		GUEST_ASSERT(!expect_success || !pmu_has_fast_mode);
 		rdpmc_idx |= INTEL_RDPMC_FAST;
-
 		guest_test_rdpmc(rdpmc_idx, false, -1ull);
 
 		vector = wrmsr_safe(msr, 0);
@@ -701,19 +701,85 @@ static void test_intel_counters(void)
 	}
 }
 
+static void set_amd_counters(uint8_t *nr_amd_ounters, uint64_t *ctrl_msr,
+			     uint32_t *pmc_msr, uint8_t *flag)
+{
+	if (this_cpu_has(X86_FEATURE_PERFMON_V2)) {
+		*nr_amd_ounters = this_cpu_property(X86_PROPERTY_PMU_NR_CORE_COUNTERS);
+		*ctrl_msr = MSR_F15H_PERF_CTL0;
+		*pmc_msr = MSR_F15H_PERF_CTR0;
+		*flag = 2;
+	} else if (this_cpu_has(X86_FEATURE_PERFCTR_CORE)) {
+		*nr_amd_ounters = AMD64_NR_COUNTERS_CORE;
+		*ctrl_msr = MSR_F15H_PERF_CTL0;
+		*pmc_msr = MSR_F15H_PERF_CTR0;
+		*flag = 2;
+	} else {
+		*nr_amd_ounters = AMD64_NR_COUNTERS;
+		*ctrl_msr = MSR_K7_EVNTSEL0;
+		*pmc_msr = MSR_K7_PERFCTR0;
+		*flag = 1;
+	}
+}
+
+static void guest_test_amd_counters(void)
+{
+	bool guest_pmu_is_perfmonv2 = this_cpu_has(X86_FEATURE_PERFMON_V2);
+	uint8_t nr_amd_counters, flag;
+	uint64_t ctrl_msr;
+	unsigned int i, j;
+	uint32_t pmc_msr;
+
+	set_amd_counters(&nr_amd_counters, &ctrl_msr, &pmc_msr, &flag);
+
+	for (i = 0; i < nr_amd_counters; i++) {
+		for (j = 0; j < NR_AMD_ZEN_EVENTS; j++) {
+			wrmsr(pmc_msr + i * flag, 0);
+			wrmsr(ctrl_msr + i * flag, ARCH_PERFMON_EVENTSEL_OS |
+			ARCH_PERFMON_EVENTSEL_ENABLE | amd_pmu_zen_events[j]);
+
+			if (guest_pmu_is_perfmonv2)
+				wrmsr(MSR_AMD64_PERF_CNTR_GLOBAL_CTL, BIT_ULL(i));
+
+			__asm__ __volatile__("loop ." : "+c"((int){NUM_BRANCHES}));
+
+			GUEST_ASSERT(rdmsr(pmc_msr + i * flag));
+		}
+	}
+
+	GUEST_DONE();
+}
+
+static void test_amd_zen_events(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+
+	vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_amd_counters);
+
+	run_vcpu(vcpu);
+	kvm_vm_free(vm);
+}
+
 int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_is_pmu_enabled());
 
-	TEST_REQUIRE(host_cpu_is_intel);
-	TEST_REQUIRE(kvm_cpu_has_p(X86_PROPERTY_PMU_VERSION));
-	TEST_REQUIRE(kvm_cpu_property(X86_PROPERTY_PMU_VERSION) > 0);
+	if (host_cpu_is_intel) {
+		TEST_REQUIRE(kvm_cpu_has_p(X86_PROPERTY_PMU_VERSION));
+		TEST_REQUIRE(kvm_cpu_property(X86_PROPERTY_PMU_VERSION) > 0);
+		TEST_REQUIRE(kvm_cpu_has(X86_FEATURE_PDCM));
 
-	kvm_pmu_version = kvm_cpu_property(X86_PROPERTY_PMU_VERSION);
-	kvm_has_perf_caps = kvm_cpu_has(X86_FEATURE_PDCM);
-	is_forced_emulation_enabled = kvm_is_forced_emulation_enabled();
+		kvm_pmu_version = kvm_cpu_property(X86_PROPERTY_PMU_VERSION);
+		kvm_has_perf_caps = kvm_cpu_has(X86_FEATURE_PDCM);
+		is_forced_emulation_enabled = kvm_is_forced_emulation_enabled();
 
-	test_intel_counters();
+		test_intel_counters();
+	} else if (host_cpu_is_amd) {
+		test_amd_zen_events();
+	} else {
+		TEST_FAIL("Unknown CPU vendor");
+	}
 
 	return 0;
 }
