@@ -6,6 +6,7 @@
 #define _GNU_SOURCE /* for program_invocation_short_name */
 #include <x86intrin.h>
 
+#include "apic.h"
 #include "pmu.h"
 #include "processor.h"
 
@@ -19,20 +20,32 @@
 #define NUM_EXTRA_INSNS		7
 #define NUM_INSNS_RETIRED	(NUM_BRANCHES + NUM_EXTRA_INSNS)
 
+#define PMI_VECTOR		0x20
+
 static uint8_t kvm_pmu_version;
 static bool kvm_has_perf_caps;
 static bool is_forced_emulation_enabled;
+static bool pmi_irq_called;
 
 static struct kvm_vm *pmu_vm_create_with_one_vcpu(struct kvm_vcpu **vcpu,
-						  void *guest_code,
-						  uint8_t pmu_version,
-						  uint64_t perf_capabilities)
+						  void *guest_code)
 {
 	struct kvm_vm *vm;
 
 	vm = vm_create_with_one_vcpu(vcpu, guest_code);
 	vm_init_descriptor_tables(vm);
 	vcpu_init_descriptor_tables(*vcpu);
+
+	return vm;
+}
+
+static struct kvm_vm *intel_pmu_vm_create(struct kvm_vcpu **vcpu,
+					  void *guest_code, uint8_t pmu_version,
+					  uint64_t perf_capabilities)
+{
+	struct kvm_vm *vm;
+
+	vm = pmu_vm_create_with_one_vcpu(vcpu, guest_code);
 
 	sync_global_to_guest(vm, kvm_pmu_version);
 	sync_global_to_guest(vm, is_forced_emulation_enabled);
@@ -45,6 +58,7 @@ static struct kvm_vm *pmu_vm_create_with_one_vcpu(struct kvm_vcpu **vcpu,
 		vcpu_set_msr(*vcpu, MSR_IA32_PERF_CAPABILITIES, perf_capabilities);
 
 	vcpu_set_cpuid_property(*vcpu, X86_PROPERTY_PMU_VERSION, pmu_version);
+
 	return vm;
 }
 
@@ -198,6 +212,15 @@ static bool pmu_is_null_feature(struct kvm_x86_pmu_feature event)
 	return !(*(u64 *)&event);
 }
 
+static uint32_t get_pmc_msr(void)
+{
+	if (this_cpu_has(X86_FEATURE_PDCM) &&
+	    rdmsr(MSR_IA32_PERF_CAPABILITIES) & PMU_CAP_FW_WRITES)
+		return MSR_IA32_PMC0;
+	else
+		return MSR_IA32_PERFCTR0;
+}
+
 static void guest_test_arch_event(uint8_t idx)
 {
 	const struct {
@@ -226,17 +249,11 @@ static void guest_test_arch_event(uint8_t idx)
 	/* PERF_GLOBAL_CTRL exists only for Architectural PMU Version 2+. */
 	bool guest_has_perf_global_ctrl = pmu_version >= 2;
 	struct kvm_x86_pmu_feature gp_event, fixed_event;
-	uint32_t base_pmc_msr;
+	uint32_t base_pmc_msr = get_pmc_msr();
 	unsigned int i;
 
 	/* The host side shouldn't invoke this without a guest PMU. */
 	GUEST_ASSERT(pmu_version);
-
-	if (this_cpu_has(X86_FEATURE_PDCM) &&
-	    rdmsr(MSR_IA32_PERF_CAPABILITIES) & PMU_CAP_FW_WRITES)
-		base_pmc_msr = MSR_IA32_PMC0;
-	else
-		base_pmc_msr = MSR_IA32_PERFCTR0;
 
 	gp_event = intel_event_to_feature[idx].gp_event;
 	GUEST_ASSERT_EQ(idx, gp_event.f.bit);
@@ -293,8 +310,8 @@ static void test_arch_events(uint8_t pmu_version, uint64_t perf_capabilities,
 	if (!pmu_version)
 		return;
 
-	vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_arch_events,
-					 pmu_version, perf_capabilities);
+	vm = intel_pmu_vm_create(&vcpu, guest_test_arch_events, pmu_version,
+				 perf_capabilities);
 
 	vcpu_set_cpuid_property(vcpu, X86_PROPERTY_PMU_EBX_BIT_VECTOR_LENGTH,
 				length);
@@ -414,17 +431,11 @@ static void guest_rd_wr_counters(uint32_t base_msr, uint8_t nr_possible_counters
 
 static void guest_test_gp_counters(void)
 {
+	uint32_t base_msr = get_pmc_msr();
 	uint8_t nr_gp_counters = 0;
-	uint32_t base_msr;
 
 	if (guest_get_pmu_version())
 		nr_gp_counters = this_cpu_property(X86_PROPERTY_PMU_NR_GP_COUNTERS);
-
-	if (this_cpu_has(X86_FEATURE_PDCM) &&
-	    rdmsr(MSR_IA32_PERF_CAPABILITIES) & PMU_CAP_FW_WRITES)
-		base_msr = MSR_IA32_PMC0;
-	else
-		base_msr = MSR_IA32_PERFCTR0;
 
 	guest_rd_wr_counters(base_msr, MAX_NR_GP_COUNTERS, nr_gp_counters, 0);
 	GUEST_DONE();
@@ -436,8 +447,8 @@ static void test_gp_counters(uint8_t pmu_version, uint64_t perf_capabilities,
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 
-	vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_gp_counters,
-					 pmu_version, perf_capabilities);
+	vm = intel_pmu_vm_create(&vcpu, guest_test_gp_counters, pmu_version,
+				 perf_capabilities);
 
 	vcpu_set_cpuid_property(vcpu, X86_PROPERTY_PMU_NR_GP_COUNTERS,
 				nr_gp_counters);
@@ -503,14 +514,76 @@ static void test_fixed_counters(uint8_t pmu_version, uint64_t perf_capabilities,
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 
-	vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_fixed_counters,
-					 pmu_version, perf_capabilities);
+	vm = intel_pmu_vm_create(&vcpu, guest_test_fixed_counters, pmu_version,
+				 perf_capabilities);
 
 	vcpu_set_cpuid_property(vcpu, X86_PROPERTY_PMU_FIXED_COUNTERS_BITMASK,
 				supported_bitmask);
 	vcpu_set_cpuid_property(vcpu, X86_PROPERTY_PMU_NR_FIXED_COUNTERS,
 				nr_fixed_counters);
 
+	run_vcpu(vcpu);
+
+	kvm_vm_free(vm);
+}
+
+static void pmi_irq_handler(struct ex_regs *regs)
+{
+	pmi_irq_called = true;
+	x2apic_write_reg(APIC_EOI, 0);
+}
+
+static void guest_test_counters_pmi_workload(void)
+{
+	__asm__ __volatile__
+	("sti\n"
+	 "loop .\n"
+	 "cli\n"
+	 : "+c"((int){NUM_BRANCHES})
+	);
+}
+
+static void test_pmi_init_x2apic(void)
+{
+	x2apic_enable();
+	x2apic_write_reg(APIC_ICR, APIC_DEST_SELF | APIC_INT_ASSERT |
+			 APIC_DM_FIXED | PMI_VECTOR);
+	pmi_irq_called = false;
+}
+
+static void guest_test_gp_counter_pmi(void)
+{
+	uint8_t guest_pmu_version = guest_get_pmu_version();
+	uint32_t base_msr = get_pmc_msr();
+
+	test_pmi_init_x2apic();
+
+	wrmsr(base_msr,
+	      (1ULL << this_cpu_property(X86_PROPERTY_PMU_GP_COUNTERS_BIT_WIDTH)) - 2);
+	wrmsr(MSR_P6_EVNTSEL0, ARCH_PERFMON_EVENTSEL_OS |
+	      ARCH_PERFMON_EVENTSEL_ENABLE | ARCH_PERFMON_EVENTSEL_INT |
+	      INTEL_ARCH_CPU_CYCLES);
+
+	if (guest_pmu_version >= 2)
+		wrmsr(MSR_CORE_PERF_GLOBAL_CTRL, BIT_ULL(0));
+	guest_test_counters_pmi_workload();
+
+	GUEST_ASSERT(pmi_irq_called);
+	GUEST_DONE();
+}
+
+static void test_intel_ovf_pmi(uint8_t pmu_version, uint64_t perf_capabilities)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+
+	if (!pmu_version)
+		return;
+
+	vm = intel_pmu_vm_create(&vcpu, guest_test_gp_counter_pmi, pmu_version,
+				 perf_capabilities);
+
+	vm_install_exception_handler(vm, PMI_VECTOR, pmi_irq_handler);
 	run_vcpu(vcpu);
 
 	kvm_vm_free(vm);
@@ -596,6 +669,8 @@ static void test_intel_counters(void)
 				for (k = 0; k <= (BIT(nr_fixed_counters) - 1); k++)
 					test_fixed_counters(v, perf_caps[i], j, k);
 			}
+
+			test_intel_ovf_pmi(v, perf_caps[i]);
 		}
 	}
 }
