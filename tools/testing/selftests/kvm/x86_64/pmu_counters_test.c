@@ -819,6 +819,50 @@ static void test_amd_counters_num(void)
 	}
 }
 
+static void guest_test_amd_pmu_version(void)
+{
+	bool expect_gp = !this_cpu_has(X86_FEATURE_PERFMON_V2);
+	uint8_t vector;
+	uint64_t val;
+
+	guest_wr_rd_amd_counters(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR,
+				 expect_gp, 0);
+	guest_wr_rd_amd_counters(MSR_AMD64_PERF_CNTR_GLOBAL_CTL,
+				 expect_gp, 0);
+
+	/*
+	 * Attempt to write to MSR_AMD64_PERF_CNTR_GLOBAL_STATUS register, which
+	 * will trigger a #GP exception. Because MSR_AMD64_PERF_CNTR_GLOBAL_STATUS
+	 * is read-only.
+	 */
+	vector = wrmsr_safe(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS, 0);
+	GUEST_ASSERT_PMC_MSR_ACCESS(WRMSR, MSR_AMD64_PERF_CNTR_GLOBAL_STATUS,
+				    true, vector);
+
+	vector = rdmsr_safe(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS, &val);
+	GUEST_ASSERT_PMC_MSR_ACCESS(RDMSR, MSR_AMD64_PERF_CNTR_GLOBAL_STATUS,
+				    expect_gp, vector);
+
+	GUEST_DONE();
+}
+
+static void test_amd_pmu_version(void)
+{
+	bool kvm_pmu_is_perfmonv2 = kvm_cpu_has(X86_FEATURE_PERFMON_V2);
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	unsigned int i;
+
+	for (i = 0; i <= kvm_pmu_is_perfmonv2; i++) {
+		vm = pmu_vm_create_with_one_vcpu(&vcpu, guest_test_amd_pmu_version);
+
+		vcpu_set_or_clear_cpuid_feature(vcpu, X86_FEATURE_PERFMON_V2, i);
+
+		run_vcpu(vcpu);
+		kvm_vm_free(vm);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_is_pmu_enabled());
@@ -836,6 +880,7 @@ int main(int argc, char *argv[])
 	} else if (host_cpu_is_amd) {
 		test_amd_zen_events();
 		test_amd_counters_num();
+		test_amd_pmu_version();
 	} else {
 		TEST_FAIL("Unknown CPU vendor");
 	}
