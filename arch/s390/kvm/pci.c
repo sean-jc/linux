@@ -431,13 +431,14 @@ static void kvm_s390_pci_dev_release(struct zpci_dev *zdev)
  * available, enable them and let userspace indicate whether or not they will
  * be used (specify SHM bit to disable).
  */
-static int kvm_s390_pci_register_kvm(void *opaque, struct kvm *kvm)
+static int kvm_s390_pci_register_kvm(void *opaque, struct file *kvm_vm)
 {
+	struct kvm *kvm = kvm_file_to_kvm(kvm_vm);
 	struct zpci_dev *zdev = opaque;
 	u8 status;
 	int rc;
 
-	if (!zdev)
+	if (!zdev || !kvm)
 		return -EINVAL;
 
 	mutex_lock(&zdev->kzdev_lock);

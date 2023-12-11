@@ -641,7 +641,7 @@ static bool __kvmgt_vgpu_exist(struct intel_vgpu *vgpu)
 		if (!test_bit(INTEL_VGPU_STATUS_ATTACHED, itr->status))
 			continue;
 
-		if (vgpu->vfio_device.kvm == itr->vfio_device.kvm) {
+		if (vgpu->vfio_device.kvm_vm == itr->vfio_device.kvm_vm) {
 			ret = true;
 			goto out;
 		}
@@ -661,7 +661,7 @@ static int intel_vgpu_open_device(struct vfio_device *vfio_dev)
 
 	vgpu->track_node.track_write = kvmgt_page_track_write;
 	vgpu->track_node.track_remove_region = kvmgt_page_track_remove_region;
-	ret = kvm_page_track_register_notifier(vgpu->vfio_device.kvm,
+	ret = kvm_page_track_register_notifier(vgpu->vfio_device.kvm_vm,
 					       &vgpu->track_node);
 	if (ret) {
 		gvt_vgpu_err("KVM is required to use Intel vGPU\n");
@@ -699,7 +699,7 @@ static void intel_vgpu_close_device(struct vfio_device *vfio_dev)
 
 	debugfs_lookup_and_remove(KVMGT_DEBUGFS_FILENAME, vgpu->debugfs);
 
-	kvm_page_track_unregister_notifier(vgpu->vfio_device.kvm,
+	kvm_page_track_unregister_notifier(vgpu->vfio_device.kvm_vm,
 					   &vgpu->track_node);
 
 	kvmgt_protect_table_destroy(vgpu);
@@ -1552,7 +1552,7 @@ int intel_gvt_page_track_add(struct intel_vgpu *info, u64 gfn)
 	if (kvmgt_gfn_is_write_protected(info, gfn))
 		return 0;
 
-	r = kvm_write_track_add_gfn(info->vfio_device.kvm, gfn);
+	r = kvm_write_track_add_gfn(info->vfio_device.kvm_vm, gfn);
 	if (r)
 		return r;
 
@@ -1570,7 +1570,7 @@ int intel_gvt_page_track_remove(struct intel_vgpu *info, u64 gfn)
 	if (!kvmgt_gfn_is_write_protected(info, gfn))
 		return 0;
 
-	r = kvm_write_track_remove_gfn(info->vfio_device.kvm, gfn);
+	r = kvm_write_track_remove_gfn(info->vfio_device.kvm_vm, gfn);
 	if (r)
 		return r;
 

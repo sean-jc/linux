@@ -148,20 +148,21 @@ int vfio_pci_zdev_open_device(struct vfio_pci_core_device *vdev)
 	if (!zdev)
 		return -ENODEV;
 
-	if (!vdev->vdev.kvm)
+	if (!vdev->vdev.kvm_vm)
 		return 0;
 
 	if (zpci_kvm_hook.kvm_register)
-		return zpci_kvm_hook.kvm_register(zdev, vdev->vdev.kvm);
+		return zpci_kvm_hook.kvm_register(zdev, vdev->vdev.kvm_vm);
 
 	return -ENOENT;
 }
 
 void vfio_pci_zdev_close_device(struct vfio_pci_core_device *vdev)
 {
+	struct kvm *kvm = kvm_file_to_kvm(vdev->vdev.kvm_vm);
 	struct zpci_dev *zdev = to_zpci(vdev->pdev);
 
-	if (!zdev || !vdev->vdev.kvm)
+	if (!zdev || !kvm)
 		return;
 
 	if (zpci_kvm_hook.kvm_unregister)

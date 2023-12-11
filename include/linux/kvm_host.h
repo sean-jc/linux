@@ -719,6 +719,7 @@ struct kvm {
 	 */
 	struct mutex slots_arch_lock;
 	struct mm_struct *mm; /* userspace tied to this vm */
+	struct file *file;
 	unsigned long nr_memslot_pages;
 	/* The two memslot sets - active and inactive (per address space) */
 	struct kvm_memslots __memslots[KVM_ADDRESS_SPACE_NUM][2];
@@ -986,6 +987,14 @@ bool kvm_get_kvm_safe(struct kvm *kvm);
 void kvm_put_kvm(struct kvm *kvm);
 bool file_is_kvm(struct file *file);
 void kvm_put_kvm_no_destroy(struct kvm *kvm);
+
+static inline struct kvm *kvm_file_to_kvm(struct file *kvm_vm)
+{
+	if (!kvm_vm || !file_is_kvm(kvm_vm))
+		return NULL;
+
+	return kvm_vm->private_data;
+}
 
 static inline struct kvm_memslots *__kvm_memslots(struct kvm *kvm, int as_id)
 {

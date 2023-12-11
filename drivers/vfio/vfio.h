@@ -12,13 +12,12 @@
 #include <linux/module.h>
 #include <linux/vfio.h>
 
-struct kvm;
 struct iommufd_ctx;
 struct iommu_group;
 struct vfio_container;
 
 struct vfio_kvm_reference {
-	struct kvm			*kvm;
+	struct file			*kvm_vm;
 	spinlock_t			lock;
 };
 

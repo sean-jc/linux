@@ -157,13 +157,14 @@ int kvm_page_track_init(struct kvm *kvm)
  * register the notifier so that event interception for the tracked guest
  * pages can be received.
  */
-int kvm_page_track_register_notifier(struct kvm *kvm,
+int kvm_page_track_register_notifier(struct file *kvm_vm,
 				     struct kvm_page_track_notifier_node *n)
 {
 	struct kvm_page_track_notifier_head *head;
+	struct kvm *kvm = kvm_file_to_kvm(kvm_vm);
 
 	if (!kvm || kvm->mm != current->mm)
-		return -ESRCH;
+		return -EINVAL;
 
 	kvm_get_kvm(kvm);
 
@@ -180,10 +181,14 @@ EXPORT_SYMBOL_GPL(kvm_page_track_register_notifier);
  * stop receiving the event interception. It is the opposed operation of
  * kvm_page_track_register_notifier().
  */
-void kvm_page_track_unregister_notifier(struct kvm *kvm,
+void kvm_page_track_unregister_notifier(struct file *kvm_vm,
 					struct kvm_page_track_notifier_node *n)
 {
 	struct kvm_page_track_notifier_head *head;
+	struct kvm *kvm = kvm_file_to_kvm(kvm_vm);
+
+	if (WARN_ON_ONCE(!kvm))
+		return;
 
 	head = &kvm->arch.track_notifier_head;
 
@@ -252,10 +257,14 @@ void kvm_page_track_delete_slot(struct kvm *kvm, struct kvm_memory_slot *slot)
  * @kvm: the guest instance we are interested in.
  * @gfn: the guest page.
  */
-int kvm_write_track_add_gfn(struct kvm *kvm, gfn_t gfn)
+int kvm_write_track_add_gfn(struct file *kvm_vm, gfn_t gfn)
 {
+	struct kvm *kvm = kvm_file_to_kvm(kvm_vm);
 	struct kvm_memory_slot *slot;
 	int idx;
+
+	if (!kvm)
+		return -EINVAL;
 
 	idx = srcu_read_lock(&kvm->srcu);
 
@@ -282,8 +291,9 @@ EXPORT_SYMBOL_GPL(kvm_write_track_add_gfn);
  * @kvm: the guest instance we are interested in.
  * @gfn: the guest page.
  */
-int kvm_write_track_remove_gfn(struct kvm *kvm, gfn_t gfn)
+int kvm_write_track_remove_gfn(struct file *kvm_vm, gfn_t gfn)
 {
+	struct kvm *kvm = kvm_file_to_kvm(kvm_vm);
 	struct kvm_memory_slot *slot;
 	int idx;
 
