@@ -166,8 +166,6 @@ int kvm_page_track_register_notifier(struct file *kvm_vm,
 	if (!kvm || kvm->mm != current->mm)
 		return -EINVAL;
 
-	kvm_get_kvm(kvm);
-
 	head = &kvm->arch.track_notifier_head;
 
 	write_lock(&kvm->mmu_lock);
@@ -196,8 +194,6 @@ void kvm_page_track_unregister_notifier(struct file *kvm_vm,
 	hlist_del_rcu(&n->node);
 	write_unlock(&kvm->mmu_lock);
 	synchronize_srcu(&head->track_srcu);
-
-	kvm_put_kvm(kvm);
 }
 EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
 
