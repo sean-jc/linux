@@ -1345,6 +1345,8 @@ void vfio_device_put_kvm(struct vfio_device *device)
 {
 	lockdep_assert_held(&device->dev_set->lock);
 
+	WARN_ON_ONCE(READ_ONCE(device->open_count));
+
 	if (!device->kvm)
 		return;
 
