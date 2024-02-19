@@ -150,14 +150,14 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 			return -EINVAL;
 	}
 	/*
-	 * Prevent 32-bit guest launch if shadow stack is exposed as SSP
-	 * state is not defined for 32-bit SMRAM.
+	 * CET is not supported for 32-bit guest, prevent guest launch if
+	 * shadow stack or IBT is enabled for 32-bit guest.
 	 */
 	best = cpuid_entry2_find(entries, nent, 0x80000001,
 				 KVM_CPUID_INDEX_NOT_SIGNIFICANT);
 	if (best && !(best->edx & F(LM))) {
 		best = cpuid_entry2_find(entries, nent, 0x7, 0);
-		if (best && (best->ecx & F(SHSTK)))
+		if (best && ((best->ecx & F(SHSTK)) || (best->edx & F(IBT))))
 			return -EINVAL;
 	}
 
@@ -665,7 +665,7 @@ void kvm_set_cpu_caps(void)
 		F(AVX512_VPOPCNTDQ) | F(UMIP) | F(AVX512_VBMI2) | F(GFNI) |
 		F(VAES) | F(VPCLMULQDQ) | F(AVX512_VNNI) | F(AVX512_BITALG) |
 		F(CLDEMOTE) | F(MOVDIRI) | F(MOVDIR64B) | 0 /*WAITPKG*/ |
-		F(SGX_LC) | F(BUS_LOCK_DETECT)
+		F(SGX_LC) | F(BUS_LOCK_DETECT) | F(SHSTK)
 	);
 	/* Set LA57 based on hardware capability. */
 	if (cpuid_ecx(7) & F(LA57))
@@ -683,7 +683,8 @@ void kvm_set_cpu_caps(void)
 		F(SPEC_CTRL_SSBD) | F(ARCH_CAPABILITIES) | F(INTEL_STIBP) |
 		F(MD_CLEAR) | F(AVX512_VP2INTERSECT) | F(FSRM) |
 		F(SERIALIZE) | F(TSXLDTRK) | F(AVX512_FP16) |
-		F(AMX_TILE) | F(AMX_INT8) | F(AMX_BF16) | F(FLUSH_L1D)
+		F(AMX_TILE) | F(AMX_INT8) | F(AMX_BF16) | F(FLUSH_L1D) |
+		F(IBT)
 	);
 
 	/* TSC_ADJUST and ARCH_CAPABILITIES are emulated in software. */
@@ -696,6 +697,20 @@ void kvm_set_cpu_caps(void)
 		kvm_cpu_cap_set(X86_FEATURE_INTEL_STIBP);
 	if (boot_cpu_has(X86_FEATURE_AMD_SSBD))
 		kvm_cpu_cap_set(X86_FEATURE_SPEC_CTRL_SSBD);
+	/*
+	 * Don't use boot_cpu_has() to check availability of IBT because the
+	 * feature bit is cleared in boot_cpu_data when ibt=off is applied
+	 * in host cmdline.
+	 *
+	 * As currently there's no HW bug which requires disabling IBT feature
+	 * while CPU can enumerate it, host cmdline option ibt=off is most
+	 * likely due to administrative reason on host side, so KVM refers to
+	 * CPU CPUID enumeration to enable the feature. In future if there's
+	 * actually some bug clobbered ibt=off option, then enforce additional
+	 * check here to disable the support in KVM.
+	 */
+	if (cpuid_edx(7) & F(IBT))
+		kvm_cpu_cap_set(X86_FEATURE_IBT);
 
 	kvm_cpu_cap_mask(CPUID_7_1_EAX,
 		F(AVX_VNNI) | F(AVX512_BF16) | F(CMPCCXADD) |
