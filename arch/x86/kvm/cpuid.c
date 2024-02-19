@@ -149,6 +149,17 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 		if (vaddr_bits != 48 && vaddr_bits != 57 && vaddr_bits != 0)
 			return -EINVAL;
 	}
+	/*
+	 * Prevent 32-bit guest launch if shadow stack is exposed as SSP
+	 * state is not defined for 32-bit SMRAM.
+	 */
+	best = cpuid_entry2_find(entries, nent, 0x80000001,
+				 KVM_CPUID_INDEX_NOT_SIGNIFICANT);
+	if (best && !(best->edx & F(LM))) {
+		best = cpuid_entry2_find(entries, nent, 0x7, 0);
+		if (best && (best->ecx & F(SHSTK)))
+			return -EINVAL;
+	}
 
 	/*
 	 * Exposing dynamic xfeatures to the guest requires additional
