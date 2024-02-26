@@ -131,7 +131,11 @@ static __always_inline bool in_hardirq(void)
 	return hardirq_count();
 }
 
-#define in_serving_softirq()	(softirq_count() & SOFTIRQ_OFFSET)
+static __always_inline bool in_serving_softirq(void)
+{
+	return softirq_count() & SOFTIRQ_OFFSET;
+}
+
 #ifdef CONFIG_PREEMPT_RT
 # define in_task()		(!((preempt_count() & (NMI_MASK | HARDIRQ_MASK)) || in_serving_softirq()))
 #else
