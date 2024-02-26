@@ -116,14 +116,16 @@ static __always_inline unsigned char interrupt_context_level(void)
 #endif
 
 /*
- * Macros to retrieve the current execution context:
- *
  * in_nmi()		- We're in NMI context
  * in_hardirq()		- We're in hard IRQ context
  * in_serving_softirq()	- We're in softirq context
  * in_task()		- We're in task context
  */
-#define in_nmi()		(nmi_count())
+static __always_inline bool in_nmi(void)
+{
+	return nmi_count();
+}
+
 #define in_hardirq()		(hardirq_count())
 #define in_serving_softirq()	(softirq_count() & SOFTIRQ_OFFSET)
 #ifdef CONFIG_PREEMPT_RT
