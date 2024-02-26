@@ -136,11 +136,15 @@ static __always_inline bool in_serving_softirq(void)
 	return softirq_count() & SOFTIRQ_OFFSET;
 }
 
+static __always_inline bool in_task(void)
+{
 #ifdef CONFIG_PREEMPT_RT
-# define in_task()		(!((preempt_count() & (NMI_MASK | HARDIRQ_MASK)) || in_serving_softirq()))
+	return !((preempt_count() & (NMI_MASK | HARDIRQ_MASK)) || in_serving_softirq());
 #else
-# define in_task()		(!(preempt_count() & (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
+	return !(preempt_count() & (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET));
 #endif
+}
+
 
 /*
  * The following macros are deprecated and should not be used in new code:
