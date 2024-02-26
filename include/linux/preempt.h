@@ -127,7 +127,7 @@ static __always_inline unsigned char interrupt_context_level(void)
 #define in_hardirq()		(hardirq_count())
 #define in_serving_softirq()	(softirq_count() & SOFTIRQ_OFFSET)
 #ifdef CONFIG_PREEMPT_RT
-# define in_task()		(!((preempt_count() & (NMI_MASK | HARDIRQ_MASK)) | in_serving_softirq()))
+# define in_task()		(!((preempt_count() & (NMI_MASK | HARDIRQ_MASK)) || in_serving_softirq()))
 #else
 # define in_task()		(!(preempt_count() & (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
 #endif
