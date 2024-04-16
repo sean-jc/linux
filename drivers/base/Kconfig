@@ -191,6 +191,9 @@ config GENERIC_CPU_AUTOPROBE
 config GENERIC_CPU_VULNERABILITIES
 	bool
 
+config CPU_MITIGATIONS
+	def_bool !X86
+
 config SOC_BUS
 	bool
 	select GLOB

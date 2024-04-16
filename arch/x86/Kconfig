@@ -2490,6 +2490,7 @@ config PREFIX_SYMBOLS
 
 menuconfig SPECULATION_MITIGATIONS
 	bool "Mitigations for speculative execution vulnerabilities"
+	select CPU_MITIGATIONS
 	default y
 	help
 	  Say Y here to enable options which enable mitigations for
