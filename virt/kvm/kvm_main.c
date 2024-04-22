@@ -602,6 +602,7 @@ static __always_inline kvm_mn_ret_t __kvm_handle_hva_range(struct kvm *kvm,
 	struct kvm_gfn_range gfn_range;
 	struct kvm_memory_slot *slot;
 	struct kvm_memslots *slots;
+	bool need_flush = false;
 	int i, idx;
 
 	if (WARN_ON_ONCE(range->end <= range->start))
@@ -654,10 +655,22 @@ static __always_inline kvm_mn_ret_t __kvm_handle_hva_range(struct kvm *kvm,
 					break;
 			}
 			r.ret |= range->handler(kvm, &gfn_range);
+
+		       /*
+			* Use a precise gfn-based TLB flush when possible, as
+			* most mmu_notifier events affect a small-ish range.
+			* Fall back to a full TLB flush if the gfn-based flush
+			* fails, and don't bother trying the gfn-based flush
+			* if a full flush is already pending.
+			*/
+		       if (range->flush_on_ret && !need_flush && r.ret &&
+			   kvm_arch_flush_remote_tlbs_range(kvm, gfn_range.start,
+							    gfn_range.end - gfn_range.start))
+			       need_flush = true;
 		}
 	}
 
-	if (range->flush_on_ret && r.ret)
+	if (need_flush)
 		kvm_flush_remote_tlbs(kvm);
 
 	if (r.found_memslot)
