@@ -71,6 +71,18 @@ u32 xstate_required_size(u64 xstate_bv, bool compacted)
 })
 
 /*
+ * Raw Feature - For features that KVM supports based purely on raw host CPUID,
+ * i.e. that KVM virtualizes even if the host kernel doesn't use the feature.
+ * Simply force set the feature in KVM's capabilities, raw CPUID support will
+ * be factored in by kvm_cpu_cap_mask().
+ */
+#define RAW_F(name)						\
+({								\
+	kvm_cpu_cap_set(X86_FEATURE_##name);			\
+	F(name);						\
+})
+
+/*
  * Magic value used by KVM when querying userspace-provided CPUID entries and
  * doesn't care about the CPIUD index because the index of the function in
  * question is not significant.  Note, this magic value must have at least one
@@ -667,15 +679,12 @@ void kvm_set_cpu_caps(void)
 		F(AVX512VL));
 
 	kvm_cpu_cap_mask(CPUID_7_ECX,
-		F(AVX512VBMI) | F(LA57) | F(PKU) | 0 /*OSPKE*/ | F(RDPID) |
+		F(AVX512VBMI) | RAW_F(LA57) | F(PKU) | 0 /*OSPKE*/ | F(RDPID) |
 		F(AVX512_VPOPCNTDQ) | F(UMIP) | F(AVX512_VBMI2) | F(GFNI) |
 		F(VAES) | F(VPCLMULQDQ) | F(AVX512_VNNI) | F(AVX512_BITALG) |
 		F(CLDEMOTE) | F(MOVDIRI) | F(MOVDIR64B) | 0 /*WAITPKG*/ |
 		F(SGX_LC) | F(BUS_LOCK_DETECT)
 	);
-	/* Set LA57 based on hardware capability. */
-	if (cpuid_ecx(7) & F(LA57))
-		kvm_cpu_cap_set(X86_FEATURE_LA57);
 
 	/*
 	 * PKU not yet implemented for shadow paging and requires OSPKE
