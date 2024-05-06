@@ -89,6 +89,16 @@ u32 xstate_required_size(u64 xstate_bv, bool compacted)
 })
 
 /*
+ * Aliased Features - For features in 0x8000_0001.EDX that are duplicates of
+ * identical 0x1.EDX features, and thus are aliased from 0x1 to 0x8000_0001.
+ */
+#define AF(name)								\
+({										\
+	BUILD_BUG_ON(__feature_leaf(X86_FEATURE_##name) != CPUID_1_EDX);	\
+	feature_bit(name);							\
+})
+
+/*
  * Magic value used by KVM when querying userspace-provided CPUID entries and
  * doesn't care about the CPIUD index because the index of the function in
  * question is not significant.  Note, this magic value must have at least one
@@ -743,13 +753,13 @@ void kvm_set_cpu_caps(void)
 	);
 
 	kvm_cpu_cap_init(CPUID_8000_0001_EDX,
-		F(FPU) | F(VME) | F(DE) | F(PSE) |
-		F(TSC) | F(MSR) | F(PAE) | F(MCE) |
-		F(CX8) | F(APIC) | 0 /* Reserved */ | F(SYSCALL) |
-		F(MTRR) | F(PGE) | F(MCA) | F(CMOV) |
-		F(PAT) | F(PSE36) | 0 /* Reserved */ |
-		F(NX) | 0 /* Reserved */ | F(MMXEXT) | F(MMX) |
-		F(FXSR) | F(FXSR_OPT) | X86_64_F(GBPAGES) | F(RDTSCP) |
+		AF(FPU) | AF(VME) | AF(DE) | AF(PSE) |
+		AF(TSC) | AF(MSR) | AF(PAE) | AF(MCE) |
+		AF(CX8) | AF(APIC) | 0 /* Reserved */ | F(SYSCALL) |
+		AF(MTRR) | AF(PGE) | AF(MCA) | AF(CMOV) |
+		AF(PAT) | AF(PSE36) | 0 /* Reserved */ |
+		F(NX) | 0 /* Reserved */ | F(MMXEXT) | AF(MMX) |
+		AF(FXSR) | F(FXSR_OPT) | X86_64_F(GBPAGES) | F(RDTSCP) |
 		0 /* Reserved */ | X86_64_F(LM) | F(3DNOWEXT) | F(3DNOW)
 	);
 
