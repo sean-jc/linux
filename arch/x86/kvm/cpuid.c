@@ -74,7 +74,7 @@ u32 xstate_required_size(u64 xstate_bv, bool compacted)
  * Raw Feature - For features that KVM supports based purely on raw host CPUID,
  * i.e. that KVM virtualizes even if the host kernel doesn't use the feature.
  * Simply force set the feature in KVM's capabilities, raw CPUID support will
- * be factored in by kvm_cpu_cap_mask().
+ * be factored in by __kvm_cpu_cap_mask().
  */
 #define RAW_F(name)						\
 ({								\
@@ -619,7 +619,7 @@ static __always_inline void __kvm_cpu_cap_mask(unsigned int leaf)
 static __always_inline
 void kvm_cpu_cap_init_kvm_defined(enum kvm_only_cpuid_leafs leaf, u32 mask)
 {
-	/* Use kvm_cpu_cap_mask for leafs that aren't KVM-only. */
+	/* Use kvm_cpu_cap_init for leafs that aren't KVM-only. */
 	BUILD_BUG_ON(leaf < NCAPINTS);
 
 	kvm_cpu_caps[leaf] = mask;
@@ -627,7 +627,7 @@ void kvm_cpu_cap_init_kvm_defined(enum kvm_only_cpuid_leafs leaf, u32 mask)
 	__kvm_cpu_cap_mask(leaf);
 }
 
-static __always_inline void kvm_cpu_cap_mask(enum cpuid_leafs leaf, u32 mask)
+static __always_inline void kvm_cpu_cap_init(enum cpuid_leafs leaf, u32 mask)
 {
 	/* Use kvm_cpu_cap_init_kvm_defined for KVM-only leafs. */
 	BUILD_BUG_ON(leaf >= NCAPINTS);
@@ -656,7 +656,7 @@ void kvm_set_cpu_caps(void)
 	memcpy(&kvm_cpu_caps, &boot_cpu_data.x86_capability,
 	       sizeof(kvm_cpu_caps) - (NKVMCAPINTS * sizeof(*kvm_cpu_caps)));
 
-	kvm_cpu_cap_mask(CPUID_1_ECX,
+	kvm_cpu_cap_init(CPUID_1_ECX,
 		/*
 		 * NOTE: MONITOR (and MWAIT) are emulated as NOP, but *not*
 		 * advertised to guests via CPUID!
@@ -673,7 +673,7 @@ void kvm_set_cpu_caps(void)
 	/* KVM emulates x2apic in software irrespective of host support. */
 	kvm_cpu_cap_set(X86_FEATURE_X2APIC);
 
-	kvm_cpu_cap_mask(CPUID_1_EDX,
+	kvm_cpu_cap_init(CPUID_1_EDX,
 		F(FPU) | F(VME) | F(DE) | F(PSE) |
 		F(TSC) | F(MSR) | F(PAE) | F(MCE) |
 		F(CX8) | F(APIC) | 0 /* Reserved */ | F(SEP) |
@@ -684,7 +684,7 @@ void kvm_set_cpu_caps(void)
 		0 /* HTT, TM, Reserved, PBE */
 	);
 
-	kvm_cpu_cap_mask(CPUID_7_0_EBX,
+	kvm_cpu_cap_init(CPUID_7_0_EBX,
 		F(FSGSBASE) | F(SGX) | F(BMI1) | F(HLE) | F(AVX2) |
 		F(FDP_EXCPTN_ONLY) | F(SMEP) | F(BMI2) | F(ERMS) | F(INVPCID) |
 		F(RTM) | F(ZERO_FCS_FDS) | 0 /*MPX*/ | F(AVX512F) |
@@ -693,7 +693,7 @@ void kvm_set_cpu_caps(void)
 		F(AVX512ER) | F(AVX512CD) | F(SHA_NI) | F(AVX512BW) |
 		F(AVX512VL));
 
-	kvm_cpu_cap_mask(CPUID_7_ECX,
+	kvm_cpu_cap_init(CPUID_7_ECX,
 		F(AVX512VBMI) | RAW_F(LA57) | F(PKU) | 0 /*OSPKE*/ | F(RDPID) |
 		F(AVX512_VPOPCNTDQ) | F(UMIP) | F(AVX512_VBMI2) | F(GFNI) |
 		F(VAES) | F(VPCLMULQDQ) | F(AVX512_VNNI) | F(AVX512_BITALG) |
@@ -708,7 +708,7 @@ void kvm_set_cpu_caps(void)
 	if (!tdp_enabled || !boot_cpu_has(X86_FEATURE_OSPKE))
 		kvm_cpu_cap_clear(X86_FEATURE_PKU);
 
-	kvm_cpu_cap_mask(CPUID_7_EDX,
+	kvm_cpu_cap_init(CPUID_7_EDX,
 		F(AVX512_4VNNIW) | F(AVX512_4FMAPS) | F(SPEC_CTRL) |
 		F(SPEC_CTRL_SSBD) | F(ARCH_CAPABILITIES) | F(INTEL_STIBP) |
 		F(MD_CLEAR) | F(AVX512_VP2INTERSECT) | F(FSRM) |
@@ -727,7 +727,7 @@ void kvm_set_cpu_caps(void)
 	if (boot_cpu_has(X86_FEATURE_AMD_SSBD))
 		kvm_cpu_cap_set(X86_FEATURE_SPEC_CTRL_SSBD);
 
-	kvm_cpu_cap_mask(CPUID_7_1_EAX,
+	kvm_cpu_cap_init(CPUID_7_1_EAX,
 		F(AVX_VNNI) | F(AVX512_BF16) | F(CMPCCXADD) |
 		F(FZRM) | F(FSRS) | F(FSRC) |
 		F(AMX_FP16) | F(AVX_IFMA) | F(LAM)
@@ -743,7 +743,7 @@ void kvm_set_cpu_caps(void)
 		F(BHI_CTRL) | F(MCDT_NO)
 	);
 
-	kvm_cpu_cap_mask(CPUID_D_1_EAX,
+	kvm_cpu_cap_init(CPUID_D_1_EAX,
 		F(XSAVEOPT) | F(XSAVEC) | F(XGETBV1) | F(XSAVES) | f_xfd
 	);
 
@@ -751,7 +751,7 @@ void kvm_set_cpu_caps(void)
 		SF(SGX1) | SF(SGX2) | SF(SGX_EDECCSSA)
 	);
 
-	kvm_cpu_cap_mask(CPUID_8000_0001_ECX,
+	kvm_cpu_cap_init(CPUID_8000_0001_ECX,
 		F(LAHF_LM) | F(CMP_LEGACY) | 0 /*SVM*/ | 0 /* ExtApicSpace */ |
 		F(CR8_LEGACY) | F(ABM) | F(SSE4A) | F(MISALIGNSSE) |
 		F(3DNOWPREFETCH) | F(OSVW) | 0 /* IBS */ | F(XOP) |
@@ -759,7 +759,7 @@ void kvm_set_cpu_caps(void)
 		F(TOPOEXT) | 0 /* PERFCTR_CORE */
 	);
 
-	kvm_cpu_cap_mask(CPUID_8000_0001_EDX,
+	kvm_cpu_cap_init(CPUID_8000_0001_EDX,
 		F(FPU) | F(VME) | F(DE) | F(PSE) |
 		F(TSC) | F(MSR) | F(PAE) | F(MCE) |
 		F(CX8) | F(APIC) | 0 /* Reserved */ | F(SYSCALL) |
@@ -777,7 +777,7 @@ void kvm_set_cpu_caps(void)
 		SF(CONSTANT_TSC)
 	);
 
-	kvm_cpu_cap_mask(CPUID_8000_0008_EBX,
+	kvm_cpu_cap_init(CPUID_8000_0008_EBX,
 		F(CLZERO) | F(XSAVEERPTR) |
 		F(WBNOINVD) | F(AMD_IBPB) | F(AMD_IBRS) | F(AMD_SSBD) | F(VIRT_SSBD) |
 		F(AMD_SSB_NO) | F(AMD_STIBP) | F(AMD_STIBP_ALWAYS_ON) |
@@ -811,13 +811,13 @@ void kvm_set_cpu_caps(void)
 	 * Hide all SVM features by default, SVM will set the cap bits for
 	 * features it emulates and/or exposes for L1.
 	 */
-	kvm_cpu_cap_mask(CPUID_8000_000A_EDX, 0);
+	kvm_cpu_cap_init(CPUID_8000_000A_EDX, 0);
 
-	kvm_cpu_cap_mask(CPUID_8000_001F_EAX,
+	kvm_cpu_cap_init(CPUID_8000_001F_EAX,
 		0 /* SME */ | 0 /* SEV */ | 0 /* VM_PAGE_FLUSH */ | 0 /* SEV_ES */ |
 		F(SME_COHERENT));
 
-	kvm_cpu_cap_mask(CPUID_8000_0021_EAX,
+	kvm_cpu_cap_init(CPUID_8000_0021_EAX,
 		F(NO_NESTED_DATA_BP) | F(LFENCE_RDTSC) | 0 /* SmmPgCfgLock */ |
 		F(NULL_SEL_CLR_BASE) | F(AUTOIBRS) | 0 /* PrefetchCtlMsr */ |
 		F(WRMSR_XX_BASE_NS)
@@ -837,7 +837,7 @@ void kvm_set_cpu_caps(void)
 	 * kernel.  LFENCE_RDTSC was a Linux-defined synthetic feature long
 	 * before AMD joined the bandwagon, e.g. LFENCE is serializing on most
 	 * CPUs that support SSE2.  On CPUs that don't support AMD's leaf,
-	 * kvm_cpu_cap_mask() will unfortunately drop the flag due to ANDing
+	 * kvm_cpu_cap_init() will unfortunately drop the flag due to ANDing
 	 * the mask with the raw host CPUID, and reporting support in AMD's
 	 * leaf can make it easier for userspace to detect the feature.
 	 */
@@ -847,7 +847,7 @@ void kvm_set_cpu_caps(void)
 		kvm_cpu_cap_set(X86_FEATURE_NULL_SEL_CLR_BASE);
 	kvm_cpu_cap_set(X86_FEATURE_NO_SMM_CTL_MSR);
 
-	kvm_cpu_cap_mask(CPUID_C000_0001_EDX,
+	kvm_cpu_cap_init(CPUID_C000_0001_EDX,
 		F(XSTORE) | F(XSTORE_EN) | F(XCRYPT) | F(XCRYPT_EN) |
 		F(ACE2) | F(ACE2_EN) | F(PHE) | F(PHE_EN) |
 		F(PMM) | F(PMM_EN)
