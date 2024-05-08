@@ -175,10 +175,10 @@ static inline struct kvm_cpuid_entry2 *cpuid_entry2_find(
 	return NULL;
 }
 
-static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
-			   struct kvm_cpuid_entry2 *entries,
-			   int nent)
+static int kvm_check_cpuid(struct kvm_vcpu *vcpu)
 {
+	struct kvm_cpuid_entry2 *entries = vcpu->arch.cpuid_entries;
+	int nent = vcpu->arch.cpuid_nent;
 	struct kvm_cpuid_entry2 *best;
 	u64 xfeatures;
 
@@ -369,9 +369,11 @@ void kvm_update_cpuid_runtime(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_update_cpuid_runtime);
 
-static bool kvm_cpuid_has_hyperv(struct kvm_cpuid_entry2 *entries, int nent)
+static bool kvm_cpuid_has_hyperv(struct kvm_vcpu *vcpu)
 {
 #ifdef CONFIG_KVM_HYPERV
+	struct kvm_cpuid_entry2 *entries = vcpu->arch.cpuid_entries;
+	int nent = vcpu->arch.cpuid_nent;
 	struct kvm_cpuid_entry2 *entry;
 
 	entry = cpuid_entry2_find(entries, nent, HYPERV_CPUID_INTERFACE,
@@ -436,8 +438,7 @@ void kvm_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 					 __cr4_reserved_bits(guest_cpuid_has, vcpu);
 #undef __kvm_cpu_cap_has
 
-	kvm_hv_set_cpuid(vcpu, kvm_cpuid_has_hyperv(vcpu->arch.cpuid_entries,
-						    vcpu->arch.cpuid_nent));
+	kvm_hv_set_cpuid(vcpu, kvm_cpuid_has_hyperv(vcpu));
 
 	/* Invoke the vendor callback only after the above state is updated. */
 	static_call(kvm_x86_vcpu_after_set_cpuid)(vcpu);
@@ -479,6 +480,15 @@ static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
 	int r;
 
 	/*
+	 * Swap the existing (old) entries with the incoming (new) entries in
+	 * order to massage the new entries, e.g. to account for dynamic bits
+	 * that KVM controls, without clobbering the current guest CPUID, which
+	 * KVM needs to preserve in order to unwind on failure.
+	 */
+	swap(vcpu->arch.cpuid_entries, e2);
+	swap(vcpu->arch.cpuid_nent, nent);
+
+	/*
 	 * KVM does not correctly handle changing guest CPUID after KVM_RUN, as
 	 * MAXPHYADDR, GBPAGES support, AMD reserved bit behavior, etc.. aren't
 	 * tracked in kvm_mmu_page_role.  As a result, KVM may miss guest page
@@ -497,31 +507,25 @@ static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
 		 * only because any change in CPUID is disallowed, i.e. using
 		 * stale data is ok because KVM will reject the change.
 		 */
-		__kvm_update_cpuid_runtime(vcpu, e2, nent);
+		kvm_update_cpuid_runtime(vcpu);
 
 		r = kvm_cpuid_check_equal(vcpu, e2, nent);
 		if (r)
-			return r;
-
-		kvfree(e2);
-		return 0;
+			goto err;
+		goto success;
 	}
 
 #ifdef CONFIG_KVM_HYPERV
-	if (kvm_cpuid_has_hyperv(e2, nent)) {
+	if (kvm_cpuid_has_hyperv(vcpu)) {
 		r = kvm_hv_vcpu_init(vcpu);
 		if (r)
-			return r;
+			goto err;
 	}
 #endif
 
-	r = kvm_check_cpuid(vcpu, e2, nent);
+	r = kvm_check_cpuid(vcpu);
 	if (r)
-		return r;
-
-	kvfree(vcpu->arch.cpuid_entries);
-	vcpu->arch.cpuid_entries = e2;
-	vcpu->arch.cpuid_nent = nent;
+		goto err;
 
 	vcpu->arch.kvm_cpuid = kvm_get_hypervisor_cpuid(vcpu, KVM_SIGNATURE);
 #ifdef CONFIG_KVM_XEN
@@ -529,7 +533,14 @@ static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
 #endif
 	kvm_vcpu_after_set_cpuid(vcpu);
 
+success:
+	kvfree(e2);
 	return 0;
+
+err:
+	swap(vcpu->arch.cpuid_entries, e2);
+	swap(vcpu->arch.cpuid_nent, nent);
+	return r;
 }
 
 /* when an old userspace process fills a new kernel module */
