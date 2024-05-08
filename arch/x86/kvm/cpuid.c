@@ -680,8 +680,8 @@ void kvm_set_cpu_caps(void)
 		F(FMA) | F(CX16) | 0 /* xTPR Update */ | F(PDCM) |
 		F(PCID) | 0 /* Reserved, DCA */ | F(XMM4_1) |
 		F(XMM4_2) | EMUL_F(X2APIC) | F(MOVBE) | F(POPCNT) |
-		0 /* Reserved*/ | F(AES) | F(XSAVE) | 0 /* OSXSAVE */ | F(AVX) |
-		F(F16C) | F(RDRAND)
+		EMUL_F(TSC_DEADLINE_TIMER) | F(AES) | F(XSAVE) |
+		0 /* OSXSAVE */ | F(AVX) | F(F16C) | F(RDRAND)
 	);
 
 	kvm_cpu_cap_init(CPUID_1_EDX,
