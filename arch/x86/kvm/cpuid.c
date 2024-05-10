@@ -36,6 +36,8 @@
 u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __read_mostly;
 EXPORT_SYMBOL_GPL(kvm_cpu_caps);
 
+static u32 kvm_vmm_cpu_caps[NR_KVM_CPU_CAPS] __read_mostly;
+
 u32 xstate_required_size(u64 xstate_bv, bool compacted)
 {
 	int feature_bit = 0;
@@ -113,6 +115,21 @@ u32 xstate_required_size(u64 xstate_bv, bool compacted)
 	BUILD_BUG_ON(__feature_leaf(X86_FEATURE_##name) != CPUID_1_EDX);	\
 	BUILD_BUG_ON(kvm_cpu_cap_init_in_progress != CPUID_8000_0001_EDX);	\
 	feature_bit(name);							\
+})
+
+/*
+ * VMM Features - For features that KVM "supports" in some capacity, i.e. that
+ * KVM may query, but that are never advertised to userspace.  E.g. KVM allows
+ * userspace to enumerate MONITOR+MWAIT support to the guest, but the MWAIT
+ * feature flag is never advertised to userspace because MONITOR+MWAIT aren't
+ * virtualized by hardware, can't be faithfully emulated in software (KVM
+ * emulates them as NOPs), and allowing the guest to execute them natively
+ * requires enabling a per-VM capability.
+ */
+#define VMM_F(name)								\
+({										\
+	kvm_vmm_cpu_caps[__feature_leaf(X86_FEATURE_##name)] |= F(name);	\
+	0;									\
 })
 
 /*
@@ -674,7 +691,7 @@ void kvm_set_cpu_caps(void)
 		 * NOTE: MONITOR (and MWAIT) are emulated as NOP, but *not*
 		 * advertised to guests via CPUID!
 		 */
-		F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64, MONITOR */ |
+		F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64 */ | VMM_F(MWAIT) |
 		0 /* DS-CPL, VMX, SMX, EST */ |
 		0 /* TM2 */ | F(SSSE3) | 0 /* CNXT-ID */ | 0 /* Reserved */ |
 		F(FMA) | F(CX16) | 0 /* xTPR Update */ | F(PDCM) |
