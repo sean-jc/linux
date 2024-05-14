@@ -1141,6 +1141,8 @@ const struct kvm_cpuid_entry2 *get_cpuid_entry(const struct kvm_cpuid2 *cpuid,
 {
 	int i;
 
+	TEST_ASSERT(cpuid, "Must do vcpu_init_cpuid() first (or equivalent)");
+
 	for (i = 0; i < cpuid->nent; i++) {
 		if (cpuid->entries[i].function == function &&
 		    cpuid->entries[i].index == index)
