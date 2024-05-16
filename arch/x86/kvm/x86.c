@@ -9741,6 +9741,8 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 	if (r != 0)
 		goto out_mmu_exit;
 
+	kvm_validate_cpu_caps();
+
 	kvm_ops_update(ops);
 
 	for_each_online_cpu(cpu) {
