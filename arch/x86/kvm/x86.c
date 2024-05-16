@@ -13982,8 +13982,39 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_enter);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_rmp_fault);
 
+extern unsigned int __start___kvm_known_f[];
+extern unsigned int __stop___kvm_known_f[];
+extern unsigned int __start___kvm_used_f[];
+extern unsigned int __stop___kvm_used_f[];
+
+#define for_each_feature(i, feature, type)						\
+	for (i = 0; i < __stop___kvm_##type##_f - __start___kvm_##type##_f; i++)	\
+		if ((feature = __start___kvm_##type##_f[i]) != -1u)
+
+static bool __init is_known_kvm_x86_feature(unsigned int x86_feature)
+{
+	u32 feature;
+	int i;
+
+	for_each_feature(i, feature, known) {
+		if (x86_feature == feature)
+			return true;
+	}
+
+	return false;
+}
+
 static int __init kvm_x86_init(void)
 {
+	u32 feature;
+	int i;
+
+	for_each_feature(i, feature, used) {
+		if (!is_known_kvm_x86_feature(feature))
+			pr_crit("Unknown featured, word = %u, bit = %u",
+				feature / 32, feature & 31);
+	}
+
 	kvm_mmu_x86_module_init();
 	mitigate_smt_rsb &= boot_cpu_has_bug(X86_BUG_SMT_RSB) && cpu_smt_possible();
 	return 0;

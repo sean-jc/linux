@@ -258,4 +258,69 @@ static inline bool guest_has_pred_cmd_msr(struct kvm_vcpu *vcpu)
 		guest_cpu_cap_has(vcpu, X86_FEATURE_SBPB));
 }
 
+#define KVM_VALIDATE_FEATURE_USAGE(feature)				\
+do {									\
+	asm volatile(							\
+		" .pushsection \"__kvm_used_f\",\"a\"\n"		\
+		" .balign 4\n"						\
+		" .long %a0"  "\n"					\
+		" .popsection\n"					\
+		:: "i" (feature)					\
+	);								\
+} while (0)
+
+#define kvm_cpu_cap_clear(x86_feature) 					\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	kvm_cpu_cap_clear(x86_feature);					\
+})
+
+#define kvm_cpu_cap_set(x86_feature) 					\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	kvm_cpu_cap_set(x86_feature);					\
+})
+
+#define kvm_cpu_cap_get(x86_feature) 					\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	kvm_cpu_cap_get(x86_feature);					\
+})
+
+#define kvm_cpu_cap_has(x86_feature) 					\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	kvm_cpu_cap_has(x86_feature);					\
+})
+
+#define kvm_cpu_cap_check_and_set(x86_feature) 				\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	kvm_cpu_cap_check_and_set(x86_feature);				\
+})
+
+#define guest_cpu_cap_set(vcpu, x86_feature) 				\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	guest_cpu_cap_set(vcpu, x86_feature);				\
+})
+
+#define guest_cpu_cap_clear(vcpu, x86_feature) 				\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	guest_cpu_cap_clear(vcpu, x86_feature);				\
+})
+
+#define guest_cpu_cap_change(vcpu, x86_feature, guest_has_cap)		\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	guest_cpu_cap_change(vcpu, x86_feature, guest_has_cap);		\
+})
+
+#define guest_cpu_cap_has(vcpu, x86_feature) 				\
+({									\
+	KVM_VALIDATE_FEATURE_USAGE(x86_feature);			\
+	guest_cpu_cap_has(vcpu, x86_feature);				\
+})
+
 #endif

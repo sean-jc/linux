@@ -693,6 +693,14 @@ do {									\
 do {									\
 	u32 __leaf = __feature_leaf(X86_FEATURE_##name);		\
 									\
+	asm volatile(							\
+		" .pushsection \"__kvm_known_f\",\"a\"\n"		\
+		" .balign 4\n"						\
+		" .long %a0"  "\n"					\
+		" .popsection\n"					\
+		:: "i" (X86_FEATURE_##name)				\
+	);								\
+									\
 	BUILD_BUG_ON(__leaf != kvm_cpu_cap_init_in_progress);		\
 } while (0)
 

@@ -527,6 +527,13 @@
 		BOUNDED_SECTION_BY(__modver, ___modver)			\
 	}								\
 									\
+	__kvm_known_f : AT(ADDR(__kvm_known_f) - LOAD_OFFSET) {		\
+		BOUNDED_SECTION_BY(__kvm_known_f, ___kvm_known_f)	\
+	}								\
+	__kvm_used_f : AT(ADDR(__kvm_used_f) - LOAD_OFFSET) {		\
+		BOUNDED_SECTION_BY(__kvm_used_f, ___kvm_used_f)		\
+	}								\
+									\
 	KCFI_TRAPS							\
 									\
 	RO_EXCEPTION_TABLE						\
