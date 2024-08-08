@@ -642,10 +642,11 @@ static __always_inline kvm_mn_ret_t __kvm_handle_hva_range(struct kvm *kvm,
 			gfn_range.slot = slot;
 
 			if (!r.found_memslot) {
-				r.found_memslot = true;
-				KVM_MMU_LOCK(kvm);
-				if (!IS_KVM_NULL_FN(range->on_lock))
+				if (!IS_KVM_NULL_FN(range->on_lock)) {
+					r.found_memslot = true;
+					KVM_MMU_LOCK(kvm);
 					range->on_lock(kvm);
+				}
 
 				if (IS_KVM_NULL_FN(range->handler))
 					goto mmu_unlock;
