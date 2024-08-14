@@ -684,6 +684,16 @@ static inline void vcpu_get_reg(struct kvm_vcpu *vcpu, uint64_t id, void *addr)
 
 	vcpu_ioctl(vcpu, KVM_GET_ONE_REG, &reg);
 }
+
+static inline uint64_t vcpu_get_reg_sigh(struct kvm_vcpu *vcpu, uint64_t id)
+{
+	uint64_t val;
+	struct kvm_one_reg reg = { .id = id, .addr = (uint64_t)&val};
+
+	vcpu_ioctl(vcpu, KVM_GET_ONE_REG, &reg);
+	return val;
+}
+
 static inline void vcpu_set_reg(struct kvm_vcpu *vcpu, uint64_t id, uint64_t val)
 {
 	struct kvm_one_reg reg = { .id = id, .addr = (uint64_t)&val };

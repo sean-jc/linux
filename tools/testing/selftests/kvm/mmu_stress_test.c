@@ -42,17 +42,19 @@ static void guest_code(uint64_t start_gpa, uint64_t end_gpa, uint64_t stride)
 	do {
 		for (gpa = start_gpa; gpa < end_gpa; gpa += stride)
 #ifdef __x86_64__
-			asm volatile(".byte 0xc6,0x40,0x0,0x0" :: "a" (gpa) : "memory");
+			asm volatile(".byte 0xc6,0x40,0x0,0x0" :: "a" (gpa) : "memory"); /* MOV RAX, [RAX] */
+#elif defined(__aarch64__)
+			asm volatile("str %0, [%0]" :: "r" (gpa) : "memory");
 #else
 			vcpu_arch_put_guest(*((volatile uint64_t *)gpa), gpa);
 #endif
 	} while (!READ_ONCE(mprotect_ro_done));
 
 	/*
-	 * Only x86 can explicitly sync, as other architectures will be stuck
-	 * on the write fault.
+	 * Only architectures that write the entire range can explicitly sync,
+	 * as other architectures will be stuck on the write fault.
 	 */
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 	GUEST_SYNC(3);
 #endif
 
@@ -144,21 +146,30 @@ static void *vcpu_worker(void *data)
 	TEST_ASSERT(r == -1 && errno == EFAULT,
 		    "Expected EFAULT on write to RO memory, got r = %d, errno = %d", r, errno);
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 	/*
 	 * Verify *all* writes from the guest hit EFAULT due to the VMA now
-	 * being read-only.  x86-only at this time as skipping the instruction
-	 * that hits the EFAULT requires advancing the program counter, which
-	 * is arch specific and currently relies on hand-coded assembly.
+	 * being read-only.  x86 and arm64 only at this time as skipping the
+	 * instruction that hits the EFAULT requires advancing the program
+	 * counter, which is arch specific and relies on inline assembly.
 	 */
+#ifdef __x86_64__
 	vcpu->run->kvm_valid_regs = KVM_SYNC_X86_REGS;
+#endif
 	for (;;) {
 		r = _vcpu_run(vcpu);
 		if (!r)
 			break;
 		TEST_ASSERT_EQ(errno, EFAULT);
+#ifdef __x86_64__
 		WRITE_ONCE(vcpu->run->kvm_dirty_regs, KVM_SYNC_X86_REGS);
 		vcpu->run->s.regs.regs.rip += 4;
+#endif
+#ifdef __aarch64__
+		vcpu_set_reg(vcpu, ARM64_CORE_REG(regs.pc),
+			     vcpu_get_reg_sigh(vcpu, ARM64_CORE_REG(regs.pc)) + 4);
+#endif
+
 	}
 	assert_sync_stage(vcpu, 3);
 #endif
