@@ -915,10 +915,14 @@ void nmi_shootdown_cpus(nmi_shootdown_cb callback)
 	/*
 	 * Avoid certain doom if a shootdown already occurred; re-registering
 	 * the NMI handler will cause list corruption, modifying the callback
-	 * will do who knows what, etc...
+	 * will do who knows what, etc...  Blindly attempting a shootdown is
+	 * allowed if the caller's goal is purely to ensure a shootdown occurs,
+	 * i.e. if the caller doesn't want to run a specific callback.
 	 */
-	if (WARN_ON_ONCE(crash_ipi_issued))
+	if (crash_ipi_issued) {
+		WARN_ON_ONCE(callback);
 		return;
+	}
 
 	/* Make a note of crashing cpu. Will be used in NMI callback. */
 	crashing_cpu = safe_smp_processor_id();
@@ -956,8 +960,7 @@ void nmi_shootdown_cpus(nmi_shootdown_cb callback)
 
 static inline void nmi_shootdown_cpus_on_restart(void)
 {
-	if (!crash_ipi_issued)
-		nmi_shootdown_cpus(NULL);
+	nmi_shootdown_cpus(NULL);
 }
 
 /*
