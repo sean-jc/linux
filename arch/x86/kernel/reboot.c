@@ -979,11 +979,6 @@ void __noreturn nmi_panic_self_stop(struct pt_regs *regs)
 }
 
 #else /* !CONFIG_SMP */
-void nmi_shootdown_cpus(nmi_shootdown_cb callback)
-{
-	/* No other CPUs to shoot down */
-}
-
 void run_crash_ipi_callback(struct pt_regs *regs)
 {
 }
