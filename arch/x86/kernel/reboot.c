@@ -528,8 +528,6 @@ static inline void kb_wait(void)
 	}
 }
 
-static inline void nmi_shootdown_cpus_on_restart(void);
-
 #if IS_ENABLED(CONFIG_KVM_X86)
 /* RCU-protected callback to disable virtualization prior to reboot. */
 static cpu_emergency_virt_cb __rcu *cpu_emergency_virt_callback;
@@ -595,7 +593,8 @@ static void emergency_reboot_disable_virtualization(void)
 		cpu_emergency_disable_virtualization();
 
 		/* Disable VMX/SVM and halt on other CPUs. */
-		nmi_shootdown_cpus_on_restart();
+		if (IS_ENABLED(CONFIG_SMP))
+			nmi_shootdown_cpus(NULL);
 	}
 }
 #else
@@ -958,11 +957,6 @@ void nmi_shootdown_cpus(nmi_shootdown_cb callback)
 	 */
 }
 
-static inline void nmi_shootdown_cpus_on_restart(void)
-{
-	nmi_shootdown_cpus(NULL);
-}
-
 /*
  * Check if the crash dumping IPI got issued and if so, call its callback
  * directly. This function is used when we have already been in NMI handler.
@@ -989,8 +983,6 @@ void nmi_shootdown_cpus(nmi_shootdown_cb callback)
 {
 	/* No other CPUs to shoot down */
 }
-
-static inline void nmi_shootdown_cpus_on_restart(void) { }
 
 void run_crash_ipi_callback(struct pt_regs *regs)
 {
