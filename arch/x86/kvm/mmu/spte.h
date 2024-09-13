@@ -354,13 +354,6 @@ static inline bool is_accessed_spte(u64 spte)
 	return spte & shadow_accessed_mask;
 }
 
-static inline bool is_dirty_spte(u64 spte)
-{
-	u64 dirty_mask = spte_shadow_dirty_mask(spte);
-
-	return dirty_mask ? spte & dirty_mask : spte & PT_WRITABLE_MASK;
-}
-
 static inline u64 get_rsvd_bits(struct rsvd_bits_validate *rsvd_check, u64 pte,
 				int level)
 {
