@@ -1556,6 +1556,16 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool flush = false;
 
+	/*
+	 * To prevent races with vCPUs faulting in a gfn using stale data,
+	 * zapping a gfn range must be protected by mmu_invalidate_in_progress
+	 * (and mmu_invalidate_seq).  The only exception is memslot deletion,
+	 * in which case SRCU synchronization ensures SPTEs a zapped after all
+	 * vCPUs have unlocked SRCU and are guaranteed to see the invalid slot.
+	 */
+	lockdep_assert_once(kvm->mmu_invalidate_in_progress ||
+			    lockdep_is_held(&kvm->slots_lock));
+
 	if (kvm_memslots_have_rmaps(kvm))
 		flush = __kvm_rmap_zap_gfn_range(kvm, range->slot,
 						 range->start, range->end,
