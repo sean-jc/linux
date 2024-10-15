@@ -194,6 +194,18 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 			cond_resched();
 		}
 
+		/*
+		 * Wait for in-progress invalidations to complete if the user
+		 * already being invalidated.  Unlike the page fault path, this
+		 * task _must_ complete the refresh, i.e. there's no value in
+		 * trying to race ahead in the hope that a different task makes
+		 * the cache valid.
+		 */
+		while (READ_ONCE(gpc->kvm->mn_active_invalidate_count)) {
+			if (!cond_resched())
+				cpu_relax();
+		}
+
 		mmu_seq = gpc->kvm->mmu_invalidate_seq;
 		smp_rmb();
 
