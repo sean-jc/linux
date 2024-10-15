@@ -48,32 +48,32 @@ void gfn_to_pfn_cache_invalidate_start(struct kvm *kvm, unsigned long start,
 			max(kvm->mmu_gpc_invalidate_range_end, end);
 	}
 
+	/*
+	 * Ensure that either each cache sees the to-be-invalidated range and
+	 * retries if necessary, or that this task sees the cache's valid flag
+	 * and invalidates the cache before completing the mmu_notifier event.
+	 * Note, gpc->uhva must be set before gpc->valid, and if gpc->uhva is
+	 * modified the cache must be re-validated.  Pairs with the smp_mb() in
+	 * hva_to_pfn_retry().
+	 */
+	smp_mb__before_atomic();
+
 	spin_lock(&kvm->gpc_lock);
 	list_for_each_entry(gpc, &kvm->gpc_list, list) {
-		read_lock_irq(&gpc->lock);
-
-		/* Only a single page so no need to care about length */
-		if (gpc->valid && !is_error_noslot_pfn(gpc->pfn) &&
-		    gpc->uhva >= start && gpc->uhva < end) {
-			read_unlock_irq(&gpc->lock);
-
-			/*
-			 * There is a small window here where the cache could
-			 * be modified, and invalidation would no longer be
-			 * necessary. Hence check again whether invalidation
-			 * is still necessary once the write lock has been
-			 * acquired.
-			 */
-
-			write_lock_irq(&gpc->lock);
-			if (gpc->valid && !is_error_noslot_pfn(gpc->pfn) &&
-			    gpc->uhva >= start && gpc->uhva < end)
-				gpc->valid = false;
-			write_unlock_irq(&gpc->lock);
+		if (!gpc->valid || gpc->uhva < start || gpc->uhva >= end)
 			continue;
-		}
 
-		read_unlock_irq(&gpc->lock);
+		write_lock_irq(&gpc->lock);
+
+		/*
+		 * Verify the cache still needs to be invalidated after
+		 * acquiring gpc->lock, to avoid an unnecessary invalidation
+		 * in the unlikely scenario the cache became valid with a
+		 * different userspace virtual address.
+		 */
+		if (gpc->valid && gpc->uhva >= start && gpc->uhva < end)
+			gpc->valid = false;
+		write_unlock_irq(&gpc->lock);
 	}
 	spin_unlock(&kvm->gpc_lock);
 }
@@ -266,6 +266,13 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 		 */
 		WARN_ON_ONCE(gpc->valid);
 		gpc->valid = true;
+
+		/*
+		 * Ensure valid is visible before checking if retry is needed.
+		 * Pairs with the smp_mb__before_atomic() in
+		 * gfn_to_pfn_cache_invalidate().
+		 */
+		smp_mb();
 	} while (gpc_invalidate_retry_hva(gpc, mmu_seq));
 
 	gpc->pfn = new_pfn;
