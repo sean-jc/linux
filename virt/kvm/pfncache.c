@@ -172,9 +172,6 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 	gpc->valid = false;
 
 	do {
-		mmu_seq = gpc->kvm->mmu_invalidate_seq;
-		smp_rmb();
-
 		write_unlock_irq(&gpc->lock);
 
 		/*
@@ -196,6 +193,9 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 
 			cond_resched();
 		}
+
+		mmu_seq = gpc->kvm->mmu_invalidate_seq;
+		smp_rmb();
 
 		/* We always request a writeable mapping */
 		new_pfn = hva_to_pfn(gpc->uhva, false, false, NULL, true, NULL);
