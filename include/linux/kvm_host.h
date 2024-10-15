@@ -785,6 +785,8 @@ struct kvm {
 	/* For management / invalidation of gfn_to_pfn_caches */
 	spinlock_t gpc_lock;
 	struct list_head gpc_list;
+	u64 mmu_gpc_invalidate_range_start;
+	u64 mmu_gpc_invalidate_range_end;
 
 	/*
 	 * created_vcpus is protected by kvm->lock, and is incremented

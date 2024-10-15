@@ -27,6 +27,27 @@ void gfn_to_pfn_cache_invalidate_start(struct kvm *kvm, unsigned long start,
 {
 	struct gfn_to_pfn_cache *gpc;
 
+	lockdep_assert_held(&kvm->mn_invalidate_lock);
+
+	if (likely(kvm->mn_active_invalidate_count == 1)) {
+		kvm->mmu_gpc_invalidate_range_start = start;
+		kvm->mmu_gpc_invalidate_range_end = end;
+	} else {
+		/*
+		 * Fully tracking multiple concurrent ranges has diminishing
+		 * returns. Keep things simple and just find the minimal range
+		 * which includes the current and new ranges. As there won't be
+		 * enough information to subtract a range after its invalidate
+		 * completes, any ranges invalidated concurrently will
+		 * accumulate and persist until all outstanding invalidates
+		 * complete.
+		 */
+		kvm->mmu_gpc_invalidate_range_start =
+			min(kvm->mmu_gpc_invalidate_range_start, start);
+		kvm->mmu_gpc_invalidate_range_end =
+			max(kvm->mmu_gpc_invalidate_range_end, end);
+	}
+
 	spin_lock(&kvm->gpc_lock);
 	list_for_each_entry(gpc, &kvm->gpc_list, list) {
 		read_lock_irq(&gpc->lock);
@@ -73,6 +94,8 @@ static bool kvm_gpc_is_valid_len(gpa_t gpa, unsigned long uhva,
 bool kvm_gpc_check(struct gfn_to_pfn_cache *gpc, unsigned long len)
 {
 	struct kvm_memslots *slots = kvm_memslots(gpc->kvm);
+
+	lockdep_assert_held(&gpc->lock);
 
 	if (!gpc->active)
 		return false;
@@ -124,21 +147,26 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
 #endif
 }
 
-static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_seq)
+static bool gpc_invalidate_in_progress_hva(struct gfn_to_pfn_cache *gpc)
 {
+	struct kvm *kvm = gpc->kvm;
+
 	/*
-	 * mn_active_invalidate_count acts for all intents and purposes
-	 * like mmu_invalidate_in_progress here; but the latter cannot
-	 * be used here because the invalidation of caches in the
-	 * mmu_notifier event occurs _before_ mmu_invalidate_in_progress
-	 * is elevated.
-	 *
-	 * Note, it does not matter that mn_active_invalidate_count
-	 * is not protected by gpc->lock.  It is guaranteed to
-	 * be elevated before the mmu_notifier acquires gpc->lock, and
-	 * isn't dropped until after mmu_invalidate_seq is updated.
+	 * Ensure the count and range are always read from memory so that
+	 * checking for retry in a loop won't get false negatives on the range,
+	 * and won't result in an infinite retry loop.  Note, the range never
+	 * shrinks, only grows, and so the key to avoiding infinite retry loops
+	 * is observing the 1=>0 transition of the count.
 	 */
-	if (kvm->mn_active_invalidate_count)
+	return unlikely(READ_ONCE(kvm->mn_active_invalidate_count)) &&
+	       READ_ONCE(kvm->mmu_gpc_invalidate_range_start) <= gpc->uhva &&
+	       READ_ONCE(kvm->mmu_gpc_invalidate_range_end) > gpc->uhva;
+}
+
+static bool gpc_invalidate_retry_hva(struct gfn_to_pfn_cache *gpc,
+				     unsigned long mmu_seq)
+{
+	if (gpc_invalidate_in_progress_hva(gpc))
 		return true;
 
 	/*
@@ -149,7 +177,7 @@ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_s
 	 * new (incremented) value of mmu_invalidate_seq is observed.
 	 */
 	smp_rmb();
-	return kvm->mmu_invalidate_seq != mmu_seq;
+	return gpc->kvm->mmu_invalidate_seq != mmu_seq;
 }
 
 static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
@@ -164,14 +192,15 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 
 	lockdep_assert_held_write(&gpc->lock);
 
-	/*
-	 * Invalidate the cache prior to dropping gpc->lock, the gpa=>uhva
-	 * assets have already been updated and so a concurrent check() from a
-	 * different task may not fail the gpa/uhva/generation checks.
-	 */
-	gpc->valid = false;
-
 	do {
+		/*
+		 * Invalidate the cache prior to dropping gpc->lock, the
+		 * gpa=>uhva assets have already been updated and so a check()
+		 * from a different task may not fail the gpa/uhva/generation
+		 * checks, i.e. must observe valid==false.
+		 */
+		gpc->valid = false;
+
 		write_unlock_irq(&gpc->lock);
 
 		/*
@@ -201,7 +230,7 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 		 * trying to race ahead in the hope that a different task makes
 		 * the cache valid.
 		 */
-		while (READ_ONCE(gpc->kvm->mn_active_invalidate_count)) {
+		while (gpc_invalidate_in_progress_hva(gpc)) {
 			if (!cond_resched())
 				cpu_relax();
 		}
@@ -236,9 +265,9 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 		 * attempting to refresh.
 		 */
 		WARN_ON_ONCE(gpc->valid);
-	} while (mmu_notifier_retry_cache(gpc->kvm, mmu_seq));
+		gpc->valid = true;
+	} while (gpc_invalidate_retry_hva(gpc, mmu_seq));
 
-	gpc->valid = true;
 	gpc->pfn = new_pfn;
 	gpc->khva = new_khva + offset_in_page(gpc->uhva);
 
