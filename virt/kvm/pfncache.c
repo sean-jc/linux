@@ -180,6 +180,30 @@ static bool gpc_invalidate_retry_hva(struct gfn_to_pfn_cache *gpc,
 	return gpc->kvm->mmu_invalidate_seq != mmu_seq;
 }
 
+static void gpc_wait_for_invalidations(struct gfn_to_pfn_cache *gpc)
+{
+	struct kvm *kvm = gpc->kvm;
+
+	spin_lock(&kvm->mn_invalidate_lock);
+	if (gpc_invalidate_in_progress_hva(gpc)) {
+		DEFINE_WAIT(wait);
+
+		for (;;) {
+			prepare_to_wait(&kvm->gpc_invalidate_wq, &wait,
+					TASK_UNINTERRUPTIBLE);
+
+			if (!gpc_invalidate_in_progress_hva(gpc))
+				break;
+
+			spin_unlock(&kvm->mn_invalidate_lock);
+			schedule();
+			spin_lock(&kvm->mn_invalidate_lock);
+		}
+		finish_wait(&kvm->gpc_invalidate_wq, &wait);
+	}
+	spin_unlock(&kvm->mn_invalidate_lock);
+}
+
 static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 {
 	/* Note, the new page offset may be different than the old! */
@@ -230,10 +254,8 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 		 * trying to race ahead in the hope that a different task makes
 		 * the cache valid.
 		 */
-		while (gpc_invalidate_in_progress_hva(gpc)) {
-			if (!cond_resched())
-				cpu_relax();
-		}
+		while (gpc_invalidate_in_progress_hva(gpc))
+			gpc_wait_for_invalidations(gpc);
 
 		mmu_seq = gpc->kvm->mmu_invalidate_seq;
 		smp_rmb();

@@ -787,6 +787,7 @@ struct kvm {
 	struct list_head gpc_list;
 	u64 mmu_gpc_invalidate_range_start;
 	u64 mmu_gpc_invalidate_range_end;
+	wait_queue_head_t gpc_invalidate_wq;
 
 	/*
 	 * created_vcpus is protected by kvm->lock, and is incremented
