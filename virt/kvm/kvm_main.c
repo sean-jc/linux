@@ -775,7 +775,6 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	 */
 	spin_lock(&kvm->mn_invalidate_lock);
 	kvm->mn_active_invalidate_count++;
-	spin_unlock(&kvm->mn_invalidate_lock);
 
 	/*
 	 * Invalidate pfn caches _before_ invalidating the secondary MMUs, i.e.
@@ -784,10 +783,10 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	 * any given time, and the caches themselves can check for hva overlap,
 	 * i.e. don't need to rely on memslot overlap checks for performance.
 	 * Because this runs without holding mmu_lock, the pfn caches must use
-	 * mn_active_invalidate_count (see above) instead of
-	 * mmu_invalidate_in_progress.
+	 * mn_active_invalidate_count instead of mmu_invalidate_in_progress.
 	 */
 	gfn_to_pfn_cache_invalidate_start(kvm, range->start, range->end);
+	spin_unlock(&kvm->mn_invalidate_lock);
 
 	/*
 	 * If one or more memslots were found and thus zapped, notify arch code
@@ -850,11 +849,13 @@ static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 	spin_unlock(&kvm->mn_invalidate_lock);
 
 	/*
-	 * There can only be one waiter, since the wait happens under
-	 * slots_lock.
+	 * There can only be one memslots waiter, since the wait happens under
+	 * slots_lock, but there can be multiple gpc waiters.
 	 */
-	if (wake)
+	if (wake) {
+		wake_up(&kvm->gpc_invalidate_wq);
 		rcuwait_wake_up(&kvm->mn_memslots_update_rcuwait);
+	}
 }
 
 static int kvm_mmu_notifier_clear_flush_young(struct mmu_notifier *mn,
@@ -1164,6 +1165,9 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 
 	INIT_LIST_HEAD(&kvm->gpc_list);
 	spin_lock_init(&kvm->gpc_lock);
+	init_waitqueue_head(&kvm->gpc_invalidate_wq);
+	kvm->mmu_gpc_invalidate_range_start = KVM_HVA_ERR_BAD;
+	kvm->mmu_gpc_invalidate_range_end = KVM_HVA_ERR_BAD;
 
 	INIT_LIST_HEAD(&kvm->devices);
 	kvm->max_vcpus = KVM_MAX_VCPUS;
