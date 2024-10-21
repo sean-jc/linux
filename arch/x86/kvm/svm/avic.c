@@ -1164,7 +1164,7 @@ void avic_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu)
 
 void avic_vcpu_blocking(struct kvm_vcpu *vcpu)
 {
-	if (!kvm_vcpu_apicv_active(vcpu))
+	if (!kvm_vcpu_apicv_active(vcpu) || svm_interrupt_blocked(vcpu))
 		return;
 
        /*
@@ -1185,7 +1185,7 @@ void avic_vcpu_blocking(struct kvm_vcpu *vcpu)
 
 void avic_vcpu_unblocking(struct kvm_vcpu *vcpu)
 {
-	if (!kvm_vcpu_apicv_active(vcpu))
+	if (!kvm_vcpu_apicv_active(vcpu) || svm_interrupt_blocked(vcpu))
 		return;
 
 	avic_vcpu_load(vcpu, vcpu->cpu);
