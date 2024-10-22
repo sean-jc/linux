@@ -1569,8 +1569,13 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 static void svm_vcpu_put(struct kvm_vcpu *vcpu)
 {
-	if (kvm_vcpu_apicv_active(vcpu))
-		avic_vcpu_put(vcpu);
+	/*
+	 * Leave IsRunning=1 when the vCPU is put, i.e. don't "put" the AVIC,
+	 * as KVM only relies on Incomplete IPI VM-Exits and GA log interrupts
+	 * to wake blocking vCPUs.  So long as the vCPU is runnable, KVM will
+	 * enter the guest and hardware will process pending interrupts during
+	 * VMRUN.
+	 */
 
 	svm_prepare_host_switch(vcpu);
 

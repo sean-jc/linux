@@ -1050,8 +1050,6 @@ void avic_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	spin_lock_irqsave(&svm->ir_list_lock, flags);
 
 	entry = svm->avic_physical_id_entry;
-	WARN_ON_ONCE(entry & AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK);
-
 	entry &= ~AVIC_PHYSICAL_ID_ENTRY_HOST_PHYSICAL_ID_MASK;
 	entry |= (h_physical_id & AVIC_PHYSICAL_ID_ENTRY_HOST_PHYSICAL_ID_MASK);
 	entry |= AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK;
@@ -1095,8 +1093,14 @@ void avic_vcpu_put(struct kvm_vcpu *vcpu)
 	 */
 	entry = svm->avic_physical_id_entry;
 
-	/* Nothing to do if IsRunning == '0' due to vCPU blocking. */
-	if (!(entry & AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK))
+	/*
+	 * KVM should only clear IsRunning when AVIC is inhibited, or when the
+	 * vCPU is blocking, and those flows are mutually exclusive, i.e. KVM
+	 * should never put AVIC state when IsRunning is '0'.  AVIC state
+	 * should never be put when the vCPU is unloaded, and the initial vCPU
+	 * load should set IsRunning if AVIC is enabled at vCPU creation.
+	 */
+	if (WARN_ON_ONCE(!(entry & AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK)))
 		return;
 
 	/*
