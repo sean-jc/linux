@@ -13620,7 +13620,6 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	 * int this case doesn't want to receive the interrupts.
 	*/
 	spin_lock_irq(&kvm->irqfds.lock);
-	irqfd->producer = NULL;
 
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
 	if (msi) {
@@ -13630,6 +13629,7 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 			printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
 			       " fails: %d\n", irqfd->consumer.token, ret);
 	}
+	irqfd->producer = NULL;
 
 	spin_unlock_irq(&kvm->irqfds.lock);
 
