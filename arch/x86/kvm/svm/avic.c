@@ -914,7 +914,6 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			 */
 			pi.ga_tag = AVIC_GATAG(to_kvm_svm(kvm)->avic_vm_id,
 						     svm->vcpu.vcpu_id);
-			pi.is_guest_mode = true;
 			pi.vcpu_data = &vcpu_info;
 			ret = irq_set_vcpu_affinity(host_irq, &pi);
 
@@ -926,7 +925,6 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			 * scheduling information in IOMMU irte.
 			 */
 			if (!ret) {
-				WARN_ON_ONCE(!pi.is_guest_mode);
 				ret = svm_ir_list_add(svm, e, &pi);
 				if (ret)
 					goto out;
