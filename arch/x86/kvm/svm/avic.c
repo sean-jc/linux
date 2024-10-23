@@ -881,8 +881,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 	 * 3. APIC virtualization is disabled for the vcpu.
 	 * 4. IRQ has incompatible delivery mode (SMI, INIT, etc)
 	 */
-	if (new && !get_pi_vcpu_info(kvm, new, &vcpu_info, &vcpu) &&
-	    kvm_vcpu_apicv_active(vcpu)) {
+	if (new && !get_pi_vcpu_info(kvm, new, &vcpu_info, &vcpu)) {
 		struct amd_iommu_pi_data pi;
 
 		vcpu_info.pi_desc_addr = avic_get_backing_page_address(to_svm(vcpu));
