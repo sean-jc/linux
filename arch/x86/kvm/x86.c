@@ -13586,7 +13586,7 @@ static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
 	    !irq_remapping_cap(IRQ_POSTING_CAP))
 		return 0;
 
-	if (new) {
+	if (new && new->type != KVM_IRQ_ROUTING_MSI) {
 		kvm_set_msi_irq(kvm, new, &irq);
 
 		/*
@@ -13673,16 +13673,10 @@ void kvm_arch_update_irqfd_routing(struct kvm_kernel_irqfd *irqfd,
 				   struct kvm_kernel_irq_routing_entry *old,
 				   struct kvm_kernel_irq_routing_entry *new)
 {
+	if (!memcmp(&old->msi, &new->msi, sizeof(new->msi)))
+		return;
+
 	kvm_pi_update_irte(irqfd, old, new);
-}
-
-bool kvm_arch_irqfd_route_changed(struct kvm_kernel_irq_routing_entry *old,
-				  struct kvm_kernel_irq_routing_entry *new)
-{
-	if (new->type != KVM_IRQ_ROUTING_MSI)
-		return true;
-
-	return !!memcmp(&old->msi, &new->msi, sizeof(new->msi));
 }
 
 bool kvm_vector_hashing_enabled(void)
