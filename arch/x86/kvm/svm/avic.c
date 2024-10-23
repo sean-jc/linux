@@ -864,7 +864,6 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 {
 	struct kvm_kernel_irq_routing_entry *e;
 	struct kvm_irq_routing_table *irq_rt;
-	bool set = !!new;
 	int idx, ret = 0;
 
 	if (!kvm_arch_has_assigned_device(kvm) ||
@@ -872,7 +871,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 		return 0;
 
 	pr_debug("SVM: %s: host_irq=%#x, guest_irq=%#x, set=%#x\n",
-		 __func__, host_irq, guest_irq, set);
+		 __func__, host_irq, guest_irq, !!new);
 
 	idx = srcu_read_lock(&kvm->irq_srcu);
 	irq_rt = srcu_dereference(kvm->irq_routing, &kvm->irq_srcu);
@@ -903,7 +902,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 		 * 3. APIC virtualization is disabled for the vcpu.
 		 * 4. IRQ has incompatible delivery mode (SMI, INIT, etc)
 		 */
-		if (!get_pi_vcpu_info(kvm, e, &vcpu_info, &svm) && set &&
+		if (new && !get_pi_vcpu_info(kvm, new, &vcpu_info, &svm) &&
 		    kvm_vcpu_apicv_active(&svm->vcpu)) {
 			struct amd_iommu_pi_data pi;
 
@@ -925,7 +924,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			 * scheduling information in IOMMU irte.
 			 */
 			if (!ret) {
-				ret = svm_ir_list_add(svm, e, &pi);
+				ret = svm_ir_list_add(svm, new, &pi);
 				if (ret)
 					goto out;
 			}
@@ -936,7 +935,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 		if (!ret && svm) {
 			trace_kvm_pi_irte_update(host_irq, svm->vcpu.vcpu_id,
 						 e->gsi, vcpu_info.vector,
-						 vcpu_info.pi_desc_addr, set);
+						 vcpu_info.pi_desc_addr, !!new);
 		}
 
 		if (ret < 0) {
