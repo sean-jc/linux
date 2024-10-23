@@ -781,24 +781,14 @@ static void svm_ir_list_del(struct kvm_kernel_irq_routing_entry *e)
 	e->msi.irq_bypass_data = NULL;
 }
 
-static int svm_ir_list_add(struct vcpu_svm *svm,
-			   struct kvm_kernel_irq_routing_entry *e,
-			   struct amd_iommu_pi_data *pi)
+static void svm_ir_list_add(struct vcpu_svm *svm,
+			    struct kvm_kernel_irq_routing_entry *e,
+			    struct amd_iommu_pi_data *pi,
+			    struct amd_svm_iommu_ir *ir)
 {
 	unsigned long flags;
-	struct amd_svm_iommu_ir *ir;
 	u64 entry;
 
-	if (WARN_ON_ONCE(!pi->ir_data))
-		return -EINVAL;
-
-	/**
-	 * Allocating new amd_iommu_pi_data, which will get
-	 * add to the per-vcpu ir_list.
-	 */
-	ir = kzalloc(sizeof(struct amd_svm_iommu_ir), GFP_ATOMIC | __GFP_ACCOUNT);
-	if (!ir)
-		return -ENOMEM;
 	ir->data = pi->ir_data;
 
 	spin_lock_irqsave(&svm->ir_list_lock, flags);
@@ -818,7 +808,6 @@ static int svm_ir_list_add(struct vcpu_svm *svm,
 	spin_unlock_irqrestore(&svm->ir_list_lock, flags);
 
 	e->msi.irq_bypass_data = ir;
-	return 0;
 }
 
 int avic_pi_update_irte(unsigned int host_irq,
@@ -849,11 +838,21 @@ int avic_pi_update_irte(unsigned int host_irq,
 			.vapic_addr = avic_get_backing_page_address(to_svm(vcpu)),
 			.vector = vector,
 		};
+		struct amd_svm_iommu_ir *ir;
 		int ret;
 
+		ir = kzalloc(sizeof(struct amd_svm_iommu_ir), GFP_ATOMIC | __GFP_ACCOUNT);
+		if (!ir) {
+			irq_set_vcpu_affinity(host_irq, NULL);
+			return -ENOMEM;
+		}
+
+
 		ret = irq_set_vcpu_affinity(host_irq, &pi_data);
-		if (ret)
+		if (ret || WARN_ON_ONCE(!pi_data.ir_data)) {
+			kfree(ir);
 			return ret;
+		}
 
 		/**
 		 * Here, we successfully setting up vcpu affinity in
@@ -862,7 +861,8 @@ int avic_pi_update_irte(unsigned int host_irq,
 		 * we can reference to them directly when we update vcpu
 		 * scheduling information in IOMMU irte.
 		 */
-		return svm_ir_list_add(to_svm(vcpu), new, &pi_data);
+		svm_ir_list_add(to_svm(vcpu), new, &pi_data, ir);
+		return 0;
 	}
 	return irq_set_vcpu_affinity(host_irq, NULL);
 }
