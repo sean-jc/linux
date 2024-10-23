@@ -13543,19 +13543,55 @@ bool kvm_arch_has_irq_bypass(void)
 	return enable_apicv && irq_remapping_cap(IRQ_POSTING_CAP);
 }
 
+static struct kvm_kernel_irq_routing_entry *kvm_get_msi_route(struct kvm *kvm,
+							      u32 gsi)
+{
+	struct kvm_kernel_irq_routing_entry *e, *msi = NULL;
+	struct kvm_irq_routing_table *irq_rt;
+
+	irq_rt = srcu_dereference(kvm->irq_routing, &kvm->irq_srcu);
+
+	if (gsi >= irq_rt->nr_rt_entries)
+		return NULL;
+
+	/*
+	 * Search the routing table for an MSI route for the guest IRQ.  WARN
+	 * if more than one MSI entry is found, as KVM is supposed to allow at
+	 * most one endpoint per IRQ.  See setup_routing_entry().
+	 */
+	hlist_for_each_entry(e, &irq_rt->map[gsi], link) {
+		if (e->type != KVM_IRQ_ROUTING_MSI)
+			continue;
+
+		if (WARN_ON_ONCE(msi))
+			break;
+
+		msi = e;
+	}
+	return msi;
+}
+
 int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 				      struct irq_bypass_producer *prod)
 {
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
-	int ret;
+	struct kvm_kernel_irq_routing_entry *msi;
+	struct kvm *kvm = irqfd->kvm;
+	int ret = 0, idx;
 
 	irqfd->producer = prod;
 	kvm_arch_start_assignment(irqfd->kvm);
-	ret = kvm_x86_call(pi_update_irte)(irqfd->kvm,
-					   prod->irq, irqfd->gsi, 1);
-	if (ret)
-		kvm_arch_end_assignment(irqfd->kvm);
+
+	idx = srcu_read_lock(&kvm->irq_srcu);
+	msi = kvm_get_msi_route(kvm, irqfd->gsi);
+	if (msi) {
+		ret = kvm_x86_call(pi_update_irte)(irqfd->kvm, prod->irq,
+						   irqfd->gsi, NULL, msi);
+		if (ret)
+			kvm_arch_end_assignment(irqfd->kvm);
+	}
+	srcu_read_unlock(&kvm->irq_srcu, idx);
 
 	return ret;
 }
@@ -13563,9 +13599,11 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 				      struct irq_bypass_producer *prod)
 {
-	int ret;
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
+	struct kvm_kernel_irq_routing_entry *msi;
+	struct kvm *kvm = irqfd->kvm;
+	int ret, idx;
 
 	WARN_ON(irqfd->producer != prod);
 	irqfd->producer = NULL;
@@ -13576,19 +13614,27 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	 * when the irq is masked/disabled or the consumer side (KVM
 	 * int this case doesn't want to receive the interrupts.
 	*/
-	ret = kvm_x86_call(pi_update_irte)(irqfd->kvm,
-					   prod->irq, irqfd->gsi, 0);
-	if (ret)
-		printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
-		       " fails: %d\n", irqfd->consumer.token, ret);
+	idx = srcu_read_lock(&kvm->irq_srcu);
+	msi = kvm_get_msi_route(kvm, irqfd->gsi);
+	if (msi) {
+		ret = kvm_x86_call(pi_update_irte)(irqfd->kvm, prod->irq,
+						   irqfd->gsi, msi, NULL);
+		if (ret)
+			printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
+			       " fails: %d\n", irqfd->consumer.token, ret);
+	}
+
+	srcu_read_unlock(&kvm->irq_srcu, idx);
 
 	kvm_arch_end_assignment(irqfd->kvm);
 }
 
 int kvm_arch_update_irqfd_routing(struct kvm *kvm, unsigned int host_irq,
-				   uint32_t guest_irq, bool set)
+				  uint32_t guest_irq,
+				  struct kvm_kernel_irq_routing_entry *old,
+				  struct kvm_kernel_irq_routing_entry *new)
 {
-	return kvm_x86_call(pi_update_irte)(kvm, host_irq, guest_irq, set);
+	return kvm_x86_call(pi_update_irte)(kvm, host_irq, guest_irq, old, new);
 }
 
 bool kvm_arch_irqfd_route_changed(struct kvm_kernel_irq_routing_entry *old,

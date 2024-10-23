@@ -1788,7 +1788,9 @@ struct kvm_x86_ops {
 	void (*vcpu_unblocking)(struct kvm_vcpu *vcpu);
 
 	int (*pi_update_irte)(struct kvm *kvm, unsigned int host_irq,
-			      uint32_t guest_irq, bool set);
+			      uint32_t guest_irq,
+			      struct kvm_kernel_irq_routing_entry *old,
+			      struct kvm_kernel_irq_routing_entry *new);
 	void (*pi_start_assignment)(struct kvm *kvm);
 	void (*apicv_pre_state_restore)(struct kvm_vcpu *vcpu);
 	void (*apicv_post_state_restore)(struct kvm_vcpu *vcpu);
