@@ -821,8 +821,7 @@ static int svm_ir_list_add(struct vcpu_svm *svm,
 	return 0;
 }
 
-int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
-			uint32_t guest_irq,
+int avic_pi_update_irte(unsigned int host_irq,
 			struct kvm_kernel_irq_routing_entry *old,
 			struct kvm_kernel_irq_routing_entry *new,
 			struct kvm_vcpu *vcpu, u32 vector)
@@ -851,7 +850,8 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 		};
 
 		struct amd_iommu_pi_data pi = {
-			.ga_tag = AVIC_GATAG(to_kvm_svm(kvm)->avic_vm_id, vcpu->vcpu_id),
+			.ga_tag = AVIC_GATAG(to_kvm_svm(vcpu->kvm)->avic_vm_id,
+					     vcpu->vcpu_id),
 			.vcpu_data = &vcpu_info,
 		};
 

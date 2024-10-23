@@ -13604,8 +13604,7 @@ static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
 			vcpu = NULL;
 	}
 
-	r = kvm_x86_call(pi_update_irte)(irqfd->kvm, host_irq, irqfd->gsi,
-					 old, new, vcpu, irq.vector);
+	r = kvm_x86_call(pi_update_irte)(host_irq, old, new, vcpu, irq.vector);
 	if (r)
 		return r;
 

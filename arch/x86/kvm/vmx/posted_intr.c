@@ -265,8 +265,7 @@ void vmx_pi_start_assignment(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_UNBLOCK);
 }
 
-int vmx_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
-		       uint32_t guest_irq,
+int vmx_pi_update_irte(unsigned int host_irq,
 		       struct kvm_kernel_irq_routing_entry *old,
 		       struct kvm_kernel_irq_routing_entry *new,
 		       struct kvm_vcpu *vcpu, u32 vector)
