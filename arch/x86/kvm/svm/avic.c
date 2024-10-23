@@ -81,6 +81,7 @@ bool x2avic_enabled;
 struct amd_svm_iommu_ir {
 	struct list_head node;	/* Used by SVM for per-vcpu ir_list */
 	void *data;		/* Storing pointer to struct amd_ir_data */
+	struct vcpu_svm *svm;
 };
 
 static void avic_activate_vmcb(struct vcpu_svm *svm)
@@ -763,22 +764,19 @@ out:
 	return ret;
 }
 
-static void svm_ir_list_del(struct vcpu_svm *svm,
-			    struct kvm_kernel_irq_routing_entry *e,
-			    struct amd_iommu_pi_data *pi)
+static void svm_ir_list_del(struct kvm_kernel_irq_routing_entry *e)
 {
+	struct amd_svm_iommu_ir *ir = e->msi.irq_bypass_data;
 	unsigned long flags;
-	struct amd_svm_iommu_ir *cur;
 
-	spin_lock_irqsave(&svm->ir_list_lock, flags);
-	list_for_each_entry(cur, &svm->ir_list, node) {
-		if (cur->data != pi->ir_data)
-			continue;
-		list_del(&cur->node);
-		kfree(cur);
-		break;
-	}
-	spin_unlock_irqrestore(&svm->ir_list_lock, flags);
+	if (!ir)
+		return;
+
+	spin_lock_irqsave(&ir->svm->ir_list_lock, flags);
+	list_del(&ir->node);
+	spin_unlock_irqrestore(&ir->svm->ir_list_lock, flags);
+
+	kfree(ir);
 
 	e->msi.irq_bypass_data = NULL;
 }
@@ -787,31 +785,12 @@ static int svm_ir_list_add(struct vcpu_svm *svm,
 			   struct kvm_kernel_irq_routing_entry *e,
 			   struct amd_iommu_pi_data *pi)
 {
-	struct kvm_vcpu *vcpu = &svm->vcpu;
-	struct kvm *kvm = vcpu->kvm;
 	unsigned long flags;
 	struct amd_svm_iommu_ir *ir;
 	u64 entry;
 
 	if (WARN_ON_ONCE(!pi->ir_data))
 		return -EINVAL;
-
-	/**
-	 * In some cases, the existing irte is updated and re-set,
-	 * so we need to check here if it's already been * added
-	 * to the ir_list.
-	 */
-	if (pi->prev_ga_tag) {
-		u32 vcpu_id = AVIC_GATAG_TO_VCPUID(pi->prev_ga_tag);
-		struct kvm_vcpu *prev_vcpu = kvm_get_vcpu_by_id(kvm, vcpu_id);
-		struct vcpu_svm *prev_svm;
-
-		if (!prev_vcpu)
-			return -EINVAL;
-
-		prev_svm = to_svm(prev_vcpu);
-		svm_ir_list_del(prev_svm, e, pi);
-	}
 
 	/**
 	 * Allocating new amd_iommu_pi_data, which will get
@@ -914,6 +893,9 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 
 		WARN_ON_ONCE((new && new != e) || (!new && old != e));
 
+		if (old)
+			svm_ir_list_del(old);
+
 		/**
 		 * Here, we setup with legacy mode in the following cases:
 		 * 1. When cannot target interrupt to a specific vcpu.
@@ -957,21 +939,6 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			pi.prev_ga_tag = 0;
 			pi.is_guest_mode = false;
 			ret = irq_set_vcpu_affinity(host_irq, &pi);
-
-			/**
-			 * Check if the posted interrupt was previously
-			 * setup with the guest_mode by checking if the ga_tag
-			 * was cached. If so, we need to clean up the per-vcpu
-			 * ir_list.
-			 */
-			if (!ret && pi.prev_ga_tag) {
-				int id = AVIC_GATAG_TO_VCPUID(pi.prev_ga_tag);
-				struct kvm_vcpu *vcpu;
-
-				vcpu = kvm_get_vcpu_by_id(kvm, id);
-				if (vcpu)
-					svm_ir_list_del(to_svm(vcpu), e, &pi);
-			}
 		}
 
 		if (!ret && svm) {
