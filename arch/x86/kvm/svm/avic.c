@@ -826,8 +826,6 @@ int avic_pi_update_irte(unsigned int host_irq,
 			struct kvm_kernel_irq_routing_entry *new,
 			struct kvm_vcpu *vcpu, u32 vector)
 {
-	int ret = 0;
-
 	if (old)
 		svm_ir_list_del(old);
 
@@ -854,8 +852,11 @@ int avic_pi_update_irte(unsigned int host_irq,
 					     vcpu->vcpu_id),
 			.vcpu_data = &vcpu_info,
 		};
+		int ret;
 
 		ret = irq_set_vcpu_affinity(host_irq, &pi);
+		if (ret)
+			return ret;
 
 		/**
 		 * Here, we successfully setting up vcpu affinity in
@@ -864,24 +865,9 @@ int avic_pi_update_irte(unsigned int host_irq,
 		 * we can reference to them directly when we update vcpu
 		 * scheduling information in IOMMU irte.
 		 */
-		if (!ret) {
-			ret = svm_ir_list_add(to_svm(vcpu), new, &pi);
-			if (ret)
-				goto out;
-		}
-	} else {
-		ret = irq_set_vcpu_affinity(host_irq, NULL);
+		return svm_ir_list_add(to_svm(vcpu), new, &pi);
 	}
-
-
-	if (ret < 0) {
-		pr_err("%s: failed to update PI IRTE\n", __func__);
-		goto out;
-	}
-
-	ret = 0;
-out:
-	return ret;
+	return irq_set_vcpu_affinity(host_irq, NULL);
 }
 
 static inline int
