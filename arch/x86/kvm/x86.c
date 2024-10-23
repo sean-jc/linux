@@ -13606,7 +13606,6 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	int ret, idx;
 
 	WARN_ON(irqfd->producer != prod);
-	irqfd->producer = NULL;
 
 	/*
 	 * When producer of consumer is unregistered, we change back to
@@ -13626,6 +13625,7 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 
 	srcu_read_unlock(&kvm->irq_srcu, idx);
 
+	irqfd->producer = NULL;
 	kvm_arch_end_assignment(irqfd->kvm);
 }
 
