@@ -346,6 +346,7 @@ int vmx_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 					__func__);
 			goto out;
 		}
+		break;
 	}
 
 	ret = 0;

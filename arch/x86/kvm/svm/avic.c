@@ -763,7 +763,9 @@ out:
 	return ret;
 }
 
-static void svm_ir_list_del(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
+static void svm_ir_list_del(struct vcpu_svm *svm,
+			    struct kvm_kernel_irq_routing_entry *e,
+			    struct amd_iommu_pi_data *pi)
 {
 	unsigned long flags;
 	struct amd_svm_iommu_ir *cur;
@@ -777,13 +779,16 @@ static void svm_ir_list_del(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
 		break;
 	}
 	spin_unlock_irqrestore(&svm->ir_list_lock, flags);
+
+	e->msi.irq_bypass_data = NULL;
 }
 
-static int svm_ir_list_add(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
+static int svm_ir_list_add(struct vcpu_svm *svm,
+			   struct kvm_kernel_irq_routing_entry *e,
+			   struct amd_iommu_pi_data *pi)
 {
 	struct kvm_vcpu *vcpu = &svm->vcpu;
 	struct kvm *kvm = vcpu->kvm;
-	int ret = 0;
 	unsigned long flags;
 	struct amd_svm_iommu_ir *ir;
 	u64 entry;
@@ -801,13 +806,11 @@ static int svm_ir_list_add(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
 		struct kvm_vcpu *prev_vcpu = kvm_get_vcpu_by_id(kvm, vcpu_id);
 		struct vcpu_svm *prev_svm;
 
-		if (!prev_vcpu) {
-			ret = -EINVAL;
-			goto out;
-		}
+		if (!prev_vcpu)
+			return -EINVAL;
 
 		prev_svm = to_svm(prev_vcpu);
-		svm_ir_list_del(prev_svm, pi);
+		svm_ir_list_del(prev_svm, e, pi);
 	}
 
 	/**
@@ -815,10 +818,8 @@ static int svm_ir_list_add(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
 	 * add to the per-vcpu ir_list.
 	 */
 	ir = kzalloc(sizeof(struct amd_svm_iommu_ir), GFP_ATOMIC | __GFP_ACCOUNT);
-	if (!ir) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!ir)
+		return -ENOMEM;
 	ir->data = pi->ir_data;
 
 	spin_lock_irqsave(&svm->ir_list_lock, flags);
@@ -836,8 +837,9 @@ static int svm_ir_list_add(struct vcpu_svm *svm, struct amd_iommu_pi_data *pi)
 
 	list_add(&ir->node, &svm->ir_list);
 	spin_unlock_irqrestore(&svm->ir_list_lock, flags);
-out:
-	return ret;
+
+	e->msi.irq_bypass_data = ir;
+	return 0;
 }
 
 /*
@@ -938,8 +940,11 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			 * we can reference to them directly when we update vcpu
 			 * scheduling information in IOMMU irte.
 			 */
-			if (!ret && pi.is_guest_mode)
-				svm_ir_list_add(svm, &pi);
+			if (!ret && pi.is_guest_mode) {
+				ret = svm_ir_list_add(svm, e, &pi);
+				if (ret)
+					goto out;
+			}
 		} else {
 			/* Use legacy mode in IRTE */
 			struct amd_iommu_pi_data pi;
@@ -965,7 +970,7 @@ int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 
 				vcpu = kvm_get_vcpu_by_id(kvm, id);
 				if (vcpu)
-					svm_ir_list_del(to_svm(vcpu), &pi);
+					svm_ir_list_del(to_svm(vcpu), e, &pi);
 			}
 		}
 

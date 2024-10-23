@@ -671,6 +671,14 @@ struct kvm_kernel_irq_routing_entry {
 			u32 data;
 			u32 flags;
 			u32 devid;
+
+#ifdef CONFIG_HAVE_KVM_IRQ_BYPASS
+			/*
+			 * May be used to hold arch/vendor specific data if the
+			 * MSI is configured for IRQ bypass.
+			 */
+			void *irq_bypass_data;
+#endif
 		} msi;
 		struct kvm_s390_adapter_int adapter;
 		struct kvm_hv_sint hv_sint;
