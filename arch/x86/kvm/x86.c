@@ -13571,6 +13571,41 @@ static struct kvm_kernel_irq_routing_entry *kvm_get_msi_route(struct kvm *kvm,
 	return msi;
 }
 
+static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
+			      struct kvm_kernel_irq_routing_entry *old,
+			      struct kvm_kernel_irq_routing_entry *new)
+{
+	struct kvm *kvm = irqfd->kvm;
+	struct kvm_vcpu *vcpu = NULL;
+	struct kvm_lapic_irq irq;
+
+	if (!irqchip_in_kernel(kvm) || !enable_apicv ||
+	    !kvm_arch_has_assigned_device(kvm) ||
+	    !irq_remapping_cap(IRQ_POSTING_CAP))
+		return 0;
+
+	if (new) {
+		kvm_set_msi_irq(kvm, new, &irq);
+
+		/*
+		 * If the MSI targets multiple vCPUs, use interrupt remapping as
+		 * neither AMD nor Intel IOMMUs support posting multicast/broadcast
+		* interrupts.  This means that KVM can only post lowest-priority
+		* interrupts if they have a single CPU as the destination, e.g. if the
+		* user configures the interrupt via /proc/irq or uses irqbalance to
+		* ensure the interrupt targets a single CPU.
+		*
+		* Note, only IRQs are postable, NMIs, SMIs, etc. are not.
+		*/
+		if (!kvm_intr_is_single_vcpu(kvm, &irq, &vcpu) ||
+		    !kvm_irq_is_postable(&irq))
+			vcpu = NULL;
+	}
+
+	return kvm_x86_call(pi_update_irte)(irqfd->kvm, irqfd->producer->irq,
+					    irqfd->gsi, old, new, vcpu, irq.vector);
+}
+
 int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 				      struct irq_bypass_producer *prod)
 {
@@ -13586,8 +13621,7 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 	idx = srcu_read_lock(&kvm->irq_srcu);
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
 	if (msi) {
-		ret = kvm_x86_call(pi_update_irte)(irqfd->kvm, prod->irq,
-						   irqfd->gsi, NULL, msi);
+		ret = kvm_pi_update_irte(irqfd, NULL, msi);
 		if (ret)
 			kvm_arch_end_assignment(irqfd->kvm);
 	}
@@ -13616,8 +13650,7 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	idx = srcu_read_lock(&kvm->irq_srcu);
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
 	if (msi) {
-		ret = kvm_x86_call(pi_update_irte)(irqfd->kvm, prod->irq,
-						   irqfd->gsi, msi, NULL);
+		ret = kvm_pi_update_irte(irqfd, msi, NULL);
 		if (ret)
 			printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
 			       " fails: %d\n", irqfd->consumer.token, ret);
@@ -13633,8 +13666,7 @@ int kvm_arch_update_irqfd_routing(struct kvm_kernel_irqfd *irqfd,
 				  struct kvm_kernel_irq_routing_entry *old,
 				  struct kvm_kernel_irq_routing_entry *new)
 {
-	return kvm_x86_call(pi_update_irte)(irqfd->kvm, irqfd->producer->irq,
-					    irqfd->gsi, old, new);
+	return kvm_pi_update_irte(irqfd, old, new);
 }
 
 bool kvm_arch_irqfd_route_changed(struct kvm_kernel_irq_routing_entry *old,

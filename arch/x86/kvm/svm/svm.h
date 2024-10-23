@@ -722,7 +722,8 @@ void avic_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu);
 int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			uint32_t guest_irq,
 			struct kvm_kernel_irq_routing_entry *old,
-			struct kvm_kernel_irq_routing_entry *new);
+			struct kvm_kernel_irq_routing_entry *new,
+			struct kvm_vcpu *vcpu, u32 vector);
 void avic_vcpu_blocking(struct kvm_vcpu *vcpu);
 void avic_vcpu_unblocking(struct kvm_vcpu *vcpu);
 void avic_ring_doorbell(struct kvm_vcpu *vcpu);
