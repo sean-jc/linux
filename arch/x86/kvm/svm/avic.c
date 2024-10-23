@@ -909,7 +909,8 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 			 * we can reference to them directly when we update vcpu
 			 * scheduling information in IOMMU irte.
 			 */
-			if (!ret && pi.is_guest_mode) {
+			if (!ret) {
+				WARN_ON_ONCE(!pi.is_guest_mode);
 				ret = svm_ir_list_add(svm, irqfd, &pi);
 				if (ret)
 					goto out;
