@@ -179,30 +179,10 @@ static struct irq_chip *folly_chip;
 static void *floppy_eventfd;
 static DEFINE_MUTEX(floppy_lock);
 
-static void __kvm_irq_producer_set_vcpu_affinity(struct irq_data *data,
-						 void *vcpu_info)
-{
-	struct amd_iommu_pi_data *pi_data = vcpu_info;
-
-	if (!cpu_feature_enabled(X86_FEATURE_SVM)) {
-		floppy_is_posting = !!vcpu_info;
-		return;
-	}
-
-	pi_data->prev_ga_tag = floppy_cached_ga_tag;
-	if (pi_data->is_guest_mode)
-		floppy_cached_ga_tag = pi_data->ga_tag;
-	else
-		floppy_cached_ga_tag = 0;
-
-	floppy_is_posting = floppy_cached_ga_tag;
-	return;
-}
-
 static int kvm_irq_producer_set_vcpu_affinity(struct irq_data *data,
 					      void *vcpu_info)
 {
-	__kvm_irq_producer_set_vcpu_affinity(data, vcpu_info);
+	floppy_is_posting = !!vcpu_info;
 
 	if (floppy_is_posting)
 		pr_warn_once("Floppy IRQs wired up for bypass\n");
