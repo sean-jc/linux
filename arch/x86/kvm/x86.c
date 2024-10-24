@@ -13604,6 +13604,13 @@ static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
 			vcpu = NULL;
 	}
 
+	/*
+	 * If a producer is being added, and the interrupt isn't currently
+	 * postable, do nothing as the IRTE is already setup for remapping.
+	 */
+	if (!old && !vcpu)
+		return 0;
+
 	r = kvm_x86_call(pi_update_irte)(host_irq, old, new, vcpu, irq.vector);
 	if (r)
 		return r;
