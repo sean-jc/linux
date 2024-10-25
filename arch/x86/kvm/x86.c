@@ -13582,12 +13582,13 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
 	struct kvm_kernel_irq_routing_entry *msi;
 	struct kvm *kvm = irqfd->kvm;
-	int ret = 0, idx;
+	int ret = 0;
 
-	irqfd->producer = prod;
 	kvm_arch_start_assignment(irqfd->kvm);
 
-	idx = srcu_read_lock(&kvm->irq_srcu);
+	spin_lock_irq(&kvm->irqfds.lock);
+	irqfd->producer = prod;
+
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
 	if (msi) {
 		ret = kvm_x86_call(pi_update_irte)(irqfd, irqfd->kvm, prod->irq,
@@ -13595,7 +13596,8 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 		if (ret)
 			kvm_arch_end_assignment(irqfd->kvm);
 	}
-	srcu_read_unlock(&kvm->irq_srcu, idx);
+
+	spin_unlock_irq(&kvm->irqfds.lock);
 
 	return ret;
 }
@@ -13607,10 +13609,9 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
 	struct kvm_kernel_irq_routing_entry *msi;
 	struct kvm *kvm = irqfd->kvm;
-	int ret, idx;
+	int ret;
 
 	WARN_ON(irqfd->producer != prod);
-	irqfd->producer = NULL;
 
 	/*
 	 * When producer of consumer is unregistered, we change back to
@@ -13618,7 +13619,9 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	 * when the irq is masked/disabled or the consumer side (KVM
 	 * int this case doesn't want to receive the interrupts.
 	*/
-	idx = srcu_read_lock(&kvm->irq_srcu);
+	spin_lock_irq(&kvm->irqfds.lock);
+	irqfd->producer = NULL;
+
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
 	if (msi) {
 		ret = kvm_x86_call(pi_update_irte)(irqfd, irqfd->kvm, prod->irq,
@@ -13628,7 +13631,7 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 			       " fails: %d\n", irqfd->consumer.token, ret);
 	}
 
-	srcu_read_unlock(&kvm->irq_srcu, idx);
+	spin_unlock_irq(&kvm->irqfds.lock);
 
 	kvm_arch_end_assignment(irqfd->kvm);
 }
