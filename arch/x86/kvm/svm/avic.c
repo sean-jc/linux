@@ -859,6 +859,8 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 	    !irq_remapping_cap(IRQ_POSTING_CAP))
 		return 0;
 
+	svm_ir_list_del(irqfd);
+
 	pr_debug("SVM: %s: host_irq=%#x, guest_irq=%#x, set=%#x\n",
 		 __func__, host_irq, guest_irq, set);
 
@@ -880,8 +882,6 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 			continue;
 
 		WARN_ON_ONCE(new && new != e);
-
-		svm_ir_list_del(irqfd);
 
 		/**
 		 * Here, we setup with legacy mode in the following cases:
