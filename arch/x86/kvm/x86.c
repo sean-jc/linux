@@ -13547,34 +13547,6 @@ bool kvm_arch_has_irq_bypass(void)
 	return enable_apicv && true /*irq_remapping_cap(IRQ_POSTING_CAP) */;
 }
 
-static struct kvm_kernel_irq_routing_entry *kvm_get_msi_route(struct kvm *kvm,
-							      u32 gsi)
-{
-	struct kvm_kernel_irq_routing_entry *e, *msi = NULL;
-	struct kvm_irq_routing_table *irq_rt;
-
-	irq_rt = srcu_dereference(kvm->irq_routing, &kvm->irq_srcu);
-
-	if (gsi >= irq_rt->nr_rt_entries)
-		return NULL;
-
-	/*
-	 * Search the routing table for an MSI route for the guest IRQ.  WARN
-	 * if more than one MSI entry is found, as KVM is supposed to allow at
-	 * most one endpoint per IRQ.  See setup_routing_entry().
-	 */
-	hlist_for_each_entry(e, &irq_rt->map[gsi], link) {
-		if (e->type != KVM_IRQ_ROUTING_MSI)
-			continue;
-
-		if (WARN_ON_ONCE(msi))
-			break;
-
-		msi = e;
-	}
-	return msi;
-}
-
 static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
 			      struct kvm_kernel_irq_routing_entry *old,
 			      struct kvm_kernel_irq_routing_entry *new)
@@ -13630,7 +13602,6 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 {
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
-	struct kvm_kernel_irq_routing_entry *msi;
 	struct kvm *kvm = irqfd->kvm;
 	int ret = 0;
 
@@ -13638,9 +13609,6 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 
 	spin_lock_irq(&kvm->irqfds.lock);
 	irqfd->producer = prod;
-
-	msi = kvm_get_msi_route(kvm, irqfd->gsi);
-	WARN_ON_ONCE(msi && memcmp(msi, &irqfd->irq_entry, sizeof(*msi)));
 
 	if (irqfd->irq_entry.type == KVM_IRQ_ROUTING_MSI) {
 		ret = kvm_pi_update_irte(irqfd, NULL, &irqfd->irq_entry);
@@ -13658,7 +13626,6 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 {
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
-	struct kvm_kernel_irq_routing_entry *msi;
 	struct kvm *kvm = irqfd->kvm;
 	int ret;
 
@@ -13671,9 +13638,6 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	 * int this case doesn't want to receive the interrupts.
 	*/
 	spin_lock_irq(&kvm->irqfds.lock);
-
-	msi = kvm_get_msi_route(kvm, irqfd->gsi);
-	WARN_ON_ONCE(msi && memcmp(msi, &irqfd->irq_entry, sizeof(*msi)));
 
 	if (irqfd->irq_entry.type == KVM_IRQ_ROUTING_MSI) {
 		ret = kvm_pi_update_irte(irqfd, &irqfd->irq_entry, NULL);
