@@ -13640,8 +13640,10 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 	irqfd->producer = prod;
 
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
-	if (msi) {
-		ret = kvm_pi_update_irte(irqfd, NULL, msi);
+	WARN_ON_ONCE(msi && memcmp(msi, &irqfd->irq_entry, sizeof(*msi)));
+
+	if (irqfd->irq_entry.type == KVM_IRQ_ROUTING_MSI) {
+		ret = kvm_pi_update_irte(irqfd, NULL, &irqfd->irq_entry);
 		if (ret)
 			kvm_arch_end_assignment(irqfd->kvm);
 	}
@@ -13671,8 +13673,10 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	spin_lock_irq(&kvm->irqfds.lock);
 
 	msi = kvm_get_msi_route(kvm, irqfd->gsi);
-	if (msi) {
-		ret = kvm_pi_update_irte(irqfd, msi, NULL);
+	WARN_ON_ONCE(msi && memcmp(msi, &irqfd->irq_entry, sizeof(*msi)));
+
+	if (irqfd->irq_entry.type == KVM_IRQ_ROUTING_MSI) {
+		ret = kvm_pi_update_irte(irqfd, &irqfd->irq_entry, NULL);
 		if (ret)
 			printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
 			       " fails: %d\n", irqfd->consumer.token, ret);
