@@ -174,9 +174,10 @@ static void calc_min_max_cpu(void)
 int main(int argc, char *argv[])
 {
 	pthread_t migration_thread, rerouting_thread;
+	struct kvm_irq_producer prod;
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
-	int r;
+	int kvm_fd, r;
 
 	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
 	vm_install_exception_handler(vm, 0x80, guest_irq_handler);
@@ -189,6 +190,11 @@ int main(int argc, char *argv[])
 		.gsi = 6,
 	};
 	vm_ioctl(vm, KVM_IRQFD, &irqfd);
+
+	kvm_fd = open_kvm_dev_path_or_exit();
+	prod.eventfd = __eventfd;
+	prod.flags = 0;
+	kvm_ioctl(kvm_fd, KVM_IRQ_PRODUCER, &prod);
 
 	pthread_create(&rerouting_thread, NULL, rerouting_worker, (void *)vm);
 
@@ -205,6 +211,9 @@ int main(int argc, char *argv[])
 		vcpu_run(vcpu);
 		TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_SYNC);
 	} while (!READ_ONCE(done));
+
+	prod.flags = KVM_IRQFD_FLAG_DEASSIGN;
+	kvm_ioctl(kvm_fd, KVM_IRQ_PRODUCER, &prod);
 
 	kvm_vm_free(vm);
 	close(__eventfd);
