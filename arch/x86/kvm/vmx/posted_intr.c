@@ -345,6 +345,7 @@ int vmx_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 					__func__);
 			goto out;
 		}
+		break;
 	}
 
 	ret = 0;
