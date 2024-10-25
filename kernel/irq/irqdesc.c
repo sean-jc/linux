@@ -923,6 +923,7 @@ __irq_get_desc_lock(unsigned int irq, unsigned long *flags, bool bus,
 	}
 	return desc;
 }
+EXPORT_SYMBOL_GPL(__irq_get_desc_lock);
 
 void __irq_put_desc_unlock(struct irq_desc *desc, unsigned long flags, bool bus)
 	__releases(&desc->lock)
@@ -931,6 +932,7 @@ void __irq_put_desc_unlock(struct irq_desc *desc, unsigned long flags, bool bus)
 	if (bus)
 		chip_bus_sync_unlock(desc);
 }
+EXPORT_SYMBOL_GPL(__irq_put_desc_unlock);
 
 int irq_set_percpu_devid_partition(unsigned int irq,
 				   const struct cpumask *affinity)

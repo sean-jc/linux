@@ -1012,6 +1012,11 @@ struct kvm_irqfd {
 	__u8  pad[16];
 };
 
+struct kvm_irq_producer {
+	__u32 eventfd;
+	__u32 flags;
+};
+
 /* For KVM_CAP_ADJUST_CLOCK */
 
 /* Do not use 1, KVM_CHECK_EXTENSION returned it before we had flags.  */
@@ -1209,6 +1214,7 @@ struct kvm_vfio_spapr_tce {
 			_IOW(KVMIO,  0x68, struct kvm_coalesced_mmio_zone)
 #define KVM_SET_GSI_ROUTING       _IOW(KVMIO,  0x6a, struct kvm_irq_routing)
 #define KVM_REINJECT_CONTROL      _IO(KVMIO,   0x71)
+#define KVM_IRQ_PRODUCER          _IOW(KVMIO,  0x75, struct kvm_irq_producer)
 #define KVM_IRQFD                 _IOW(KVMIO,  0x76, struct kvm_irqfd)
 #define KVM_CREATE_PIT2		  _IOW(KVMIO,  0x77, struct kvm_pit_config)
 #define KVM_SET_BOOT_CPU_ID       _IO(KVMIO,   0x78)

@@ -156,6 +156,172 @@ static unsigned long long kvm_active_vms;
 
 static DEFINE_PER_CPU(cpumask_var_t, cpu_kick_mask);
 
+#ifdef CONFIG_X86_64
+#include <linux/amd-iommu.h>
+#include "../../kernel/irq/internals.h"
+
+static int floppy_add_consumer(struct irq_bypass_producer *producer,
+			       struct irq_bypass_consumer *consumer)
+{
+	return 0;
+}
+
+static const int floppy_irq = 6;
+
+struct irq_bypass_producer floppy_producer = {
+	.irq = floppy_irq,
+	.add_consumer = floppy_add_consumer,
+};
+
+static bool floppy_is_posting;
+static u32 floppy_cached_ga_tag;
+static struct irq_chip *folly_chip;
+static void *floppy_eventfd;
+static DEFINE_MUTEX(floppy_lock);
+
+static void __kvm_irq_producer_set_vcpu_affinity(struct irq_data *data,
+						 void *vcpu_info)
+{
+	struct amd_iommu_pi_data *pi_data = vcpu_info;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SVM)) {
+		floppy_is_posting = !!vcpu_info;
+		return;
+	}
+
+	pi_data->prev_ga_tag = floppy_cached_ga_tag;
+	if (pi_data->is_guest_mode)
+		floppy_cached_ga_tag = pi_data->ga_tag;
+	else
+		floppy_cached_ga_tag = 0;
+
+	floppy_is_posting = floppy_cached_ga_tag;
+	return;
+}
+
+static int kvm_irq_producer_set_vcpu_affinity(struct irq_data *data,
+					      void *vcpu_info)
+{
+	__kvm_irq_producer_set_vcpu_affinity(data, vcpu_info);
+
+	if (floppy_is_posting)
+		pr_warn_once("Floppy IRQs wired up for bypass\n");
+
+	return 0;
+}
+
+static void kvm_setup_dummy_iommu(void)
+{
+	unsigned long flags;
+	struct irq_desc *desc = irq_get_desc_lock(floppy_irq, &flags, 0);
+	struct irq_data *data;
+	struct irq_chip *chip;
+
+	BUILD_BUG_ON(!IS_ENABLED(CONFIG_IRQ_DOMAIN_HIERARCHY));
+
+	if (WARN_ON_ONCE(!desc))
+		return;
+
+	data = irq_desc_get_irq_data(desc);
+	do {
+		chip = irq_data_get_irq_chip(data);
+		if (chip && chip->irq_set_vcpu_affinity)
+			break;
+		data = data->parent_data;
+	} while (data);
+
+	if (data) {
+		pr_warn("Huh.  Floppy can post IRQs?\n");
+		goto out;
+	}
+
+	data = irq_desc_get_irq_data(desc);
+	chip = irq_data_get_irq_chip(data);
+	if (!chip) {
+		pr_warn("Fudge.  There goes that idea\n");
+		goto out;
+	}
+
+	chip->irq_set_vcpu_affinity = kvm_irq_producer_set_vcpu_affinity;
+	folly_chip = chip;
+out:
+	irq_put_desc_unlock(desc, flags);
+}
+
+static irqreturn_t kvm_floppy_handler(int irq, void *dev_id)
+{
+	WARN_ONCE(1, "LOL, what?!?\n");
+	return IRQ_HANDLED;
+}
+
+static int kvm_irq_producer(struct kvm_irq_producer *prod)
+{
+	bool remove = prod->flags & KVM_IRQFD_FLAG_DEASSIGN;
+	struct fd f;
+	int r;
+
+	if (prod->flags & ~KVM_IRQFD_FLAG_DEASSIGN)
+		return -EINVAL;
+
+	guard(mutex)(&floppy_lock);
+
+	if (remove != !!floppy_eventfd)
+		return -EINVAL;
+
+	if (remove) {
+		irq_bypass_unregister_producer(&floppy_producer);
+		WARN_ON_ONCE(floppy_is_posting);
+		r = 0;
+		goto err_bypass;
+	}
+
+	f = fdget(prod->eventfd);
+	if (!fd_file(f))
+		return -EBADF;
+
+	floppy_eventfd = eventfd_ctx_fileget(fd_file(f));
+	if (IS_ERR(floppy_eventfd)) {
+		r = PTR_ERR(floppy_eventfd);
+		goto err_eventfd;
+	}
+
+	if (request_irq(floppy_irq, kvm_floppy_handler, 0, "kvm_floppy", NULL)) {
+		r = -EINVAL;
+		goto err_irq;
+	}
+
+	kvm_setup_dummy_iommu();
+
+	floppy_producer.token = floppy_eventfd;
+	r = irq_bypass_register_producer(&floppy_producer);
+	if (WARN_ON_ONCE(r))
+		goto err_bypass;
+
+	fdput(f);
+	return 0;
+
+
+err_bypass:
+	floppy_producer.token = NULL;
+
+	if (folly_chip)
+		folly_chip->irq_set_vcpu_affinity = NULL;
+	folly_chip = NULL;
+
+	if (WARN_ON_ONCE(floppy_cached_ga_tag))
+		floppy_cached_ga_tag = 0;
+
+	free_irq(6, NULL);
+err_irq:
+	eventfd_ctx_put(floppy_eventfd);
+	floppy_eventfd = NULL;
+err_eventfd:
+	if (!remove)
+		fdput(f);
+	return r;
+}
+#endif /* CONFIG_X86_64 */
+
 __weak void kvm_arch_guest_memory_reclaimed(struct kvm *kvm)
 {
 }
@@ -1260,6 +1426,15 @@ static void kvm_destroy_vm(struct kvm *kvm)
 {
 	int i;
 	struct mm_struct *mm = kvm->mm;
+
+#ifdef CONFIG_X86_64
+	struct kvm_irq_producer prod = {
+		.flags = KVM_IRQFD_FLAG_DEASSIGN,
+	};
+
+	if (floppy_eventfd)
+		WARN_ON_ONCE(kvm_irq_producer(&prod));
+#endif
 
 	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
@@ -5036,6 +5211,7 @@ do {										\
 		     sizeof_field(struct kvm_userspace_memory_region2, field));	\
 } while (0)
 
+
 static long kvm_vm_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -5428,6 +5604,17 @@ static long kvm_dev_ioctl(struct file *filp,
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(NULL, arg);
 		break;
+#ifdef CONFIG_X86_64
+	case KVM_IRQ_PRODUCER: {
+		struct kvm_irq_producer prod;
+
+		r = -EFAULT;
+		if (copy_from_user(&prod, (void __user *)arg, sizeof(prod)))
+			goto out;
+		r = kvm_irq_producer(&prod);
+		break;
+	}
+#endif
 	case KVM_GET_VCPU_MMAP_SIZE:
 		if (arg)
 			goto out;

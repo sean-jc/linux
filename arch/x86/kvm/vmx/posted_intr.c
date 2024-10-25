@@ -136,7 +136,7 @@ static bool vmx_can_use_vtd_pi(struct kvm *kvm)
 {
 	return irqchip_in_kernel(kvm) && enable_apicv &&
 		kvm_arch_has_assigned_device(kvm) &&
-		irq_remapping_cap(IRQ_POSTING_CAP);
+		true /* irq_remapping_cap(IRQ_POSTING_CAP) */;
 }
 
 /*
