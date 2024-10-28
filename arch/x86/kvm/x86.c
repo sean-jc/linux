@@ -13558,7 +13558,6 @@ static int kvm_pi_update_irte(struct kvm_kernel_irqfd *irqfd,
 	int r;
 
 	if (!irqchip_in_kernel(kvm) ||
-	    !kvm_arch_has_irq_bypass() ||
 	    !kvm_arch_has_assigned_device(kvm))
 		return 0;
 
