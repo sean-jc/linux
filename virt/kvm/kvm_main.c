@@ -272,8 +272,7 @@ static int kvm_irq_producer(struct kvm_irq_producer *prod)
 
 	kvm_setup_dummy_iommu();
 
-	floppy_producer.token = floppy_eventfd;
-	r = irq_bypass_register_producer(&floppy_producer);
+	r = irq_bypass_register_producer(&floppy_producer, floppy_eventfd);
 	if (WARN_ON_ONCE(r))
 		goto err_bypass;
 
@@ -282,8 +281,6 @@ static int kvm_irq_producer(struct kvm_irq_producer *prod)
 
 
 err_bypass:
-	floppy_producer.token = NULL;
-
 	if (folly_chip)
 		folly_chip->irq_set_vcpu_affinity = NULL;
 	folly_chip = NULL;
