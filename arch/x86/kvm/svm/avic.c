@@ -740,9 +740,6 @@ static int avic_set_pi_irte_mode(struct kvm_vcpu *vcpu, bool activate)
 	struct amd_svm_iommu_ir *ir;
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	if (!kvm_arch_has_assigned_device(vcpu->kvm))
-		return 0;
-
 	/*
 	 * Here, we go through the per-vcpu ir_list to update all existing
 	 * interrupt remapping table entry targeting this vcpu.
@@ -855,9 +852,6 @@ static inline int avic_update_iommu_vcpu_affinity(struct kvm_vcpu *vcpu, int cpu
 	struct vcpu_svm *svm = to_svm(vcpu);
 
 	lockdep_assert_held(&svm->ir_list_lock);
-
-	if (!kvm_arch_has_assigned_device(vcpu->kvm))
-		return 0;
 
 	/*
 	 * Here, we go through the per-vcpu ir_list to update all existing
