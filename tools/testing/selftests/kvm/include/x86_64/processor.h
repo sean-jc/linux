@@ -1054,12 +1054,6 @@ static inline void vcpu_get_cpuid(struct kvm_vcpu *vcpu)
 	vcpu_ioctl(vcpu, KVM_GET_CPUID2, vcpu->cpuid);
 }
 
-void vcpu_set_cpuid_property(struct kvm_vcpu *vcpu,
-			     struct kvm_x86_cpu_property property,
-			     uint32_t value);
-void vcpu_set_cpuid_maxphyaddr(struct kvm_vcpu *vcpu, uint8_t maxphyaddr);
-
-void vcpu_clear_cpuid_entry(struct kvm_vcpu *vcpu, uint32_t function);
 
 static inline bool vcpu_cpuid_has(struct kvm_vcpu *vcpu,
 				  struct kvm_x86_cpu_feature feature)
@@ -1070,6 +1064,11 @@ static inline bool vcpu_cpuid_has(struct kvm_vcpu *vcpu,
 	return *((&entry->eax) + feature.reg) & BIT(feature.bit);
 }
 
+void vcpu_set_cpuid_property(struct kvm_vcpu *vcpu,
+			     struct kvm_x86_cpu_property property,
+			     uint32_t value);
+
+void vcpu_clear_cpuid_entry(struct kvm_vcpu *vcpu, uint32_t function);
 void vcpu_set_or_clear_cpuid_feature(struct kvm_vcpu *vcpu,
 				     struct kvm_x86_cpu_feature feature,
 				     bool set);
