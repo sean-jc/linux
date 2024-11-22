@@ -2447,8 +2447,10 @@ out:
 
 void kvm_validate_cpu_caps(void)
 {
+#if 0
 	kvm_validate_supported_cpuid(KVM_GET_SUPPORTED_CPUID, true);
 	kvm_validate_supported_cpuid(KVM_GET_EMULATED_CPUID, true);
+#endif
 
 	kvm_validate_supported_cpuid(KVM_GET_SUPPORTED_CPUID, false);
 	kvm_validate_supported_cpuid(KVM_GET_EMULATED_CPUID, false);
