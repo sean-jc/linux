@@ -11331,6 +11331,21 @@ fastpath_t handle_fastpath_hlt(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(handle_fastpath_hlt);
 
+fastpath_t handle_fastpath_cpuid(struct kvm_vcpu *vcpu)
+{
+	int r;
+
+	kvm_vcpu_srcu_read_lock(vcpu);
+	r = kvm_emulate_cpuid(vcpu);
+	kvm_vcpu_srcu_read_unlock(vcpu);
+
+	if (!r)
+		return EXIT_FASTPATH_EXIT_USERSPACE;
+
+	return EXIT_FASTPATH_REENTER_GUEST;
+}
+EXPORT_SYMBOL_GPL(handle_fastpath_cpuid);
+
 int kvm_emulate_ap_reset_hold(struct kvm_vcpu *vcpu)
 {
 	int ret = kvm_skip_emulated_instruction(vcpu);
