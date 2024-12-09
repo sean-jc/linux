@@ -135,12 +135,6 @@ static inline int __apic_test_and_clear_vector(int vec, void *bitmap)
 	return __test_and_clear_bit(VEC_POS(vec), (bitmap) + REG_POS(vec));
 }
 
-__read_mostly DEFINE_STATIC_KEY_FALSE(kvm_has_noapic_vcpu);
-EXPORT_SYMBOL_GPL(kvm_has_noapic_vcpu);
-
-__read_mostly DEFINE_STATIC_KEY_DEFERRED_FALSE(apic_hw_disabled, HZ);
-__read_mostly DEFINE_STATIC_KEY_DEFERRED_FALSE(apic_sw_disabled, HZ);
-
 static inline int apic_enabled(struct kvm_lapic *apic)
 {
 	return kvm_apic_sw_enabled(apic) &&	kvm_apic_hw_enabled(apic);
@@ -502,11 +496,6 @@ static inline void apic_set_spiv(struct kvm_lapic *apic, u32 val)
 
 	if (enabled != apic->sw_enabled) {
 		apic->sw_enabled = enabled;
-		if (enabled)
-			static_branch_slow_dec_deferred(&apic_sw_disabled);
-		else
-			static_branch_inc(&apic_sw_disabled.key);
-
 		atomic_set_release(&apic->vcpu->kvm->arch.apic_map_dirty, DIRTY);
 	}
 
@@ -2517,18 +2506,10 @@ void kvm_free_lapic(struct kvm_vcpu *vcpu)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
 
-	if (!vcpu->arch.apic) {
-		static_branch_dec(&kvm_has_noapic_vcpu);
+	if (!apic)
 		return;
-	}
 
 	hrtimer_cancel(&apic->lapic_timer.timer);
-
-	if (!(vcpu->arch.apic_base & MSR_IA32_APICBASE_ENABLE))
-		static_branch_slow_dec_deferred(&apic_hw_disabled);
-
-	if (!apic->sw_enabled)
-		static_branch_slow_dec_deferred(&apic_sw_disabled);
 
 	if (apic->regs)
 		free_page((unsigned long)apic->regs);
@@ -2594,11 +2575,9 @@ static void __kvm_apic_set_base(struct kvm_vcpu *vcpu, u64 value)
 	if ((old_value ^ value) & MSR_IA32_APICBASE_ENABLE) {
 		if (value & MSR_IA32_APICBASE_ENABLE) {
 			kvm_apic_set_xapic_id(apic, vcpu->vcpu_id);
-			static_branch_slow_dec_deferred(&apic_hw_disabled);
 			/* Check if there are APF page ready requests pending */
 			kvm_make_request(KVM_REQ_APF_READY, vcpu);
 		} else {
-			static_branch_inc(&apic_hw_disabled.key);
 			atomic_set_release(&apic->vcpu->kvm->arch.apic_map_dirty, DIRTY);
 		}
 	}
@@ -2890,10 +2869,8 @@ int kvm_create_lapic(struct kvm_vcpu *vcpu)
 
 	ASSERT(vcpu != NULL);
 
-	if (!irqchip_in_kernel(vcpu->kvm)) {
-		static_branch_inc(&kvm_has_noapic_vcpu);
+	if (!irqchip_in_kernel(vcpu->kvm))
 		return 0;
-	}
 
 	apic = kzalloc(sizeof(*apic), GFP_KERNEL_ACCOUNT);
 	if (!apic)
@@ -2920,12 +2897,6 @@ int kvm_create_lapic(struct kvm_vcpu *vcpu)
 	if (lapic_timer_advance)
 		apic->lapic_timer.timer_advance_ns = LAPIC_TIMER_ADVANCE_NS_INIT;
 
-	/*
-	 * Stuff the APIC ENABLE bit in lieu of temporarily incrementing
-	 * apic_hw_disabled; the full RESET value is set by kvm_lapic_reset().
-	 */
-	vcpu->arch.apic_base = MSR_IA32_APICBASE_ENABLE;
-	static_branch_inc(&apic_sw_disabled.key); /* sw disabled at reset */
 	kvm_iodevice_init(&apic->dev, &apic_mmio_ops);
 
 	/*
@@ -3407,12 +3378,4 @@ int kvm_apic_accept_events(struct kvm_vcpu *vcpu)
 		}
 	}
 	return 0;
-}
-
-void kvm_lapic_exit(void)
-{
-	static_key_deferred_flush(&apic_hw_disabled);
-	WARN_ON(static_branch_unlikely(&apic_hw_disabled.key));
-	static_key_deferred_flush(&apic_sw_disabled);
-	WARN_ON(static_branch_unlikely(&apic_sw_disabled.key));
 }
