@@ -9428,6 +9428,11 @@ static void kvm_hyperv_tsc_notifier(void)
 	struct kvm *kvm;
 	int cpu;
 
+	/*
+	 * Take kvm_lock, not just vm_list_srcu, trevent new VMs from coming
+	 * along in the middle of the update and not getting the in-progress
+	 * request.
+	 */
 	mutex_lock(&kvm_lock);
 	list_for_each_entry(kvm, &vm_list, vm_list)
 		kvm_make_mclock_inprogress_request(kvm);
@@ -9456,7 +9461,7 @@ static void __kvmclock_cpufreq_notifier(struct cpufreq_freqs *freq, int cpu)
 {
 	struct kvm *kvm;
 	struct kvm_vcpu *vcpu;
-	int send_ipi = 0;
+	int send_ipi = 0, idx;
 	unsigned long i;
 
 	/*
@@ -9500,17 +9505,16 @@ static void __kvmclock_cpufreq_notifier(struct cpufreq_freqs *freq, int cpu)
 
 	smp_call_function_single(cpu, tsc_khz_changed, freq, 1);
 
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list) {
-		kvm_for_each_vcpu(i, vcpu, kvm) {
-			if (vcpu->cpu != cpu)
-				continue;
-			kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
-			if (vcpu->cpu != raw_smp_processor_id())
-				send_ipi = 1;
-		}
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vcpu_in_each_vm(kvm, vcpu, i) {
+		if (vcpu->cpu != cpu)
+			continue;
+
+		kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
+		if (vcpu->cpu != raw_smp_processor_id())
+			send_ipi = 1;
 	}
-	mutex_unlock(&kvm_lock);
+	srcu_read_unlock(&vm_list_srcu, idx);
 
 	if (freq->old < freq->new && send_ipi) {
 		/*
@@ -9588,13 +9592,13 @@ static void pvclock_gtod_update_fn(struct work_struct *work)
 	struct kvm *kvm;
 	struct kvm_vcpu *vcpu;
 	unsigned long i;
+	int idx;
 
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list)
-		kvm_for_each_vcpu(i, vcpu, kvm)
-			kvm_make_request(KVM_REQ_MASTERCLOCK_UPDATE, vcpu);
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vcpu_in_each_vm(kvm, vcpu, i)
+		kvm_make_request(KVM_REQ_MASTERCLOCK_UPDATE, vcpu);
+	srcu_read_unlock(&vm_list_srcu, idx);
 	atomic_set(&kvm_guest_has_master_clock, 0);
-	mutex_unlock(&kvm_lock);
 }
 
 static DECLARE_WORK(pvclock_gtod_work, pvclock_gtod_update_fn);

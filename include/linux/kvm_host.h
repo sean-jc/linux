@@ -193,6 +193,11 @@ bool kvm_make_all_cpus_request(struct kvm *kvm, unsigned int req);
 
 extern struct mutex kvm_lock;
 extern struct list_head vm_list;
+extern struct srcu_struct vm_list_srcu;
+
+#define kvm_for_each_vm_srcu(__kvm)				\
+	list_for_each_entry_srcu(__kvm, &vm_list, vm_list,	\
+				 srcu_read_lock_held(&vm_list_srcu))
 
 struct kvm_io_range {
 	gpa_t addr;
@@ -1000,6 +1005,10 @@ static inline struct kvm_vcpu *kvm_get_vcpu_by_id(struct kvm *kvm, int id)
 			return vcpu;
 	return NULL;
 }
+
+#define kvm_for_each_vcpu_in_each_vm(__kvm, __vcpu, __i)		\
+	kvm_for_each_vm_srcu(__kvm)					\
+		kvm_for_each_vcpu(__i, __vcpu, __kvm)
 
 void kvm_destroy_vcpus(struct kvm *kvm);
 

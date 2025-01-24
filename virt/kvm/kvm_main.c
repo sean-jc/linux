@@ -109,6 +109,7 @@ module_param(allow_unsafe_mappings, bool, 0444);
 
 DEFINE_MUTEX(kvm_lock);
 LIST_HEAD(vm_list);
+DEFINE_SRCU(vm_list_srcu);
 
 static struct kmem_cache *kvm_vcpu_cache;
 
@@ -1261,13 +1262,21 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
+	mutex_lock(&kvm_lock);
+	list_del(&kvm->vm_list);
+	mutex_unlock(&kvm_lock);
+
+	/*
+	 * Ensure all readers of the global list go away before destroying any
+	 * aspect of the VM.  After this, the VM object is reachable only via
+	 * this task and notifiers that are registered to the VM itself.
+	 */
+	synchronize_srcu(&vm_list_srcu);
+
 	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
 	kvm_arch_sync_events(kvm);
-	mutex_lock(&kvm_lock);
-	list_del(&kvm->vm_list);
-	mutex_unlock(&kvm_lock);
 	kvm_arch_pre_destroy_vm(kvm);
 
 	kvm_free_irq_routing(kvm);
@@ -6096,14 +6105,16 @@ static int vm_stat_get(void *_offset, u64 *val)
 	unsigned offset = (long)_offset;
 	struct kvm *kvm;
 	u64 tmp_val;
+	int idx;
 
 	*val = 0;
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list) {
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vm_srcu(kvm) {
 		kvm_get_stat_per_vm(kvm, offset, &tmp_val);
 		*val += tmp_val;
 	}
-	mutex_unlock(&kvm_lock);
+	srcu_read_unlock(&vm_list_srcu, idx);
+
 	return 0;
 }
 
@@ -6111,15 +6122,15 @@ static int vm_stat_clear(void *_offset, u64 val)
 {
 	unsigned offset = (long)_offset;
 	struct kvm *kvm;
+	int idx;
 
 	if (val)
 		return -EINVAL;
 
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list) {
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vm_srcu(kvm)
 		kvm_clear_stat_per_vm(kvm, offset);
-	}
-	mutex_unlock(&kvm_lock);
+	srcu_read_unlock(&vm_list_srcu, idx);
 
 	return 0;
 }
@@ -6132,14 +6143,15 @@ static int vcpu_stat_get(void *_offset, u64 *val)
 	unsigned offset = (long)_offset;
 	struct kvm *kvm;
 	u64 tmp_val;
+	int idx;
 
 	*val = 0;
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list) {
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vm_srcu(kvm) {
 		kvm_get_stat_per_vcpu(kvm, offset, &tmp_val);
 		*val += tmp_val;
 	}
-	mutex_unlock(&kvm_lock);
+	srcu_read_unlock(&vm_list_srcu, idx);
 	return 0;
 }
 
@@ -6147,15 +6159,15 @@ static int vcpu_stat_clear(void *_offset, u64 val)
 {
 	unsigned offset = (long)_offset;
 	struct kvm *kvm;
+	int idx;
 
 	if (val)
 		return -EINVAL;
 
-	mutex_lock(&kvm_lock);
-	list_for_each_entry(kvm, &vm_list, vm_list) {
+	idx = srcu_read_lock(&vm_list_srcu);
+	kvm_for_each_vm_srcu(kvm)
 		kvm_clear_stat_per_vcpu(kvm, offset);
-	}
-	mutex_unlock(&kvm_lock);
+	srcu_read_unlock(&vm_list_srcu, idx);
 
 	return 0;
 }

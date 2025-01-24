@@ -7127,6 +7127,10 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 	} else if (sysfs_streq(val, "never")) {
 		new_val = 0;
 
+		/*
+		 * Take kvm_lock to ensure no VMs are *created* before the flag
+		 * is set.  vm_list_srcu only protect VMs being deleted.
+		 */
 		mutex_lock(&kvm_lock);
 		if (!list_empty(&vm_list)) {
 			mutex_unlock(&kvm_lock);
@@ -7142,17 +7146,19 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 
 	if (new_val != old_val) {
 		struct kvm *kvm;
+		int idx;
 
-		mutex_lock(&kvm_lock);
+		idx = srcu_read_lock(&vm_list_srcu);
 
-		list_for_each_entry(kvm, &vm_list, vm_list) {
+		kvm_for_each_vm_srcu(kvm) {
 			mutex_lock(&kvm->slots_lock);
 			kvm_mmu_zap_all_fast(kvm);
 			mutex_unlock(&kvm->slots_lock);
 
 			vhost_task_wake(kvm->arch.nx_huge_page_recovery_thread);
 		}
-		mutex_unlock(&kvm_lock);
+
+		srcu_read_unlock(&vm_list_srcu, idx);
 	}
 
 	return 0;
@@ -7275,13 +7281,14 @@ static int set_nx_huge_pages_recovery_param(const char *val, const struct kernel
 	if (is_recovery_enabled &&
 	    (!was_recovery_enabled || old_period > new_period)) {
 		struct kvm *kvm;
+		int idx;
 
-		mutex_lock(&kvm_lock);
+		idx = srcu_read_lock(&vm_list_srcu);
 
-		list_for_each_entry(kvm, &vm_list, vm_list)
+		kvm_for_each_vm_srcu(kvm)
 			vhost_task_wake(kvm->arch.nx_huge_page_recovery_thread);
 
-		mutex_unlock(&kvm_lock);
+		srcu_read_unlock(&vm_list_srcu, idx);
 	}
 
 	return err;
