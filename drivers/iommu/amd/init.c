@@ -3171,7 +3171,7 @@ out:
 	return true;
 }
 
-static void iommu_snp_enable(void)
+static __init void iommu_snp_enable(void)
 {
 #ifdef CONFIG_KVM_AMD_SEV
 	if (!cc_platform_has(CC_ATTR_HOST_SEV_SNP))
@@ -3193,6 +3193,11 @@ static void iommu_snp_enable(void)
 	amd_iommu_snp_en = check_feature(FEATURE_SNP);
 	if (!amd_iommu_snp_en) {
 		pr_warn("SNP: IOMMU SNP feature not enabled, SNP cannot be supported.\n");
+		goto disable_snp;
+	}
+
+	if (snp_rmptable_init()) {
+		pr_warn("SNP: RMP initialization failed, SNP cannot be supported.\n");
 		goto disable_snp;
 	}
 
