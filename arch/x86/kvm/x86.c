@@ -10604,7 +10604,11 @@ void __kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,
 
 	old = new = kvm->arch.apicv_inhibit_reasons;
 
-	set_or_clear_apicv_inhibit(&new, reason, set);
+	if (reason != APICV_INHIBIT_REASON_IRQWIN)
+		set_or_clear_apicv_inhibit(&new, reason, set);
+
+	set_or_clear_apicv_inhibit(&new, APICV_INHIBIT_REASON_IRQWIN,
+				   atomic_read(&kvm->arch.apicv_irq_window));
 
 	if (!!old != !!new) {
 		/*
@@ -10644,6 +10648,36 @@ void kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,
 	up_write(&kvm->arch.apicv_update_lock);
 }
 EXPORT_SYMBOL_GPL(kvm_set_or_clear_apicv_inhibit);
+
+void kvm_inc_or_dec_irq_window_inhibit(struct kvm *kvm, bool inc)
+{
+	bool toggle;
+
+	/*
+	 * The IRQ window inhibit has a cyclical dependency of sorts, as KVM
+	 * needs to manually inject IRQs and thus detect interrupt windows if
+	 * APICv is disabled/inhibitied.  To avoid thrashing if the IRQ window
+	 * is being requested because APICv is already inhibited, toggle the
+	 * actual inhibit (and take the lock for write) if and only if there's
+	 * no other inhibit.  KVM evaluates the IRQ window count when _any_
+	 * inhibit changes, i.e. the IRQ window inhibit can be lazily updated
+	 * on the next inhibit change (if one ever occurs).
+	 */
+	down_read(&kvm->arch.apicv_update_lock);
+
+	if (inc)
+		toggle = atomic_inc_return(&kvm->arch.apicv_irq_window) == 1;
+	else
+		toggle = atomic_dec_return(&kvm->arch.apicv_irq_window) == 0;
+
+	toggle = toggle && !(kvm->arch.apicv_inhibit_reasons & ~BIT(APICV_INHIBIT_REASON_IRQWIN));
+
+	up_read(&kvm->arch.apicv_update_lock);
+
+	if (toggle)
+		kvm_set_or_clear_apicv_inhibit(kvm, APICV_INHIBIT_REASON_IRQWIN, inc);
+}
+EXPORT_SYMBOL_GPL(kvm_inc_or_dec_irq_window_inhibit);
 
 static void vcpu_scan_ioapic(struct kvm_vcpu *vcpu)
 {

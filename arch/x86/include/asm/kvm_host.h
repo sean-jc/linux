@@ -1365,6 +1365,7 @@ struct kvm_arch {
 	/* Protects apicv_inhibit_reasons */
 	struct rw_semaphore apicv_update_lock;
 	unsigned long apicv_inhibit_reasons;
+	atomic_t apicv_irq_window;
 
 	gpa_t wall_clock;
 
@@ -2201,6 +2202,18 @@ static inline void kvm_clear_apicv_inhibit(struct kvm *kvm,
 					   enum kvm_apicv_inhibit reason)
 {
 	kvm_set_or_clear_apicv_inhibit(kvm, reason, false);
+}
+
+void kvm_inc_or_dec_irq_window_inhibit(struct kvm *kvm, bool inc);
+
+static inline void kvm_inc_apicv_irq_window(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, true);
+}
+
+static inline void kvm_dec_apicv_irq_window(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, false);
 }
 
 unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,

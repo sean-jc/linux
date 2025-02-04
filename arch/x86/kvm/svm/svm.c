@@ -1636,9 +1636,13 @@ static void svm_set_vintr(struct vcpu_svm *svm)
 	struct vmcb_control_area *control;
 
 	/*
-	 * The following fields are ignored when AVIC is enabled
+	 * vIRQ is ignored by hardware AVIC is enabled, and so AVIC must be
+	 * inhibited to detect the interrupt window.
 	 */
-	WARN_ON(kvm_vcpu_apicv_activated(&svm->vcpu));
+	if (enable_apicv && !is_guest_mode(&svm->vcpu)) {
+		svm->avic_irq_window = true;
+		kvm_inc_apicv_irq_window(svm->vcpu.kvm);
+	}
 
 	svm_set_intercept(svm, INTERCEPT_VINTR);
 
@@ -1666,6 +1670,11 @@ static void svm_set_vintr(struct vcpu_svm *svm)
 
 static void svm_clear_vintr(struct vcpu_svm *svm)
 {
+	if (svm->avic_irq_window && !is_guest_mode(&svm->vcpu)) {
+		svm->avic_irq_window = false;
+		kvm_dec_apicv_irq_window(svm->vcpu.kvm);
+	}
+
 	svm_clr_intercept(svm, INTERCEPT_VINTR);
 
 	/* Drop int_ctl fields related to VINTR injection.  */
@@ -3219,20 +3228,6 @@ static int interrupt_window_interception(struct kvm_vcpu *vcpu)
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
 	svm_clear_vintr(to_svm(vcpu));
 
-	/*
-	 * If not running nested, for AVIC, the only reason to end up here is ExtINTs.
-	 * In this case AVIC was temporarily disabled for
-	 * requesting the IRQ window and we have to re-enable it.
-	 *
-	 * If running nested, still remove the VM wide AVIC inhibit to
-	 * support case in which the interrupt window was requested when the
-	 * vCPU was not running nested.
-
-	 * All vCPUs which run still run nested, will remain to have their
-	 * AVIC still inhibited due to per-cpu AVIC inhibition.
-	 */
-	kvm_clear_apicv_inhibit(vcpu->kvm, APICV_INHIBIT_REASON_IRQWIN);
-
 	++vcpu->stat.irq_window_exits;
 	return 1;
 }
@@ -3879,22 +3874,8 @@ static void svm_enable_irq_window(struct kvm_vcpu *vcpu)
 	 * enabled, the STGI interception will not occur. Enable the irq
 	 * window under the assumption that the hardware will set the GIF.
 	 */
-	if (vgif || gif_set(svm)) {
-		/*
-		 * IRQ window is not needed when AVIC is enabled,
-		 * unless we have pending ExtINT since it cannot be injected
-		 * via AVIC. In such case, KVM needs to temporarily disable AVIC,
-		 * and fallback to injecting IRQ via V_IRQ.
-		 *
-		 * If running nested, AVIC is already locally inhibited
-		 * on this vCPU, therefore there is no need to request
-		 * the VM wide AVIC inhibition.
-		 */
-		if (!is_guest_mode(vcpu))
-			kvm_set_apicv_inhibit(vcpu->kvm, APICV_INHIBIT_REASON_IRQWIN);
-
+	if (vgif || gif_set(svm))
 		svm_set_vintr(svm);
-	}
 }
 
 static void svm_enable_nmi_window(struct kvm_vcpu *vcpu)
