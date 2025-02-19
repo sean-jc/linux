@@ -132,6 +132,9 @@ module_param(error_on_inconsistent_vmcs_config, bool, 0444);
 static bool __read_mostly dump_invalid_vmcs = 0;
 module_param(dump_invalid_vmcs, bool, 0644);
 
+static bool __read_mostly vmclear_on_sched_out;
+module_param(vmclear_on_sched_out, bool, 0644);
+
 #define MSR_BITMAP_MODE_X2APIC		1
 #define MSR_BITMAP_MODE_X2APIC_APICV	2
 
@@ -1531,6 +1534,10 @@ void vmx_vcpu_put(struct kvm_vcpu *vcpu)
 	vmx_vcpu_pi_put(vcpu);
 
 	vmx_prepare_switch_to_host(to_vmx(vcpu));
+
+	if (READ_ONCE(vmclear_on_sched_out) && vcpu->scheduled_out &&
+	    single_task_running() && cpumask_weight(&current->cpus_mask) > 1)
+		__loaded_vmcs_clear(to_vmx(vcpu)->loaded_vmcs);
 }
 
 bool vmx_emulation_required(struct kvm_vcpu *vcpu)
