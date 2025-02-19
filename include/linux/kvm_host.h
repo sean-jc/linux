@@ -1988,6 +1988,9 @@ struct _kvm_stats_desc {
 #define STATS_DESC_LOG_HIST(SCOPE, name, unit, base, exponent, sz)	       \
 	STATS_DESC(SCOPE, name, KVM_STATS_TYPE_LOG_HIST,		       \
 		unit, base, exponent, sz, 0)
+#define STATS_DESC_AVG(SCOPE, name, unit, base, exponent)		       \
+	STATS_DESC(SCOPE, name, KVM_STATS_TYPE_AVG,			       \
+		unit, base, exponent, 1, 0)
 
 /* Cumulative counter, read/write */
 #define STATS_DESC_COUNTER(SCOPE, name)					       \
@@ -2000,6 +2003,10 @@ struct _kvm_stats_desc {
 /* Peak counter, read/write */
 #define STATS_DESC_PCOUNTER(SCOPE, name)				       \
 	STATS_DESC_PEAK(SCOPE, name, KVM_STATS_UNIT_NONE,		       \
+		KVM_STATS_BASE_POW10, 0)
+/* Avergage counter, read/write */
+#define STATS_DESC_ACOUNTER(SCOPE, name)				       \
+	STATS_DESC_AVG(SCOPE, name, KVM_STATS_UNIT_NONE,		       \
 		KVM_STATS_BASE_POW10, 0)
 
 /* Instantaneous boolean value, read only */
@@ -2029,6 +2036,26 @@ struct _kvm_stats_desc {
 	STATS_DESC_COUNTER(VM_GENERIC, remote_tlb_flush_requests)
 
 #define KVM_GENERIC_VCPU_STATS()					       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_same),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_same_ns),		       \
+	STATS_DESC_PCOUNTER(VCPU_GENERIC, sched_in_same_max_ns),	       \
+	STATS_DESC_ACOUNTER(VCPU_GENERIC, sched_in_same_avg_ns),	       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_vmload),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_vmload_ns),		       \
+	STATS_DESC_PCOUNTER(VCPU_GENERIC, sched_in_vmload_max_ns),	       \
+	STATS_DESC_ACOUNTER(VCPU_GENERIC, sched_in_vmload_avg_ns),	       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_migrated),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_in_migrated_ns),		       \
+	STATS_DESC_PCOUNTER(VCPU_GENERIC, sched_in_migrated_max_ns),	       \
+	STATS_DESC_ACOUNTER(VCPU_GENERIC, sched_in_migrated_avg_ns),	       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_out_defer),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_out_defer_ns),		       \
+	STATS_DESC_PCOUNTER(VCPU_GENERIC, sched_out_defer_max_ns),	       \
+	STATS_DESC_ACOUNTER(VCPU_GENERIC, sched_out_defer_avg_ns),	       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_out_vmclear),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, sched_out_vmclear_ns),	               \
+	STATS_DESC_PCOUNTER(VCPU_GENERIC, sched_out_vmclear_max_ns),	       \
+	STATS_DESC_ACOUNTER(VCPU_GENERIC, sched_out_vmclear_avg_ns),	       \
 	STATS_DESC_COUNTER(VCPU_GENERIC, halt_successful_poll),		       \
 	STATS_DESC_COUNTER(VCPU_GENERIC, halt_attempted_poll),		       \
 	STATS_DESC_COUNTER(VCPU_GENERIC, halt_poll_invalid),		       \

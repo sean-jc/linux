@@ -59,6 +59,8 @@
 #include "kvm_mm.h"
 #include "vfio.h"
 
+#include "vmx/vmx.h"
+
 #include <trace/events/ipi.h>
 
 #define CREATE_TRACE_POINTS
@@ -983,6 +985,7 @@ static umode_t kvm_stats_debugfs_mode(const struct _kvm_stats_desc *pdesc)
 		return 0444;
 	case KVM_STATS_TYPE_CUMULATIVE:
 	case KVM_STATS_TYPE_PEAK:
+	case KVM_STATS_TYPE_AVG:
 	default:
 		return 0644;
 	}
@@ -6027,15 +6030,26 @@ static int kvm_clear_stat_per_vm(struct kvm *kvm, size_t offset)
 	return 0;
 }
 
-static int kvm_get_stat_per_vcpu(struct kvm *kvm, size_t offset, u64 *val)
+static int kvm_get_stat_per_vcpu(struct kvm_stat_data *stat, size_t offset, u64 *val)
 {
+	const struct kvm_stats_desc *desc = &stat->desc->desc;
+	struct kvm *kvm = stat->kvm;
 	unsigned long i;
 	struct kvm_vcpu *vcpu;
 
 	*val = 0;
 
-	kvm_for_each_vcpu(i, vcpu, kvm)
-		*val += *(u64 *)((void *)(&vcpu->stat) + offset);
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		u64 v = READ_ONCE(*(u64 *)((void *)(&vcpu->stat) + offset));
+
+		if ((desc->flags & KVM_STATS_TYPE_MASK) == KVM_STATS_TYPE_PEAK)
+			*val = max(*val, v);
+		else
+			*val += v;
+	}
+
+	if ((desc->flags & KVM_STATS_TYPE_MASK) == KVM_STATS_TYPE_AVG)
+		*val /= atomic_read(&kvm->online_vcpus);
 
 	return 0;
 }
@@ -6062,7 +6076,7 @@ static int kvm_stat_data_get(void *data, u64 *val)
 					stat_data->desc->desc.offset, val);
 		break;
 	case KVM_STAT_VCPU:
-		r = kvm_get_stat_per_vcpu(stat_data->kvm,
+		r = kvm_get_stat_per_vcpu(stat_data,
 					  stat_data->desc->desc.offset, val);
 		break;
 	}
@@ -6145,6 +6159,7 @@ DEFINE_SIMPLE_ATTRIBUTE(vm_stat_readonly_fops, vm_stat_get, NULL, "%llu\n");
 
 static int vcpu_stat_get(void *_offset, u64 *val)
 {
+#if 0
 	unsigned offset = (long)_offset;
 	struct kvm *kvm;
 	u64 tmp_val;
@@ -6156,6 +6171,9 @@ static int vcpu_stat_get(void *_offset, u64 *val)
 		*val += tmp_val;
 	}
 	mutex_unlock(&kvm_lock);
+#else
+	*val = 0;
+#endif
 	return 0;
 }
 
@@ -6267,9 +6285,25 @@ struct kvm_vcpu *preempt_notifier_to_vcpu(struct preempt_notifier *pn)
 	return container_of(pn, struct kvm_vcpu, preempt_notifier);
 }
 
+#define kvm_update_sched_stats(gen, __ns, type)					\
+do {										\
+	gen.sched_##type++;							\
+	gen.sched_##type##_ns += __ns;						\
+	gen.sched_##type##_avg_ns = gen.sched_##type##_ns / gen.sched_##type;	\
+	if (__ns > gen.sched_##type##_max_ns)					\
+		gen.sched_##type##_max_ns = __ns;				\
+} while (0)
+
 static void kvm_sched_in(struct preempt_notifier *pn, int cpu)
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	bool vmload = vmx->loaded_vmcs->cpu == -1;
+	bool migrated = !vmload && vmx->loaded_vmcs->cpu != cpu;
+	ktime_t start;
+	u64 ns;
+
+	start = ktime_get();
 
 	WRITE_ONCE(vcpu->preempted, false);
 	WRITE_ONCE(vcpu->ready, false);
@@ -6278,12 +6312,25 @@ static void kvm_sched_in(struct preempt_notifier *pn, int cpu)
 	kvm_arch_vcpu_load(vcpu, cpu);
 
 	WRITE_ONCE(vcpu->scheduled_out, false);
+
+	ns = ktime_to_ns(ktime_get()) - ktime_to_ns(start);
+	if (vmload)
+		kvm_update_sched_stats(vcpu->stat.generic, ns, in_vmload);
+	else if (migrated)
+		kvm_update_sched_stats(vcpu->stat.generic, ns, in_migrated);
+	else
+		kvm_update_sched_stats(vcpu->stat.generic, ns, in_same);
 }
 
 static void kvm_sched_out(struct preempt_notifier *pn,
 			  struct task_struct *next)
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	ktime_t start;
+	u64 ns;
+
+	start = ktime_get();
 
 	WRITE_ONCE(vcpu->scheduled_out, true);
 
@@ -6293,6 +6340,12 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 	}
 	kvm_arch_vcpu_put(vcpu);
 	__this_cpu_write(kvm_running_vcpu, NULL);
+
+	ns = ktime_to_ns(ktime_get()) - ktime_to_ns(start);
+	if (vmx->loaded_vmcs->cpu == -1)
+		kvm_update_sched_stats(vcpu->stat.generic, ns, out_vmclear);
+	else
+		kvm_update_sched_stats(vcpu->stat.generic, ns, out_defer);
 }
 
 /**

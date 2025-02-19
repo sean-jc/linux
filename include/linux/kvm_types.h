@@ -102,6 +102,26 @@ struct kvm_vm_stat_generic {
 };
 
 struct kvm_vcpu_stat_generic {
+	u64 sched_in_same;
+	u64 sched_in_same_ns;
+	u64 sched_in_same_max_ns;
+	u64 sched_in_same_avg_ns;
+	u64 sched_in_vmload;
+	u64 sched_in_vmload_ns;
+	u64 sched_in_vmload_max_ns;
+	u64 sched_in_vmload_avg_ns;
+	u64 sched_in_migrated;
+	u64 sched_in_migrated_ns;
+	u64 sched_in_migrated_max_ns;
+	u64 sched_in_migrated_avg_ns;
+	u64 sched_out_defer;
+	u64 sched_out_defer_ns;
+	u64 sched_out_defer_max_ns;
+	u64 sched_out_defer_avg_ns;
+	u64 sched_out_vmclear;
+	u64 sched_out_vmclear_ns;
+	u64 sched_out_vmclear_max_ns;
+	u64 sched_out_vmclear_avg_ns;
 	u64 halt_successful_poll;
 	u64 halt_attempted_poll;
 	u64 halt_poll_invalid;
