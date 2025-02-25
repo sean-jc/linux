@@ -9737,6 +9737,7 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 	}
 
 	memset(&kvm_caps, 0, sizeof(kvm_caps));
+	memset(kvm_cpu_caps, 0, sizeof(kvm_cpu_caps));
 
 	x86_emulator_cache = kvm_alloc_emulator_cache();
 	if (!x86_emulator_cache) {

@@ -817,7 +817,8 @@ do {									\
 
 void kvm_set_cpu_caps(void)
 {
-	memset(kvm_cpu_caps, 0, sizeof(kvm_cpu_caps));
+	WARN_ON_ONCE(!bitmap_empty((void *)kvm_cpu_caps,
+				   sizeof(kvm_cpu_caps) * BITS_PER_BYTE));
 
 	BUILD_BUG_ON(sizeof(kvm_cpu_caps) - (NKVMCAPINTS * sizeof(*kvm_cpu_caps)) >
 		     sizeof(boot_cpu_data.x86_capability));
