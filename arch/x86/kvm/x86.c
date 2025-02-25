@@ -12362,7 +12362,6 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	int idx;
 
 	kvm_clear_async_pf_completion_queue(vcpu);
-	kvm_mmu_unload(vcpu);
 
 	kvmclock_reset(vcpu);
 
