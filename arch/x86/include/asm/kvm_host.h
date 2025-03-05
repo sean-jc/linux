@@ -1528,8 +1528,13 @@ struct kvm_arch {
 	 */
 	spinlock_t tdp_mmu_pages_lock;
 
-	/* The number of TDP MMU pages across all roots. */
+#ifdef CONFIG_KVM_PROVE_MMU
+	/*
+	 * The number of TDP MMU pages across all roots.  Used only to sanity
+	 * that KVM isn't leaking TDP MMU pages.
+	 */
 	atomic64_t tdp_mmu_pages;
+#endif
 #endif /* CONFIG_X86_64 */
 
 
