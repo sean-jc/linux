@@ -754,6 +754,8 @@ struct kvm_memslots {
 };
 
 struct kvm {
+	struct kvm_arch arch;
+
 #ifdef KVM_HAVE_MMU_RWLOCK
 	rwlock_t mmu_lock;
 #else
@@ -816,7 +818,6 @@ struct kvm {
 #endif
 	struct list_head ioeventfds;
 	struct kvm_vm_stat stat;
-	struct kvm_arch arch;
 	refcount_t users_count;
 #ifdef CONFIG_KVM_MMIO
 	struct kvm_coalesced_mmio_ring *coalesced_mmio_ring;
