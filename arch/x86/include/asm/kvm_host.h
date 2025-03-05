@@ -1323,15 +1323,94 @@ enum kvm_apicv_inhibit {
 	__APICV_INHIBIT_REASON(LOGICAL_ID_ALIASED)
 
 struct kvm_arch {
-	unsigned long n_used_mmu_pages;
-	unsigned long n_requested_mmu_pages;
-	unsigned long n_max_mmu_pages;
-	unsigned int indirect_shadow_pages;
-	u8 mmu_valid_gen;
 	u8 vm_type;
 	bool has_private_mem;
 	bool has_protected_state;
 	bool pre_fault_allowed;
+
+	bool mwait_in_guest;
+	bool hlt_in_guest;
+	bool pause_in_guest;
+	bool cstate_in_guest;
+	bool x2apic_format;
+	bool x2apic_broadcast_quirk_disabled;
+	bool guest_can_read_msr_platform_info;
+	bool exception_payload_enabled;
+	bool triple_fault_event;
+	bool bus_lock_detection_enabled;
+	bool enable_pmu;
+	bool disable_nx_huge_pages;
+	/* Guest can access the SGX PROVISIONKEY. */
+	bool sgx_provisioning_allowed;
+
+	bool backwards_tsc_observed;
+	bool boot_vcpu_runs_old_kvmclock;
+	bool disabled_lapic_found;
+	/*
+	 * If set, at least one shadow root has been allocated. This flag
+	 * is used as one input when determining whether certain memslot
+	 * related allocations are necessary.
+	 */
+	bool shadow_root_allocated;
+
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
+	/*
+	 * If set, the VM has (or had) an external write tracking user, and
+	 * thus all write tracking metadata has been allocated, even if KVM
+	 * itself isn't using write tracking.
+	 */
+	bool external_write_tracking_enabled;
+#endif
+	/*
+	 * If exit_on_emulation_error is set, and the in-kernel instruction
+	 * emulator fails to emulate an instruction, allow userspace
+	 * the opportunity to look at it.
+	 */
+	bool exit_on_emulation_error;
+	bool apic_access_memslot_enabled;
+	bool apic_access_memslot_inhibited;
+
+
+	bool user_set_tsc;
+	u32 default_tsc_khz;
+	u64 apic_bus_cycle_ns;
+
+
+	/*
+	 * VM-scope maximum vCPU ID. Used to determine the size of structures
+	 * that increase along with the maximum vCPU ID, in which case, using
+	 * the global KVM_MAX_VCPU_IDS may lead to significant memory waste.
+	 */
+	u32 max_vcpu_ids;
+	u32 bsp_vcpu_id;
+
+	u64 disabled_quirks;
+
+	enum kvm_irqchip_mode irqchip_mode;
+	u8 nr_reserved_ioapic_pins;
+
+	u32 notify_window;
+	u32 notify_vmexit_flags;
+	u32 user_space_msr_mask;
+	u32 hypercall_exit_enabled;
+	gfn_t gfn_direct_bits;
+	u64 shadow_mmio_value;
+
+	unsigned long n_requested_mmu_pages;
+	unsigned long n_max_mmu_pages;
+
+	/* */
+		/*
+	 * Protects marking pages unsync during page faults, as TDP MMU page
+	 * faults only take mmu_lock for read.  For simplicity, the unsync
+	 * pages lock is always taken when marking pages unsync regardless of
+	 * whether mmu_lock is held for read or write.
+	 */
+	spinlock_t mmu_unsync_pages_lock;
+	unsigned int indirect_shadow_pages;
+	u8 mmu_valid_gen;
+
+	unsigned long n_used_mmu_pages;
 	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
 	struct list_head active_mmu_pages;
 	/*
@@ -1349,41 +1428,26 @@ struct kvm_arch {
 #ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head track_notifier_head;
 #endif
-	/*
-	 * Protects marking pages unsync during page faults, as TDP MMU page
-	 * faults only take mmu_lock for read.  For simplicity, the unsync
-	 * pages lock is always taken when marking pages unsync regardless of
-	 * whether mmu_lock is held for read or write.
-	 */
-	spinlock_t mmu_unsync_pages_lock;
-
-	u64 shadow_mmio_value;
-
-#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
-	atomic_t noncoherent_dma_count;
-#define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
-	atomic_t assigned_device_count;
 	struct kvm_pic *vpic;
 	struct kvm_ioapic *vioapic;
 	struct kvm_pit *vpit;
-	atomic_t vapics_in_nmi_mode;
+
 	struct mutex apic_map_lock;
 	struct kvm_apic_map __rcu *apic_map;
 	atomic_t apic_map_dirty;
-
-	bool apic_access_memslot_enabled;
-	bool apic_access_memslot_inhibited;
 
 	/* Protects apicv_inhibit_reasons */
 	struct rw_semaphore apicv_update_lock;
 	unsigned long apicv_inhibit_reasons;
 
-	gpa_t wall_clock;
+	/* */
+#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
+	atomic_t noncoherent_dma_count;
+#define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
+	atomic_t assigned_device_count;
+	atomic_t vapics_in_nmi_mode;
 
-	bool mwait_in_guest;
-	bool hlt_in_guest;
-	bool pause_in_guest;
-	bool cstate_in_guest;
+	gpa_t wall_clock;
 
 	unsigned long irq_sources_bitmap;
 	s64 kvmclock_offset;
@@ -1403,10 +1467,6 @@ struct kvm_arch {
 	u64 cur_tsc_generation;
 	int nr_vcpus_matched_tsc;
 
-	u32 default_tsc_khz;
-	bool user_set_tsc;
-	u64 apic_bus_cycle_ns;
-
 	seqcount_raw_spinlock_t pvclock_sc;
 	bool use_master_clock;
 	u64 master_kernel_ns;
@@ -1425,55 +1485,14 @@ struct kvm_arch {
 	struct kvm_xen xen;
 #endif
 
-	bool backwards_tsc_observed;
-	bool boot_vcpu_runs_old_kvmclock;
-	u32 bsp_vcpu_id;
-
-	u64 disabled_quirks;
-
-	enum kvm_irqchip_mode irqchip_mode;
-	u8 nr_reserved_ioapic_pins;
-
-	bool disabled_lapic_found;
-
-	bool x2apic_format;
-	bool x2apic_broadcast_quirk_disabled;
-
-	bool guest_can_read_msr_platform_info;
-	bool exception_payload_enabled;
-
-	bool triple_fault_event;
-
-	bool bus_lock_detection_enabled;
-	bool enable_pmu;
-
-	u32 notify_window;
-	u32 notify_vmexit_flags;
-	/*
-	 * If exit_on_emulation_error is set, and the in-kernel instruction
-	 * emulator fails to emulate an instruction, allow userspace
-	 * the opportunity to look at it.
-	 */
-	bool exit_on_emulation_error;
-
 	/* Deflect RDMSR and WRMSR to user space when they trigger a #GP */
-	u32 user_space_msr_mask;
 	struct kvm_x86_msr_filter __rcu *msr_filter;
-
-	u32 hypercall_exit_enabled;
-
-	/* Guest can access the SGX PROVISIONKEY. */
-	bool sgx_provisioning_allowed;
-
 	struct kvm_x86_pmu_event_filter __rcu *pmu_event_filter;
 	struct vhost_task *nx_huge_page_recovery_thread;
 	u64 nx_huge_page_last;
 	struct once nx_once;
 
 #ifdef CONFIG_X86_64
-	/* The number of TDP MMU pages across all roots. */
-	atomic64_t tdp_mmu_pages;
-
 	/*
 	 * List of struct kvm_mmu_pages being used as roots.
 	 * All struct kvm_mmu_pages in the list should have
@@ -1508,37 +1527,17 @@ struct kvm_arch {
 	 * the code to do so.
 	 */
 	spinlock_t tdp_mmu_pages_lock;
+
+	/* The number of TDP MMU pages across all roots. */
+	atomic64_t tdp_mmu_pages;
 #endif /* CONFIG_X86_64 */
 
-	/*
-	 * If set, at least one shadow root has been allocated. This flag
-	 * is used as one input when determining whether certain memslot
-	 * related allocations are necessary.
-	 */
-	bool shadow_root_allocated;
-
-#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
-	/*
-	 * If set, the VM has (or had) an external write tracking user, and
-	 * thus all write tracking metadata has been allocated, even if KVM
-	 * itself isn't using write tracking.
-	 */
-	bool external_write_tracking_enabled;
-#endif
 
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t	hv_root_tdp;
 	spinlock_t hv_root_tdp_lock;
 	struct hv_partition_assist_pg *hv_pa_pg;
 #endif
-	/*
-	 * VM-scope maximum vCPU ID. Used to determine the size of structures
-	 * that increase along with the maximum vCPU ID, in which case, using
-	 * the global KVM_MAX_VCPU_IDS may lead to significant memory waste.
-	 */
-	u32 max_vcpu_ids;
-
-	bool disable_nx_huge_pages;
 
 	/*
 	 * Memory caches used to allocate shadow pages when performing eager
@@ -1561,8 +1560,6 @@ struct kvm_arch {
 	 */
 #define SPLIT_DESC_CACHE_MIN_NR_OBJECTS (SPTE_ENT_PER_PAGE + 1)
 	struct kvm_mmu_memory_cache split_desc_cache;
-
-	gfn_t gfn_direct_bits;
 };
 
 struct kvm_vm_stat {
