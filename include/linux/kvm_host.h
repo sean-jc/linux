@@ -762,7 +762,7 @@ struct kvm {
 	 * incremented after storing the kvm_vcpu pointer in vcpus,
 	 * and is accessed atomically.
 	 */
-	atomic_t online_vcpus;
+	atomic_t online_vcpus ____cacheline_aligned_in_smp;
 	int max_vcpus;
 	int created_vcpus;
 	int last_boosted_vcpu;
@@ -780,14 +780,19 @@ struct kvm {
 	bool dirty_ring_with_bitmap;
 
 #ifdef KVM_HAVE_MMU_RWLOCK
-	rwlock_t mmu_lock;
+	rwlock_t mmu_lock ____cacheline_aligned_in_smp;
 #else
-	spinlock_t mmu_lock;
+	spinlock_t mmu_lock ____cacheline_aligned_in_smp;
 #endif /* KVM_HAVE_MMU_RWLOCK */
+
+	/*
+	 * Rarely accessed, slow-path fields.  Don't put anything else in the
+	 * same cacheline as mmu_lock.
+	 */
 	struct dentry *debugfs_dentry;
 	struct kvm_stat_data **debugfs_stat_data;
 
-	struct mutex slots_lock;
+	struct mutex slots_lock ____cacheline_aligned_in_smp;
 
 	/*
 	 * Protects the arch-specific fields of struct kvm_memory_slots in
@@ -813,7 +818,7 @@ struct kvm {
 #endif
 
 	/* Used to wait for completion of MMU notifiers.  */
-	spinlock_t mn_invalidate_lock;
+	spinlock_t mn_invalidate_lock ____cacheline_aligned_in_smp;
 	unsigned long mn_active_invalidate_count;
 	struct rcuwait mn_memslots_update_rcuwait;
 #ifdef CONFIG_KVM_GENERIC_MMU_NOTIFIER
@@ -825,10 +830,10 @@ struct kvm {
 #endif
 
 	/* For management / invalidation of gfn_to_pfn_caches */
-	spinlock_t gpc_lock;
+	spinlock_t gpc_lock ____cacheline_aligned_in_smp;
 	struct list_head gpc_list;
 
-	struct mutex lock;
+	struct mutex lock ____cacheline_aligned_in_smp;
 	struct list_head vm_list;
 	refcount_t users_count;
 
@@ -840,7 +845,7 @@ struct kvm {
 		/* resampler_list update side is protected by resampler_lock. */
 		struct list_head  resampler_list;
 		struct mutex      resampler_lock;
-	} irqfds;
+	} irqfds ____cacheline_aligned_in_smp;
 #endif
 	struct list_head ioeventfds;
 #ifdef CONFIG_KVM_MMIO
@@ -849,7 +854,7 @@ struct kvm {
 	struct list_head coalesced_zones;
 #endif
 
-	struct mutex irq_lock;
+	struct mutex irq_lock ____cacheline_aligned_in_smp;
 #ifdef CONFIG_HAVE_KVM_IRQCHIP
 	/*
 	 * Update side is protected by irq_lock.
@@ -861,13 +866,13 @@ struct kvm {
 
 	struct list_head devices;
 
-	struct srcu_struct srcu;
+	struct srcu_struct srcu ____cacheline_aligned_in_smp;
 	struct srcu_struct irq_srcu;
 
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 	struct notifier_block pm_notifier;
 #endif
-	struct kvm_vm_stat stat;
+	struct kvm_vm_stat stat ____cacheline_aligned_in_smp;
 	char stats_id[KVM_STATS_NAME_SIZE];
 };
 
