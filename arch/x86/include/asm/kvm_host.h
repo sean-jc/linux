@@ -1406,7 +1406,7 @@ struct kvm_arch {
 	 * pages lock is always taken when marking pages unsync regardless of
 	 * whether mmu_lock is held for read or write.
 	 */
-	spinlock_t mmu_unsync_pages_lock;
+	spinlock_t mmu_unsync_pages_lock ____cacheline_aligned_in_smp;
 	unsigned int indirect_shadow_pages;
 	u8 mmu_valid_gen;
 
@@ -1432,17 +1432,17 @@ struct kvm_arch {
 	struct kvm_ioapic *vioapic;
 	struct kvm_pit *vpit;
 
-	struct mutex apic_map_lock;
+	struct mutex apic_map_lock ____cacheline_aligned_in_smp;
 	struct kvm_apic_map __rcu *apic_map;
 	atomic_t apic_map_dirty;
 
 	/* Protects apicv_inhibit_reasons */
-	struct rw_semaphore apicv_update_lock;
+	struct rw_semaphore apicv_update_lock ____cacheline_aligned_in_smp;
 	unsigned long apicv_inhibit_reasons;
 
 	/* */
 #define __KVM_HAVE_ARCH_NONCOHERENT_DMA
-	atomic_t noncoherent_dma_count;
+	atomic_t noncoherent_dma_count ____cacheline_aligned_in_smp;
 #define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
 	atomic_t assigned_device_count;
 	atomic_t vapics_in_nmi_mode;
@@ -1456,7 +1456,7 @@ struct kvm_arch {
 	 * This also protects nr_vcpus_matched_tsc which is read from a
 	 * preemption-disabled region, so it must be a raw spinlock.
 	 */
-	raw_spinlock_t tsc_write_lock;
+	raw_spinlock_t tsc_write_lock ____cacheline_aligned_in_smp;
 	u64 last_tsc_nsec;
 	u64 last_tsc_write;
 	u32 last_tsc_khz;
@@ -1467,7 +1467,7 @@ struct kvm_arch {
 	u64 cur_tsc_generation;
 	int nr_vcpus_matched_tsc;
 
-	seqcount_raw_spinlock_t pvclock_sc;
+	seqcount_raw_spinlock_t pvclock_sc ____cacheline_aligned_in_smp;
 	bool use_master_clock;
 	u64 master_kernel_ns;
 	u64 master_cycle_now;
@@ -1511,7 +1511,7 @@ struct kvm_arch {
 	 * count to zero should removed the root from the list and clean
 	 * it up, freeing the root after an RCU grace period.
 	 */
-	struct list_head tdp_mmu_roots;
+	struct list_head tdp_mmu_roots ____cacheline_aligned_in_smp;
 
 	/*
 	 * Protects accesses to the following fields when the MMU lock
@@ -1534,7 +1534,7 @@ struct kvm_arch {
 
 
 #if IS_ENABLED(CONFIG_HYPERV)
-	hpa_t	hv_root_tdp;
+	hpa_t	hv_root_tdp ____cacheline_aligned_in_smp;
 	spinlock_t hv_root_tdp_lock;
 	struct hv_partition_assist_pg *hv_pa_pg;
 #endif
