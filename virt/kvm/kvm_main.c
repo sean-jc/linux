@@ -3746,10 +3746,14 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 	 * The only state change done outside the vcpu mutex is IN_GUEST_MODE
 	 * to EXITING_GUEST_MODE.  Therefore the moderately expensive "should
 	 * kick" check does not need atomic operations if kvm_vcpu_kick is used
-	 * within the vCPU thread itself.
+	 * within the vCPU thread itself.  Note, a self-kick from a vCPU that's
+	 * IN_GUEST_MODE _must_ be preceded by a request.  Leave mode as-is if
+	 * the rule is broken, so that the damage is limited to only this kick,
+	 * i.e. so that future requests don't fail to kick the vCPU.
 	 */
 	if (vcpu == __this_cpu_read(kvm_running_vcpu)) {
-		if (vcpu->mode == IN_GUEST_MODE)
+		if (vcpu->mode == IN_GUEST_MODE &&
+		    !WARN_ON_ONCE(!kvm_request_pending(vcpu)))
 			WRITE_ONCE(vcpu->mode, EXITING_GUEST_MODE);
 		goto out;
 	}
