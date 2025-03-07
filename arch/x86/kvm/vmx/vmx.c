@@ -4278,11 +4278,13 @@ static int vmx_deliver_nested_posted_interrupt(struct kvm_vcpu *vcpu,
 	return -1;
 }
 /*
- * Send interrupt to vcpu via posted interrupt way.
- * 1. If target vcpu is running(non-root mode), send posted interrupt
- * notification to vcpu and hardware will sync PIR to vIRR atomically.
- * 2. If target vcpu isn't running(root mode), kick it to pick up the
- * interrupt from PIR in next vmentry.
+ * Deliver an interrupt to the target vCPU via a posted interrupt, if the vCPU
+ * is actively running, i.e. is the innermost run loop.  In the happy case, the
+ * notification IRQ will arrive while the CPU is in non-root mode, and hardware
+ * will handle it as a posted interrupt, i.e. not VM-Exit.
+ *
+ * If target vCPU isn't actively running, or APICv is disabled, fall back to
+ * delivering the interrupt straight to the vIRR.
  */
 static int vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 {
@@ -4295,6 +4297,16 @@ static int vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 
 	/* Note, this is called iff the local APIC is in-kernel. */
 	if (!vcpu->arch.apic->apicv_active)
+		return -1;
+
+	/*
+	 * Don't perturb the posted interrupt descriptor if the vCPU isn't in
+	 * guest mode, i.e. if there is practically no chance of posting the
+	 * interrupt.  Unnecessarily bouncing the interrupt through the PIR can
+	 * lead to cache contention with the IOMMU if a device is also sending
+	 * interrupts to the vCPU.
+	 */
+	if (READ_ONCE(vcpu->mode) != IN_GUEST_MODE)
 		return -1;
 
 	if (pi_test_and_set_pir(vector, &vmx->pi_desc))
@@ -4321,7 +4333,16 @@ void vmx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 
 	if (vmx_deliver_posted_interrupt(vcpu, vector)) {
 		kvm_lapic_set_irr(vector, apic);
-		kvm_make_request(KVM_REQ_EVENT, vcpu);
+
+		/*
+		 * No need to manually process events if APICv is enabled, KVM
+		 * will move the interrupt from the vIRR to RVI as appropriate
+		 * on the next VM-Entry.  Note, kicking the vCPU handles the
+		 * case where the vCPU entered IN_GUEST_MODE between checking
+		 * its mode and setting the bit in the vIRR.
+		 */
+		if (!vcpu->arch.apic->apicv_active)
+			kvm_make_request(KVM_REQ_EVENT, vcpu);
 		kvm_vcpu_kick(vcpu);
 	} else {
 		trace_kvm_apicv_accept_irq(vcpu->vcpu_id, delivery_mode,
