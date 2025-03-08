@@ -4913,6 +4913,9 @@ static void __vmx_vcpu_reset(struct kvm_vcpu *vcpu)
 	 */
 	vmx->pi_desc.nv = POSTED_INTR_VECTOR;
 	__pi_set_sn(&vmx->pi_desc);
+
+	vmx->trampoline_pid.nv = POSTED_INTR_VECTOR;
+	pi_init_trampoline(vmx);
 }
 
 void vmx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
@@ -7578,6 +7581,8 @@ void vmx_vcpu_free(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
+	pi_free_trampoline(vmx);
+
 	if (enable_pml)
 		vmx_destroy_pml_buffer(vmx);
 	free_vpid(vmx->vpid);
@@ -8388,7 +8393,7 @@ void vmx_migrate_timers(struct kvm_vcpu *vcpu)
 
 void vmx_hardware_unsetup(void)
 {
-	kvm_set_posted_intr_wakeup_handler(NULL);
+	kvm_set_posted_intr_handlers(NULL, NULL);
 
 	if (nested)
 		nested_vmx_hardware_unsetup();
@@ -8692,7 +8697,7 @@ __init int vmx_hardware_setup(void)
 	if (r && nested)
 		nested_vmx_hardware_unsetup();
 
-	kvm_set_posted_intr_wakeup_handler(pi_wakeup_handler);
+	kvm_set_posted_intr_handlers(pi_trampoline_handler, pi_wakeup_handler);
 
 	return r;
 }

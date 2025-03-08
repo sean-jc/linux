@@ -309,27 +309,31 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_x86_platform_ipi)
 #endif
 
 #if IS_ENABLED(CONFIG_KVM)
-static void dummy_handler(void) {}
-static void (*kvm_posted_intr_wakeup_handler)(void) = dummy_handler;
+static void (*kvm_posted_intr_handler)(void);;
+static void (*kvm_posted_intr_wakeup_handler)(void);;
 
-void kvm_set_posted_intr_wakeup_handler(void (*handler)(void))
+void kvm_set_posted_intr_handlers(void (*handler)(void),
+				  void (*wakeup_handler)(void))
 {
-	if (handler)
-		kvm_posted_intr_wakeup_handler = handler;
-	else {
-		kvm_posted_intr_wakeup_handler = dummy_handler;
+	kvm_posted_intr_handler = handler;
+	kvm_posted_intr_wakeup_handler = wakeup_handler;
+	if (!handler)
 		synchronize_rcu();
-	}
 }
-EXPORT_SYMBOL_GPL(kvm_set_posted_intr_wakeup_handler);
+EXPORT_SYMBOL_GPL(kvm_set_posted_intr_handlers);
 
 /*
  * Handler for POSTED_INTERRUPT_VECTOR.
  */
 DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_kvm_posted_intr_ipi)
 {
+	void (*handler)(void) = READ_ONCE(kvm_posted_intr_handler);
+
 	apic_eoi();
 	inc_irq_stat(kvm_posted_intr_ipis);
+
+	if (handler)
+		handler();
 }
 
 /*
@@ -337,9 +341,13 @@ DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_kvm_posted_intr_ipi)
  */
 DEFINE_IDTENTRY_SYSVEC(sysvec_kvm_posted_intr_wakeup_ipi)
 {
+	void (*handler)(void) = READ_ONCE(kvm_posted_intr_wakeup_handler);
+
 	apic_eoi();
 	inc_irq_stat(kvm_posted_intr_wakeup_ipis);
-	kvm_posted_intr_wakeup_handler();
+
+	if (handler)
+		handler();
 }
 
 /*

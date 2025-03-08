@@ -323,6 +323,9 @@ struct vcpu_vmx {
 	/* Used if this vCPU is waiting for PI notification wakeup. */
 	struct list_head pi_wakeup_list;
 
+	struct pi_desc trampoline_pid;
+	struct list_head trampoline_list;
+
 	/* Support for a guest hypervisor (nested VMX) */
 	struct nested_vmx nested;
 

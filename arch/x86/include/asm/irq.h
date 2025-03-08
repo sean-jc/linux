@@ -30,7 +30,8 @@ struct irq_desc;
 extern void fixup_irqs(void);
 
 #if IS_ENABLED(CONFIG_KVM)
-extern void kvm_set_posted_intr_wakeup_handler(void (*handler)(void));
+extern void kvm_set_posted_intr_handlers(void (*handler)(void),
+					 void (*wakeup_handler)(void));
 #endif
 
 extern void (*x86_platform_ipi_callback)(void);

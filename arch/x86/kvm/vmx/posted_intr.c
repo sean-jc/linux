@@ -12,6 +12,36 @@
 #include "trace.h"
 #include "vmx.h"
 
+static bool trampoline_vcpu_posted_interrupts;
+module_param(trampoline_vcpu_posted_interrupts, bool, 0444);
+
+static DEFINE_PER_CPU(struct list_head, trampoline_vcpus_on_cpu);
+static DEFINE_SPINLOCK(trampoline_lock);
+
+void pi_init_trampoline(struct vcpu_vmx *vmx)
+{
+	struct list_head *trampolines = this_cpu_ptr(&trampoline_vcpus_on_cpu);
+
+	if (!trampoline_vcpu_posted_interrupts)
+		return;
+
+	spin_lock(&trampoline_lock);
+	list_add_rcu(&vmx->trampoline_list, trampolines);
+	spin_unlock(&trampoline_lock);
+}
+
+void pi_free_trampoline(struct vcpu_vmx *vmx)
+{
+	if (!trampoline_vcpu_posted_interrupts)
+		return;
+
+	spin_lock(&trampoline_lock);
+	list_del_rcu(&vmx->trampoline_list);
+	spin_unlock(&trampoline_lock);
+
+	synchronize_rcu();
+}
+
 /*
  * Maintain a per-CPU list of vCPUs that need to be awakened by wakeup_handler()
  * when a WAKEUP_VECTOR interrupted is posted.  vCPUs are added to the list when
@@ -212,6 +242,25 @@ void vmx_vcpu_pi_put(struct kvm_vcpu *vcpu)
 		pi_set_sn(pi_desc);
 }
 
+void pi_trampoline_handler(void)
+{
+	struct list_head *trampolines = this_cpu_ptr(&trampoline_vcpus_on_cpu);
+	struct vcpu_vmx *vmx;
+
+	list_for_each_entry_rcu(vmx, trampolines, trampoline_list) {
+		unsigned long pir_vals[NR_PIR_WORDS];
+		int i;
+
+		if (!pi_harvest_pir(vmx->trampoline_pid.pir, pir_vals))
+			continue;
+
+		for (i = 0; i < NR_PIR_WORDS; i++)
+			atomic64_or(pir_vals[i], (void *)&vmx->pi_desc.pir[i]);
+
+		pi_set_on(&vmx->pi_desc);
+	}
+}
+
 /*
  * Handler for POSTED_INTERRUPT_WAKEUP_VECTOR.
  */
@@ -233,6 +282,7 @@ void pi_wakeup_handler(void)
 
 void __init pi_init_cpu(int cpu)
 {
+	INIT_LIST_HEAD(&per_cpu(trampoline_vcpus_on_cpu, cpu));
 	INIT_LIST_HEAD(&per_cpu(wakeup_vcpus_on_cpu, cpu));
 	raw_spin_lock_init(&per_cpu(wakeup_vcpus_on_cpu_lock, cpu));
 }
@@ -328,7 +378,10 @@ int vmx_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			continue;
 		}
 
-		vcpu_info.pi_desc_addr = __pa(vcpu_to_pi_desc(vcpu));
+		if (trampoline_vcpu_posted_interrupts)
+			vcpu_info.pi_desc_addr = __pa(&to_vmx(vcpu)->trampoline_pid);
+		else
+			vcpu_info.pi_desc_addr = __pa(vcpu_to_pi_desc(vcpu));
 		vcpu_info.vector = irq.vector;
 
 		trace_kvm_pi_irte_update(host_irq, vcpu->vcpu_id, e->gsi,

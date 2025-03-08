@@ -5,8 +5,15 @@
 #include <linux/bitmap.h>
 #include <asm/posted_intr.h>
 
+struct kvm;
+struct kvm_vcpu;
+struct vcpu_vmx;
+
+void pi_init_trampoline(struct vcpu_vmx *vmx);
+void pi_free_trampoline(struct vcpu_vmx *vmx);
 void vmx_vcpu_pi_load(struct kvm_vcpu *vcpu, int cpu);
 void vmx_vcpu_pi_put(struct kvm_vcpu *vcpu);
+void pi_trampoline_handler(void);
 void pi_wakeup_handler(void);
 void __init pi_init_cpu(int cpu);
 bool pi_has_pending_interrupt(struct kvm_vcpu *vcpu);
