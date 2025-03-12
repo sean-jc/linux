@@ -483,11 +483,16 @@ int vfio_pci_core_enable(struct vfio_pci_core_device *vdev)
 		goto out_power;
 
 	/* If reset fails because of the device lock, fail this path entirely */
+#if 0
 	ret = pci_try_reset_function(pdev);
 	if (ret == -EAGAIN)
 		goto out_disable_device;
 
 	vdev->reset_works = !ret;
+#else
+	vdev->reset_works = false;
+#endif
+
 	pci_save_state(pdev);
 	vdev->pci_saved_state = pci_store_saved_state(pdev);
 	if (!vdev->pci_saved_state)
@@ -544,7 +549,7 @@ out_free_zdev:
 out_free_state:
 	kfree(vdev->pci_saved_state);
 	vdev->pci_saved_state = NULL;
-out_disable_device:
+/* out_disable_device: */
 	pci_disable_device(pdev);
 out_power:
 	if (!disable_idle_d3)
