@@ -989,6 +989,8 @@ static void svm_hardware_unsetup(void)
 {
 	int cpu;
 
+	kvm_set_posted_intr_wakeup_handler(NULL);
+
 	sev_hardware_unsetup();
 
 	for_each_possible_cpu(cpu)
