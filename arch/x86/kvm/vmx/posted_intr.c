@@ -224,9 +224,17 @@ void pi_wakeup_handler(void)
 
 	raw_spin_lock(spinlock);
 	list_for_each_entry(vmx, wakeup_list, pi_wakeup_list) {
-
+		/*
+		 * Temporarily lie to lockdep to avoid false positives due to
+		 * lockdep not understanding that deadlock is impossible.  This
+		 * is called only in IRQ context, and the problematic locks
+		 * taken in the kvm_vcpu_wake_up() call chain are only acquired
+		 * with IRQs disabled.
+		 */
+		spin_release(&spinlock->dep_map, _RET_IP_);
 		if (pi_test_on(&vmx->pi_desc))
 			kvm_vcpu_wake_up(&vmx->vcpu);
+		spin_acquire(&spinlock->dep_map, 0, 0, _RET_IP_);
 	}
 	raw_spin_unlock(spinlock);
 }
