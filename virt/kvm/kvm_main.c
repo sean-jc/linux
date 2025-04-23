@@ -959,7 +959,7 @@ static void kvm_free_memslots(struct kvm *kvm, struct kvm_memslots *slots)
 	if (!slots->node_idx)
 		return;
 
-	hash_for_each_safe(slots->id_hash, bkt, idnode, memslot, id_node[1])
+	hash_for_each_safe(slots->id_hash->h, bkt, idnode, memslot, id_node[1])
 		kvm_free_memslot(kvm, memslot);
 }
 
@@ -1095,11 +1095,42 @@ static inline struct kvm_io_bus *kvm_get_bus_for_destruction(struct kvm *kvm,
 static int kvm_enable_virtualization(void);
 static void kvm_disable_virtualization(void);
 
+static int kvm_alloc_memslots(struct kvm *kvm)
+{
+	int nr_as_ids = kvm_arch_nr_memslot_as_ids(kvm);
+	struct kvm_memslots_hash *hashes;
+	struct kvm_memslots *slots;
+	int i, j;
+
+	hashes = kcalloc(nr_as_ids * 2, sizeof(*hashes), GFP_KERNEL_ACCOUNT);
+	if (!hashes)
+		return -ENOMEM;
+
+	for (i = 0; i < nr_as_ids; i++) {
+		for (j = 0; j < 2; j++) {
+			slots = &kvm->__memslots[i][j];
+
+			hash_init(hashes[i * 2 + j].h);
+
+			atomic_long_set(&slots->last_used_slot, (unsigned long)NULL);
+			slots->hva_tree = RB_ROOT_CACHED;
+			slots->gfn_tree = RB_ROOT;
+			slots->id_hash = &hashes[i * 2 + j];
+			slots->node_idx = j;
+
+			/* Generations must be different for each address space. */
+			slots->generation = i;
+		}
+
+		rcu_assign_pointer(kvm->memslots[i], &kvm->__memslots[i][0]);
+	}
+	return 0;
+}
+
 static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 {
 	struct kvm *kvm = kvm_arch_alloc_vm();
-	struct kvm_memslots *slots;
-	int r, i, j;
+	int r, i;
 
 	if (!kvm)
 		return ERR_PTR(-ENOMEM);
@@ -1146,24 +1177,11 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	if (r)
 		goto out_err_no_irq_routing;
 
+	r = kvm_alloc_memslots(kvm);
+	if (r)
+		goto out_err_no_memslots;
+
 	refcount_set(&kvm->users_count, 1);
-
-	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
-		for (j = 0; j < 2; j++) {
-			slots = &kvm->__memslots[i][j];
-
-			atomic_long_set(&slots->last_used_slot, (unsigned long)NULL);
-			slots->hva_tree = RB_ROOT_CACHED;
-			slots->gfn_tree = RB_ROOT;
-			hash_init(slots->id_hash);
-			slots->node_idx = j;
-
-			/* Generations must be different for each address space. */
-			slots->generation = i;
-		}
-
-		rcu_assign_pointer(kvm->memslots[i], &kvm->__memslots[i][0]);
-	}
 
 	r = -ENOMEM;
 	for (i = 0; i < KVM_NR_BUSES; i++) {
@@ -1219,6 +1237,8 @@ out_err_no_arch_destroy_vm:
 	WARN_ON_ONCE(!refcount_dec_and_test(&kvm->users_count));
 	for (i = 0; i < KVM_NR_BUSES; i++)
 		kfree(kvm_get_bus_for_destruction(kvm, i));
+	kfree(kvm->__memslots[0][0].id_hash);
+out_err_no_memslots:
 	kvm_free_irq_routing(kvm);
 out_err_no_irq_routing:
 	cleanup_srcu_struct(&kvm->irq_srcu);
@@ -1297,6 +1317,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 		kvm_free_memslots(kvm, &kvm->__memslots[i][0]);
 		kvm_free_memslots(kvm, &kvm->__memslots[i][1]);
 	}
+	kfree(kvm->__memslots[0][0].id_hash);
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	srcu_barrier(&kvm->srcu);
 	cleanup_srcu_struct(&kvm->srcu);
@@ -1543,7 +1564,7 @@ static void kvm_replace_memslot(struct kvm *kvm,
 	 * hva_node needs to be swapped with remove+insert even though hva can't
 	 * change when replacing an existing slot.
 	 */
-	hash_add(slots->id_hash, &new->id_node[idx], new->id);
+	hash_add(slots->id_hash->h, &new->id_node[idx], new->id);
 	interval_tree_insert(&new->hva_node[idx], &slots->hva_tree);
 
 	/*

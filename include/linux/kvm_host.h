@@ -750,11 +750,7 @@ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
 }
 #endif
 
-struct kvm_memslots {
-	u64 generation;
-	atomic_long_t last_used_slot;
-	struct rb_root_cached hva_tree;
-	struct rb_root gfn_tree;
+struct kvm_memslots_hash {
 	/*
 	 * The mapping table from slot id to memslot.
 	 *
@@ -762,8 +758,20 @@ struct kvm_memslots {
 	 * 512 slots, while giving good performance with this slot count.
 	 * Higher bucket counts bring only small performance improvements but
 	 * always result in higher memory usage (even for lower memslot counts).
+	 *
+	 * Using 7 bits also yields efficient storage, as each hash table uses
+	 * 1024 bytes.  E.g. in the worst case (two address spaces), KVM uses
+	 * exactly one 4KiB page for the hash tables.
 	 */
-	DECLARE_HASHTABLE(id_hash, 7);
+	DECLARE_HASHTABLE(h, 7);
+};
+
+struct kvm_memslots {
+	u64 generation;
+	atomic_long_t last_used_slot;
+	struct rb_root_cached hva_tree;
+	struct rb_root gfn_tree;
+	struct kvm_memslots_hash *id_hash;
 	int node_idx;
 };
 
@@ -1103,9 +1111,9 @@ static inline bool kvm_memslots_empty(struct kvm_memslots *slots)
 
 bool kvm_are_all_memslots_empty(struct kvm *kvm);
 
-#define kvm_for_each_memslot(memslot, bkt, slots)			      \
-	hash_for_each(slots->id_hash, bkt, memslot, id_node[slots->node_idx]) \
-		if (WARN_ON_ONCE(!memslot->npages)) {			      \
+#define kvm_for_each_memslot(memslot, bkt, slots)				\
+	hash_for_each(slots->id_hash->h, bkt, memslot, id_node[slots->node_idx])\
+		if (WARN_ON_ONCE(!memslot->npages)) {				\
 		} else
 
 static inline
@@ -1114,7 +1122,7 @@ struct kvm_memory_slot *id_to_memslot(struct kvm_memslots *slots, int id)
 	struct kvm_memory_slot *slot;
 	int idx = slots->node_idx;
 
-	hash_for_each_possible(slots->id_hash, slot, id_node[idx], id) {
+	hash_for_each_possible(slots->id_hash->h, slot, id_node[idx], id) {
 		if (slot->id == id)
 			return slot;
 	}
