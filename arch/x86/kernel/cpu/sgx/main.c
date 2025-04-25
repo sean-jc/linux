@@ -914,6 +914,59 @@ int sgx_set_attribute(unsigned long *allowed_attributes,
 }
 EXPORT_SYMBOL_GPL(sgx_set_attribute);
 
+static bool sgx_has_eupdatesvn;
+static atomic_t sgx_usage_count;
+static DECLARE_RWSEM(sgx_svn_lock);
+
+void sgx_inc_usage_count(void)
+{
+	if (atomic_inc_not_zero(&sgx_usage_count))
+		return;
+
+	guard(rwsem_read)(&sgx_svn_lock);
+
+	atomic_inc(&sgx_usage_count);
+}
+
+void sgx_dec_usage_count(void)
+{
+	atomic_dec(&sgx_usage_count);
+}
+
+static int sgx_update_svn(const char *buffer, const struct kernel_param *kp)
+{
+	int r;
+
+	if (!sgx_has_eupdatesvn)
+		return -EOPNOTSUPP;
+
+	guard(rwsem_write)(&sgx_svn_lock);
+
+	if (atomic_read(&sgx_usage_count))
+		return -EBUSY;
+
+	r = __eupdatesvn();
+	switch (r) {
+	case 0:
+	case SGX_NO_UPDATE:
+		return 0;
+	case SGX_INSUFFICIENT_ENTROPY:
+		return -EAGAIN;
+	default:
+		ENCLS_WARN(r, "EUPDATESVN");
+		return -EIO;
+	}
+}
+
+static const struct kernel_param_ops sgx_update_svn_ops = {
+	.set = sgx_update_svn,
+};
+
+#undef MODULE_PARAM_PREFIX
+#define MODULE_PARAM_PREFIX "sgx."
+device_param_cb(update_svn, &sgx_update_svn_ops, NULL, 0200);
+__MODULE_PARM_TYPE(update_svn, "bool");
+
 static int __init sgx_init(void)
 {
 	int ret;
@@ -947,6 +1000,7 @@ static int __init sgx_init(void)
 	if (sgx_vepc_init() && ret)
 		goto err_provision;
 
+	sgx_has_eupdatesvn = (cpuid_eax(SGX_CPUID) & SGX_CPUID_EUPDATESVN);
 	return 0;
 
 err_provision:

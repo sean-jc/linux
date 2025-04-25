@@ -255,6 +255,7 @@ static int sgx_vepc_release(struct inode *inode, struct file *file)
 	xa_destroy(&vepc->page_array);
 	kfree(vepc);
 
+	sgx_dec_usage_count();
 	return 0;
 }
 
@@ -269,6 +270,7 @@ static int sgx_vepc_open(struct inode *inode, struct file *file)
 	xa_init(&vepc->page_array);
 
 	file->private_data = vepc;
+	sgx_inc_usage_count();
 
 	return 0;
 }

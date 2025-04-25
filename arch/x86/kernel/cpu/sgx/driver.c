@@ -37,6 +37,7 @@ static int sgx_open(struct inode *inode, struct file *file)
 	}
 
 	file->private_data = encl;
+	sgx_inc_usage_count();
 
 	return 0;
 }
