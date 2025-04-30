@@ -607,9 +607,6 @@ static void svm_disable_virtualization_cpu(void)
 	kvm_cpu_svm_disable();
 
 	amd_pmu_disable_virt();
-
-	if (cpu_feature_enabled(X86_FEATURE_SRSO_BP_SPEC_REDUCE))
-		msr_clear_bit(MSR_ZEN4_BP_CFG, MSR_ZEN4_BP_CFG_BP_SPEC_REDUCE_BIT);
 }
 
 static int svm_enable_virtualization_cpu(void)
@@ -686,9 +683,6 @@ static int svm_enable_virtualization_cpu(void)
 
 		rdmsr(MSR_TSC_AUX, sev_es_host_save_area(sd)->tsc_aux, msr_hi);
 	}
-
-	if (cpu_feature_enabled(X86_FEATURE_SRSO_BP_SPEC_REDUCE))
-		msr_set_bit(MSR_ZEN4_BP_CFG, MSR_ZEN4_BP_CFG_BP_SPEC_REDUCE_BIT);
 
 	return 0;
 }
@@ -5032,10 +5026,85 @@ static void svm_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
 	sev_vcpu_deliver_sipi_vector(vcpu, vector);
 }
 
+#ifdef CONFIG_CPU_MITIGATIONS
+static DEFINE_MUTEX(srso_add_vm_lock);
+static atomic_t srso_nr_vms;
+static bool srso_set;
+
+static void svm_toggle_srso_spec_reduce(void *ign)
+{
+	/*
+	 * Read both srso_set and the count (and don't pass in set/clear!) so
+	 * that BP_SPEC_REDUCE isn't incorrectly cleared if IPIs from destroying
+	 * he last VM arrive after IPIs from creating the first VM (in the new
+	 * "generation").
+	 */
+	if (READ_ONCE(srso_set) || atomic_read(&srso_nr_vms))
+		msr_set_bit(MSR_ZEN4_BP_CFG, MSR_ZEN4_BP_CFG_BP_SPEC_REDUCE_BIT);
+	else
+		msr_clear_bit(MSR_ZEN4_BP_CFG, MSR_ZEN4_BP_CFG_BP_SPEC_REDUCE_BIT);
+}
+
+static void svm_srso_vm_init(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_SRSO_BP_SPEC_REDUCE))
+		return;
+
+	/*
+	 * Acquire the mutex on a 0=>1 transition to ensure BP_SPEC_REDUCE is
+	 * set before any VM is fully created.
+	 */
+	if (atomic_inc_not_zero(&srso_nr_vms))
+		return;
+
+	guard(mutex)(&srso_add_vm_lock);
+
+	/*
+	 * Re-check the count before sending IPIs, only the first task needs to
+	 * toggle BP_SPEC_REDUCE, other tasks just need to wait.  For the 0=>1
+	 * case, update the count *after* BP_SPEC_REDUCE is set on all CPUs to
+	 * ensure creating multiple VMs concurrently doesn't result in a task
+	 * skipping the mutex before BP_SPEC_REDUCE is set.
+	 *
+	 * Atomically increment the count in all cases as the mutex only guards
+	 * 0=>1 transitions, e.g. another task can decrement the count if a VM
+	 * was created (0=>1) *and* destroyed (1=>0) between observing a count
+	 * of '0' and acquiring the mutex, and another task can increment the
+	 * count if the count is already >= 1.
+	 */
+	if (!atomic_inc_not_zero(&srso_nr_vms)) {
+		WRITE_ONCE(srso_set, true);
+		on_each_cpu(svm_toggle_srso_spec_reduce, NULL, 1);
+		atomic_inc(&srso_nr_vms);
+		smp_mb__after_atomic();
+		WRITE_ONCE(srso_set, false);
+	}
+}
+
+static void svm_srso_vm_destroy(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_SRSO_BP_SPEC_REDUCE))
+		return;
+
+	/*
+	 * If the last VM is being destroyed, clear BP_SPEC_REDUCE on all CPUs.
+	 * Unlike the creation case, there is no need to wait on other CPUs as
+	 * running code with BP_SPEC_REDUCE=1 is always safe, KVM just needs to
+	 * ensure guest code never runs with BP_SPEC_REDUCE=0.
+	 */
+	 if (atomic_dec_and_test(&srso_nr_vms))
+		on_each_cpu(svm_toggle_srso_spec_reduce, NULL, 0);
+}
+#else
+static void svm_srso_vm_init(void) { }
+static void svm_srso_vm_destroy(void) { }
+#endif /* CONFIG_CPU_MITIGATIONS */
+
 static void svm_vm_destroy(struct kvm *kvm)
 {
 	avic_vm_destroy(kvm);
 	sev_vm_destroy(kvm);
+	svm_srso_vm_destroy();
 }
 
 static int svm_vm_init(struct kvm *kvm)
@@ -5061,6 +5130,7 @@ static int svm_vm_init(struct kvm *kvm)
 			return ret;
 	}
 
+	svm_srso_vm_init();
 	return 0;
 }
 
