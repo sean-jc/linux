@@ -3198,33 +3198,22 @@ void pci_pm_power_up_and_verify_state(struct pci_dev *pci_dev)
 	pci_update_current_state(pci_dev, PCI_D0);
 }
 
-/**
- * pci_pm_init - Initialize PM functions of given PCI device
- * @dev: PCI device to handle.
- */
-void pci_pm_init(struct pci_dev *dev)
+static void __pci_pm_init(struct pci_dev *dev)
 {
 	int pm;
-	u16 status;
 	u16 pmc;
-
-	device_enable_async_suspend(&dev->dev);
-	dev->wakeup_prepared = false;
-
-	dev->pm_cap = 0;
-	dev->pme_support = 0;
 
 	/* find PCI PM capability in list */
 	pm = pci_find_capability(dev, PCI_CAP_ID_PM);
 	if (!pm)
-		goto poweron;
+		return;
 	/* Check device's ability to generate PME# */
 	pci_read_config_word(dev, pm + PCI_PM_PMC, &pmc);
 
 	if ((pmc & PCI_PM_CAP_VER_MASK) > 3) {
 		pci_err(dev, "unsupported PM cap regs version (%u)\n",
 			pmc & PCI_PM_CAP_VER_MASK);
-		goto poweron;
+		return;
 	}
 
 	dev->pm_cap = pm;
@@ -3265,11 +3254,32 @@ void pci_pm_init(struct pci_dev *dev)
 		/* Disable the PME# generation functionality */
 		pci_pme_active(dev, false);
 	}
+}
+
+/**
+ * pci_pm_init - Initialize PM functions of given PCI device
+ * @dev: PCI device to handle.
+ */
+void pci_pm_init(struct pci_dev *dev)
+{
+	u16 status;
+
+	device_enable_async_suspend(&dev->dev);
+	dev->wakeup_prepared = false;
+
+	dev->pm_cap = 0;
+	dev->pme_support = 0;
+
+	/*
+	 * Note, support for the PCI PM spec is optional for legacy PCI devices
+	 * and for VFs.  Continue on even if no PM capabilities are supported.
+	 */
+	__pci_pm_init(dev);
 
 	pci_read_config_word(dev, PCI_STATUS, &status);
 	if (status & PCI_STATUS_IMM_READY)
 		dev->imm_ready = 1;
-poweron:
+
 	pci_pm_power_up_and_verify_state(dev);
 	pm_runtime_forbid(&dev->dev);
 	pm_runtime_set_active(&dev->dev);
