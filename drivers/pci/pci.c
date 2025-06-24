@@ -3280,6 +3280,8 @@ void pci_pm_init(struct pci_dev *dev)
 	if (status & PCI_STATUS_IMM_READY)
 		dev->imm_ready = 1;
 
+	pr_warn("PCI dev %x IMM_READY = %u\n", dev->devfn, dev->imm_ready);
+
 	pci_pm_power_up_and_verify_state(dev);
 	pm_runtime_forbid(&dev->dev);
 	pm_runtime_set_active(&dev->dev);
