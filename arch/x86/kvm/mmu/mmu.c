@@ -3854,6 +3854,9 @@ static hpa_t mmu_alloc_root(struct kvm_vcpu *vcpu, gfn_t gfn, int quadrant,
 	sp = kvm_mmu_get_shadow_page(vcpu, gfn, role);
 	++sp->root_count;
 
+	if (level >= PT64_ROOT_4LEVEL)
+		kvm_x86_call(alloc_root_cpu_mask)(root);
+
 	return __pa(sp->spt);
 }
 

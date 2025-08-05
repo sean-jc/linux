@@ -1395,7 +1395,7 @@ static void shrink_ple_window(struct kvm_vcpu *vcpu)
 	}
 }
 
-static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu);
+static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu, int cpu);
 
 void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu)
 {
@@ -1434,8 +1434,8 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu)
 		 * TLB entries from its previous association with the vCPU.
 		 */
 		if (enable_ept) {
-			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.root_mmu);
-			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.guest_mmu);
+			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.root_mmu, cpu);
+			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.guest_mmu, cpu);
 		} else {
 			kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
 		}
@@ -3261,22 +3261,29 @@ void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu)
 	vpid_sync_context(vmx_get_current_vpid(vcpu));
 }
 
-static void __vmx_flush_ept_on_pcpu_migration(hpa_t root_hpa)
+static void __vmx_flush_ept_on_pcpu_migration(hpa_t root_hpa, int cpu)
 {
+	struct kvm_mmu_page *root;
+
 	if (!VALID_PAGE(root_hpa))
+		return;
+
+	root = root_to_sp(root_hpa);
+	if (!WARN_ON_ONCE(!root) &&
+	    test_and_set_bit(cpu, root->cpu_flushed_mask))
 		return;
 
 	vmx_flush_tlb_ept_root(root_hpa);
 }
 
-static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu)
+static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu, int cpu)
 {
 	int i;
 
-	__vmx_flush_ept_on_pcpu_migration(mmu->root.hpa);
+	__vmx_flush_ept_on_pcpu_migration(mmu->root.hpa, cpu);
 
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
-		__vmx_flush_ept_on_pcpu_migration(mmu->prev_roots[i].hpa);
+		__vmx_flush_ept_on_pcpu_migration(mmu->prev_roots[i].hpa, cpu);
 }
 
 void vmx_ept_load_pdptrs(struct kvm_vcpu *vcpu)

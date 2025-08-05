@@ -293,6 +293,8 @@ void kvm_tdp_mmu_alloc_root(struct kvm_vcpu *vcpu, bool mirror)
 	root = tdp_mmu_alloc_sp(vcpu);
 	tdp_mmu_init_sp(root, NULL, 0, role);
 
+	kvm_x86_call(alloc_root_cpu_mask)(root);
+
 	/*
 	 * TDP MMU roots are kept until they are explicitly invalidated, either
 	 * by a memslot update or by the destruction of the VM.  Initialize the
