@@ -169,7 +169,7 @@ static inline void kvm_nested_vmexit_handle_ibrs(struct kvm_vcpu *vcpu)
 
 	if (guest_cpu_cap_has(vcpu, X86_FEATURE_SPEC_CTRL) ||
 	    guest_cpu_cap_has(vcpu, X86_FEATURE_AMD_IBRS))
-		indirect_branch_prediction_barrier();
+		vcpu->arch.need_ibpb = true;
 }
 
 /*

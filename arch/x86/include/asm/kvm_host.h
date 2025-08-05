@@ -826,6 +826,7 @@ struct kvm_vcpu_arch {
 	u64 smbase;
 	u64 smi_count;
 	bool at_instruction_boundary;
+	bool need_ibpb;
 	bool tpr_access_reporting;
 	bool xfd_no_write_intercept;
 	u64 microcode_version;

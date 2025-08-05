@@ -5187,7 +5187,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		 * is handled on the nested VM-Exit path.
 		 */
 		if (static_branch_likely(&switch_vcpu_ibpb))
-			indirect_branch_prediction_barrier();
+			vcpu->arch.need_ibpb = true;
 		per_cpu(last_vcpu, cpu) = vcpu;
 	}
 
@@ -11313,6 +11313,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	if (req_immediate_exit) {
 		run_flags |= KVM_RUN_FORCE_IMMEDIATE_EXIT;
 		kvm_make_request(KVM_REQ_EVENT, vcpu);
+	}
+
+	if (unlikely(vcpu->arch.need_ibpb)) {
+		indirect_branch_prediction_barrier();
+		vcpu->arch.need_ibpb = false;
 	}
 
 	fpregs_assert_state_consistent();
