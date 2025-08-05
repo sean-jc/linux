@@ -1395,6 +1395,8 @@ static void shrink_ple_window(struct kvm_vcpu *vcpu)
 	}
 }
 
+static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu);
+
 void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -1431,7 +1433,12 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu)
 		 * Flush all EPTP/VPID contexts, the new pCPU may have stale
 		 * TLB entries from its previous association with the vCPU.
 		 */
-		kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
+		if (enable_ept) {
+			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.root_mmu);
+			vmx_flush_ept_on_pcpu_migration(&vcpu->arch.guest_mmu);
+		} else {
+			kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
+		}
 
 		/*
 		 * Linux uses per-cpu TSS and GDT, so set these when switching
@@ -3252,6 +3259,24 @@ void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu)
 	 * i.e. no explicit INVVPID is necessary.
 	 */
 	vpid_sync_context(vmx_get_current_vpid(vcpu));
+}
+
+static void __vmx_flush_ept_on_pcpu_migration(hpa_t root_hpa)
+{
+	if (!VALID_PAGE(root_hpa))
+		return;
+
+	vmx_flush_tlb_ept_root(root_hpa);
+}
+
+static void vmx_flush_ept_on_pcpu_migration(struct kvm_mmu *mmu)
+{
+	int i;
+
+	__vmx_flush_ept_on_pcpu_migration(mmu->root.hpa);
+
+	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
+		__vmx_flush_ept_on_pcpu_migration(mmu->prev_roots[i].hpa);
 }
 
 void vmx_ept_load_pdptrs(struct kvm_vcpu *vcpu)
