@@ -1904,19 +1904,15 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 	 */
 	if (kvm_is_nested_s2_mmu(vcpu->kvm,vcpu->arch.hw_mmu) &&
 	    vcpu->arch.hw_mmu->nested_stage2_enabled) {
-		u32 esr;
-
 		ret = kvm_walk_nested_s2(vcpu, fault_ipa, &nested_trans);
 		if (ret) {
-			esr = kvm_s2_trans_esr(&nested_trans);
-			kvm_inject_s2_fault(vcpu, esr);
+			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
 			goto out_unlock;
 		}
 
 		ret = kvm_s2_handle_perm_fault(vcpu, &nested_trans);
 		if (ret) {
-			esr = kvm_s2_trans_esr(&nested_trans);
-			kvm_inject_s2_fault(vcpu, esr);
+			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
 			goto out_unlock;
 		}
 
