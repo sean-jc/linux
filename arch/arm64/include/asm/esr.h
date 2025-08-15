@@ -8,6 +8,7 @@
 #define __ASM_ESR_H
 
 #include <asm/memory.h>
+#include <asm/pgtable-hwdef.h>
 #include <asm/sysreg.h>
 
 #define ESR_ELx_EC_UNKNOWN	UL(0x00)
@@ -476,6 +477,11 @@ static inline bool esr_fsc_is_permission_fault(unsigned long esr)
 	       (esr == ESR_ELx_FSC_PERM_L(2)) ||
 	       (esr == ESR_ELx_FSC_PERM_L(1)) ||
 	       (esr == ESR_ELx_FSC_PERM_L(0));
+}
+
+static inline u64 esr_fsc_perm_fault_granule(unsigned long esr)
+{
+	return BIT(ARM64_HW_PGTABLE_LEVEL_SHIFT(esr & ESR_ELx_FSC_LEVEL));
 }
 
 static inline bool esr_fsc_is_access_flag_fault(unsigned long esr)
