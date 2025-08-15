@@ -1811,6 +1811,110 @@ static void handle_access_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	read_unlock(&vcpu->kvm->mmu_lock);
 }
 
+static int __kvm_handle_guest_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+				    unsigned long esr)
+{
+	struct kvm_s2_trans nested_trans, *nested = NULL;
+	struct kvm_memory_slot *memslot;
+	bool write_fault, writable;
+	unsigned long hva;
+	phys_addr_t ipa; /* Always the IPA in the L1 guest phys space */
+	gfn_t gfn;
+	int ret;
+
+	/*
+	 * We may have faulted on a shadow stage 2 page table if we are
+	 * running a nested guest.  In this case, we have to resolve the L2
+	 * IPA to the L1 IPA first, before knowing what kind of memory should
+	 * back the L1 IPA.
+	 *
+	 * If the shadow stage 2 page table walk faults, then we simply inject
+	 * this to the guest and carry on.
+	 *
+	 * If there are no shadow S2 PTs because S2 is disabled, there is
+	 * nothing to walk and we treat it as a 1:1 before going through the
+	 * canonical translation.
+	 */
+	if (kvm_is_nested_s2_mmu(vcpu->kvm,vcpu->arch.hw_mmu) &&
+	    vcpu->arch.hw_mmu->nested_stage2_enabled) {
+		ret = kvm_walk_nested_s2(vcpu, fault_ipa, &nested_trans);
+		if (ret) {
+			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
+			return ret;
+		}
+
+		ret = kvm_s2_handle_perm_fault(vcpu, &nested_trans);
+		if (ret) {
+			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
+			return ret;
+		}
+
+		ipa = kvm_s2_trans_output(&nested_trans);
+		nested = &nested_trans;
+	}
+
+	gfn = ipa >> PAGE_SHIFT;
+	memslot = gfn_to_memslot(vcpu->kvm, gfn);
+	hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+	write_fault = kvm_is_write_fault(vcpu);
+	if (kvm_is_error_hva(hva) || (write_fault && !writable)) {
+		/*
+		 * The guest has put either its instructions or its page-tables
+		 * somewhere it shouldn't have. Userspace won't be able to do
+		 * anything about this (there's no syndrome for a start), so
+		 * re-inject the abort back into the guest.
+		 */
+		if (kvm_vcpu_trap_is_iabt(vcpu)) {
+			ret = -ENOEXEC;
+			goto out;
+		}
+
+		if (kvm_vcpu_abt_iss1tw(vcpu))
+			return kvm_inject_sea_dabt(vcpu, kvm_vcpu_get_hfar(vcpu));
+
+		/*
+		 * Check for a cache maintenance operation. Since we
+		 * ended-up here, we know it is outside of any memory
+		 * slot. But we can't find out if that is for a device,
+		 * or if the guest is just being stupid. The only thing
+		 * we know for sure is that this range cannot be cached.
+		 *
+		 * So let's assume that the guest is just being
+		 * cautious, and skip the instruction.
+		 */
+		if (kvm_is_error_hva(hva) && kvm_vcpu_dabt_is_cm(vcpu)) {
+			kvm_incr_pc(vcpu);
+			return 1;
+		}
+
+		/*
+		 * The IPA is reported as [MAX:12], so we need to
+		 * complement it with the bottom 12 bits from the
+		 * faulting VA. This is always 12 bits, irrespective
+		 * of the page size.
+		 */
+		ipa |= kvm_vcpu_get_hfar(vcpu) & GENMASK(11, 0);
+		return io_mem_abort(vcpu, ipa);
+	}
+
+	/* Userspace should not be able to register out-of-bounds IPAs */
+	VM_BUG_ON(ipa >= kvm_phys_size(vcpu->arch.hw_mmu));
+
+	if (esr_fsc_is_access_flag_fault(esr)) {
+		handle_access_fault(vcpu, fault_ipa);
+		return 1;
+	}
+
+	ret = user_mem_abort(vcpu, fault_ipa, nested, memslot, hva,
+			     esr_fsc_is_permission_fault(esr));
+	if (ret == 0)
+		ret = 1;
+out:
+	if (ret == -ENOEXEC)
+		ret = kvm_inject_sea_iabt(vcpu, kvm_vcpu_get_hfar(vcpu));
+	return ret;
+}
+
 /**
  * kvm_handle_guest_abort - handles all 2nd stage aborts
  * @vcpu:	the VCPU pointer
@@ -1824,14 +1928,8 @@ static void handle_access_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
  */
 int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 {
-	struct kvm_s2_trans nested_trans, *nested = NULL;
 	unsigned long esr;
 	phys_addr_t fault_ipa; /* The address we faulted on */
-	phys_addr_t ipa; /* Always the IPA in the L1 guest phys space */
-	struct kvm_memory_slot *memslot;
-	unsigned long hva;
-	bool write_fault, writable;
-	gfn_t gfn;
 	int ret, idx;
 
 	/* Synchronous External Abort? */
@@ -1852,8 +1950,8 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 	 * The fault IPA should be reliable at this point as we're not dealing
 	 * with an SEA.
 	 */
-	ipa = fault_ipa = kvm_vcpu_get_fault_ipa(vcpu);
-	if (KVM_BUG_ON(ipa == INVALID_GPA, vcpu->kvm))
+	fault_ipa = kvm_vcpu_get_fault_ipa(vcpu);
+	if (KVM_BUG_ON(fault_ipa == INVALID_GPA, vcpu->kvm))
 		return -EFAULT;
 
 	if (esr_fsc_is_translation_fault(esr)) {
@@ -1888,102 +1986,8 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 
 	idx = srcu_read_lock(&vcpu->kvm->srcu);
 
-	/*
-	 * We may have faulted on a shadow stage 2 page table if we are
-	 * running a nested guest.  In this case, we have to resolve the L2
-	 * IPA to the L1 IPA first, before knowing what kind of memory should
-	 * back the L1 IPA.
-	 *
-	 * If the shadow stage 2 page table walk faults, then we simply inject
-	 * this to the guest and carry on.
-	 *
-	 * If there are no shadow S2 PTs because S2 is disabled, there is
-	 * nothing to walk and we treat it as a 1:1 before going through the
-	 * canonical translation.
-	 */
-	if (kvm_is_nested_s2_mmu(vcpu->kvm,vcpu->arch.hw_mmu) &&
-	    vcpu->arch.hw_mmu->nested_stage2_enabled) {
-		ret = kvm_walk_nested_s2(vcpu, fault_ipa, &nested_trans);
-		if (ret) {
-			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
-			goto out_unlock;
-		}
+	ret = __kvm_handle_guest_abort(vcpu, fault_ipa, esr);
 
-		ret = kvm_s2_handle_perm_fault(vcpu, &nested_trans);
-		if (ret) {
-			kvm_inject_s2_fault(vcpu, kvm_s2_trans_esr(&nested_trans));
-			goto out_unlock;
-		}
-
-		ipa = kvm_s2_trans_output(&nested_trans);
-		nested = &nested_trans;
-	}
-
-	gfn = ipa >> PAGE_SHIFT;
-	memslot = gfn_to_memslot(vcpu->kvm, gfn);
-	hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-	write_fault = kvm_is_write_fault(vcpu);
-	if (kvm_is_error_hva(hva) || (write_fault && !writable)) {
-		/*
-		 * The guest has put either its instructions or its page-tables
-		 * somewhere it shouldn't have. Userspace won't be able to do
-		 * anything about this (there's no syndrome for a start), so
-		 * re-inject the abort back into the guest.
-		 */
-		if (kvm_vcpu_trap_is_iabt(vcpu)) {
-			ret = -ENOEXEC;
-			goto out;
-		}
-
-		if (kvm_vcpu_abt_iss1tw(vcpu)) {
-			ret = kvm_inject_sea_dabt(vcpu, kvm_vcpu_get_hfar(vcpu));
-			goto out_unlock;
-		}
-
-		/*
-		 * Check for a cache maintenance operation. Since we
-		 * ended-up here, we know it is outside of any memory
-		 * slot. But we can't find out if that is for a device,
-		 * or if the guest is just being stupid. The only thing
-		 * we know for sure is that this range cannot be cached.
-		 *
-		 * So let's assume that the guest is just being
-		 * cautious, and skip the instruction.
-		 */
-		if (kvm_is_error_hva(hva) && kvm_vcpu_dabt_is_cm(vcpu)) {
-			kvm_incr_pc(vcpu);
-			ret = 1;
-			goto out_unlock;
-		}
-
-		/*
-		 * The IPA is reported as [MAX:12], so we need to
-		 * complement it with the bottom 12 bits from the
-		 * faulting VA. This is always 12 bits, irrespective
-		 * of the page size.
-		 */
-		ipa |= kvm_vcpu_get_hfar(vcpu) & GENMASK(11, 0);
-		ret = io_mem_abort(vcpu, ipa);
-		goto out_unlock;
-	}
-
-	/* Userspace should not be able to register out-of-bounds IPAs */
-	VM_BUG_ON(ipa >= kvm_phys_size(vcpu->arch.hw_mmu));
-
-	if (esr_fsc_is_access_flag_fault(esr)) {
-		handle_access_fault(vcpu, fault_ipa);
-		ret = 1;
-		goto out_unlock;
-	}
-
-	ret = user_mem_abort(vcpu, fault_ipa, nested, memslot, hva,
-			     esr_fsc_is_permission_fault(esr));
-	if (ret == 0)
-		ret = 1;
-out:
-	if (ret == -ENOEXEC)
-		ret = kvm_inject_sea_iabt(vcpu, kvm_vcpu_get_hfar(vcpu));
-out_unlock:
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 	return ret;
 }
