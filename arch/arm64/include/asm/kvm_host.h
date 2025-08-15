@@ -418,6 +418,7 @@ struct kvm_page_fault {
 	const bool exec;
 	const bool write;
 	const bool is_perm;
+	const u64  granule;
 
 	phys_addr_t fault_ipa; /* The address we faulted on */
 	phys_addr_t ipa; /* Always the IPA in the L1 guest phys space */

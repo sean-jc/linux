@@ -1483,14 +1483,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	short vma_shift;
 	void *memcache;
 	bool logging_active = memslot_is_logging(fault->slot);
-	long vma_pagesize, fault_granule;
+	long vma_pagesize;
 	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
 	struct kvm_pgtable *pgt;
 	vm_flags_t vm_flags;
 	enum kvm_pgtable_walk_flags flags = KVM_PGTABLE_WALK_HANDLE_FAULT | KVM_PGTABLE_WALK_SHARED;
 
-	if (fault->is_perm)
-		fault_granule = kvm_vcpu_trap_get_perm_fault_granule(vcpu);
 	VM_BUG_ON(fault->write && fault->exec);
 
 	if (fault->is_perm && !fault->write && !fault->exec) {
@@ -1715,8 +1713,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * backed by a THP and thus use block mapping if possible.
 	 */
 	if (vma_pagesize == PAGE_SIZE && !(force_pte || s2_force_noncacheable)) {
-		if (fault->is_perm && fault_granule > PAGE_SIZE)
-			vma_pagesize = fault_granule;
+		if (fault->is_perm && fault->granule > PAGE_SIZE)
+			vma_pagesize = fault->granule;
 		else
 			vma_pagesize = transparent_hugepage_adjust(kvm, fault);
 
@@ -1754,10 +1752,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	/*
 	 * Under the premise of getting a FSC_PERM fault, we just need to relax
-	 * permissions only if vma_pagesize equals fault_granule. Otherwise,
+	 * permissions only if vma_pagesize equals fault->granule. Otherwise,
 	 * kvm_pgtable_stage2_map() should be called to change block size.
 	 */
-	if (fault->is_perm && vma_pagesize == fault_granule) {
+	if (fault->is_perm && vma_pagesize == fault->granule) {
 		/*
 		 * Drop the SW bits in favour of those stored in the
 		 * PTE, which will be preserved.
@@ -1806,6 +1804,7 @@ static int __kvm_handle_guest_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa
 		.write = kvm_is_write_fault(vcpu),
 		.exec  = kvm_vcpu_trap_is_exec_fault(vcpu),
 		.is_perm = esr_fsc_is_permission_fault(esr),
+		.granule = esr_fsc_is_permission_fault(esr) ? esr_fsc_perm_fault_granule(esr) : 0,
 	};
 	struct kvm_s2_trans nested_trans;
 	bool writable;
