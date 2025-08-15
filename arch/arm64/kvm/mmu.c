@@ -1930,7 +1930,6 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 {
 	unsigned long esr;
 	phys_addr_t fault_ipa; /* The address we faulted on */
-	int ret, idx;
 
 	/* Synchronous External Abort? */
 	if (kvm_vcpu_abt_issea(vcpu)) {
@@ -1984,12 +1983,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 		return -EFAULT;
 	}
 
-	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	guard(srcu)(&vcpu->kvm->srcu);
 
-	ret = __kvm_handle_guest_abort(vcpu, fault_ipa, esr);
-
-	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-	return ret;
+	return __kvm_handle_guest_abort(vcpu, fault_ipa, esr);
 }
 
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
