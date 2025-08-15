@@ -1361,19 +1361,15 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
  * Returns the size of the mapping.
  */
 static long
-transparent_hugepage_adjust(struct kvm *kvm, struct kvm_memory_slot *memslot,
-			    unsigned long hva, kvm_pfn_t *pfnp,
-			    phys_addr_t *ipap)
+transparent_hugepage_adjust(struct kvm *kvm, struct kvm_page_fault *fault)
 {
-	kvm_pfn_t pfn = *pfnp;
-
 	/*
 	 * Make sure the adjustment is done only for THP pages. Also make
 	 * sure that the HVA and IPA are sufficiently aligned and that the
 	 * block map is contained within the memslot.
 	 */
-	if (fault_supports_stage2_huge_mapping(memslot, hva, PMD_SIZE)) {
-		int sz = get_user_mapping_size(kvm, hva);
+	if (fault_supports_stage2_huge_mapping(fault->slot, fault->hva, PMD_SIZE)) {
+		int sz = get_user_mapping_size(kvm, fault->hva);
 
 		if (sz < 0)
 			return sz;
@@ -1381,10 +1377,8 @@ transparent_hugepage_adjust(struct kvm *kvm, struct kvm_memory_slot *memslot,
 		if (sz < PMD_SIZE)
 			return PAGE_SIZE;
 
-		*ipap &= PMD_MASK;
-		pfn &= ~(PTRS_PER_PMD - 1);
-		*pfnp = pfn;
-
+		fault->ipa &= PMD_MASK;
+		fault->pfn &= ~(PTRS_PER_PMD - 1);
 		return PMD_SIZE;
 	}
 
@@ -1724,9 +1718,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (fault->is_perm && fault_granule > PAGE_SIZE)
 			vma_pagesize = fault_granule;
 		else
-			vma_pagesize = transparent_hugepage_adjust(kvm, fault->slot,
-								   fault->hva, &fault->pfn,
-								   &fault->fault_ipa);
+			vma_pagesize = transparent_hugepage_adjust(kvm, fault);
 
 		if (vma_pagesize < 0) {
 			ret = vma_pagesize;
