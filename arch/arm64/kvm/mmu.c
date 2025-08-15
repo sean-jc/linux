@@ -1287,10 +1287,10 @@ static void kvm_send_hwpoison_signal(unsigned long address, short lsb)
 	send_sig_mceerr(BUS_MCEERR_AR, (void __user *)address, lsb, current);
 }
 
-static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
-					       unsigned long hva,
+static bool fault_supports_stage2_huge_mapping(struct kvm_page_fault *fault,
 					       unsigned long map_size)
 {
+	struct kvm_memory_slot *memslot = fault->slot;
 	gpa_t gpa_start;
 	hva_t uaddr_start, uaddr_end;
 	size_t size;
@@ -1348,8 +1348,8 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
 	 * userspace_addr or the base_gfn, as both are equally aligned (per
 	 * the check above) and equally sized.
 	 */
-	return (hva & ~(map_size - 1)) >= uaddr_start &&
-	       (hva & ~(map_size - 1)) + map_size <= uaddr_end;
+	return (fault->hva & ~(map_size - 1)) >= uaddr_start &&
+	       (fault->hva & ~(map_size - 1)) + map_size <= uaddr_end;
 }
 
 /*
@@ -1368,7 +1368,7 @@ transparent_hugepage_adjust(struct kvm *kvm, struct kvm_page_fault *fault)
 	 * sure that the HVA and IPA are sufficiently aligned and that the
 	 * block map is contained within the memslot.
 	 */
-	if (fault_supports_stage2_huge_mapping(fault->slot, fault->hva, PMD_SIZE)) {
+	if (fault_supports_stage2_huge_mapping(fault, PMD_SIZE)) {
 		int sz = get_user_mapping_size(kvm, fault->hva);
 
 		if (sz < 0)
@@ -1547,7 +1547,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	switch (vma_shift) {
 #ifndef __PAGETABLE_PMD_FOLDED
 	case PUD_SHIFT:
-		if (fault_supports_stage2_huge_mapping(fault->slot, fault->hva, PUD_SIZE))
+		if (fault_supports_stage2_huge_mapping(fault, PUD_SIZE))
 			break;
 		fallthrough;
 #endif
@@ -1555,7 +1555,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		vma_shift = PMD_SHIFT;
 		fallthrough;
 	case PMD_SHIFT:
-		if (fault_supports_stage2_huge_mapping(fault->slot, fault->hva, PMD_SIZE))
+		if (fault_supports_stage2_huge_mapping(fault, PMD_SIZE))
 			break;
 		fallthrough;
 	case CONT_PTE_SHIFT:
