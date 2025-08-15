@@ -413,6 +413,24 @@ struct kvm_vcpu_fault_info {
 	u64 disr_el1;		/* Deferred [SError] Status Register */
 };
 
+struct kvm_page_fault {
+	const u64 esr;
+	const bool exec;
+	const bool write;
+	const bool is_perm;
+
+	phys_addr_t fault_ipa; /* The address we faulted on */
+	phys_addr_t ipa; /* Always the IPA in the L1 guest phys space */
+
+	struct kvm_s2_trans *nested;
+
+	gfn_t gfn;
+	struct kvm_memory_slot *slot;
+	unsigned long hva;
+	kvm_pfn_t pfn;
+	struct page *page;
+};
+
 /*
  * VNCR() just places the VNCR_capable registers in the enum after
  * __VNCR_START__, and the value (after correction) to be an 8-byte offset
