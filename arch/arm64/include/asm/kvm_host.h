@@ -430,6 +430,15 @@ struct kvm_page_fault {
 	unsigned long hva;
 	kvm_pfn_t pfn;
 	struct page *page;
+
+	struct {
+		vm_flags_t vm_flags;
+		short pageshift;
+
+		bool is_cacheable;
+	} vma;
+
+	long pagesize;
 };
 
 /*
