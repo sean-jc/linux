@@ -1466,47 +1466,10 @@ static bool kvm_vma_is_cacheable(struct vm_area_struct *vma)
 	}
 }
 
-static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+static int kvm_gather_fault_vma_info(struct kvm_vcpu *vcpu,
+				     struct kvm_page_fault *fault)
 {
-	int ret = 0;
-	bool writable;
-	struct kvm *kvm = vcpu->kvm;
 	struct vm_area_struct *vma;
-	void *memcache;
-	bool logging_active = memslot_is_logging(fault->slot);
-	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
-	struct kvm_pgtable *pgt;
-	enum kvm_pgtable_walk_flags flags = KVM_PGTABLE_WALK_HANDLE_FAULT | KVM_PGTABLE_WALK_SHARED;
-
-	VM_BUG_ON(fault->write && fault->exec);
-
-	if (fault->is_perm && !fault->write && !fault->exec) {
-		kvm_err("Unexpected L2 read permission error\n");
-		return -EFAULT;
-	}
-
-	if (!is_protected_kvm_enabled())
-		memcache = &vcpu->arch.mmu_page_cache;
-	else
-		memcache = &vcpu->arch.pkvm_memcache;
-
-	/*
-	 * Permission faults just need to update the existing leaf entry,
-	 * and so normally don't require allocations from the memcache. The
-	 * only exception to this is when dirty logging is enabled at runtime
-	 * and a write fault needs to collapse a block entry into a table.
-	 */
-	if (!fault->is_perm || (logging_active && fault->write)) {
-		int min_pages = kvm_mmu_cache_min_pages(vcpu->arch.hw_mmu);
-
-		if (!is_protected_kvm_enabled())
-			ret = kvm_mmu_topup_memory_cache(memcache, min_pages);
-		else
-			ret = topup_hyp_memcache(memcache, min_pages);
-
-		if (ret)
-			return ret;
-	}
 
 	/*
 	 * Let's check if we will get back a huge page backed by hugetlbfs, or
@@ -1520,11 +1483,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		return -EFAULT;
 	}
 
-	/*
-	 * logging_active is guaranteed to never be true for VM_PFNMAP
-	 * memslots.
-	 */
-	if (logging_active) {
+	/* Logging is guaranteed to never be active for VM_PFNMAP memslots. */
+	if (memslot_is_logging(fault->slot)) {
 		fault->force_pte = true;
 		fault->vma.pageshift = PAGE_SHIFT;
 	} else {
@@ -1612,6 +1572,54 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 */
 	fault->mmu_seq = vcpu->kvm->mmu_invalidate_seq;
 	mmap_read_unlock(current->mm);
+
+	return 0;
+}
+
+static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+{
+	int ret = 0;
+	bool writable;
+	struct kvm *kvm = vcpu->kvm;
+	void *memcache;
+	bool logging_active = memslot_is_logging(fault->slot);
+	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
+	struct kvm_pgtable *pgt;
+	enum kvm_pgtable_walk_flags flags = KVM_PGTABLE_WALK_HANDLE_FAULT | KVM_PGTABLE_WALK_SHARED;
+
+	VM_BUG_ON(fault->write && fault->exec);
+
+	if (fault->is_perm && !fault->write && !fault->exec) {
+		kvm_err("Unexpected L2 read permission error\n");
+		return -EFAULT;
+	}
+
+	if (!is_protected_kvm_enabled())
+		memcache = &vcpu->arch.mmu_page_cache;
+	else
+		memcache = &vcpu->arch.pkvm_memcache;
+
+	/*
+	 * Permission faults just need to update the existing leaf entry,
+	 * and so normally don't require allocations from the memcache. The
+	 * only exception to this is when dirty logging is enabled at runtime
+	 * and a write fault needs to collapse a block entry into a table.
+	 */
+	if (!fault->is_perm || (logging_active && fault->write)) {
+		int min_pages = kvm_mmu_cache_min_pages(vcpu->arch.hw_mmu);
+
+		if (!is_protected_kvm_enabled())
+			ret = kvm_mmu_topup_memory_cache(memcache, min_pages);
+		else
+			ret = topup_hyp_memcache(memcache, min_pages);
+
+		if (ret)
+			return ret;
+	}
+
+	ret = kvm_gather_fault_vma_info(vcpu, fault);
+	if (ret)
+		return ret;
 
 	fault->pfn = __kvm_faultin_pfn(fault->slot, fault->gfn,
 				       fault->write ? FOLL_WRITE : 0,
