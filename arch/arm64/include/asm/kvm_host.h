@@ -430,6 +430,7 @@ struct kvm_page_fault {
 	unsigned long hva;
 	kvm_pfn_t pfn;
 	struct page *page;
+	unsigned long mmu_seq;
 
 	struct {
 		vm_flags_t vm_flags;
