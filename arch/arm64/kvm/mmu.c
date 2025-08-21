@@ -1559,9 +1559,6 @@ static int kvm_gather_fault_vma_info(struct kvm_vcpu *vcpu,
 	fault->vma.vm_flags = vma->vm_flags;
 	fault->vma.is_cacheable = kvm_vma_is_cacheable(vma);
 
-	/* Don't use the VMA after the unlock -- it may have vanished */
-	vma = NULL;
-
 	/*
 	 * Read mmu_invalidate_seq so that KVM can detect if the results of
 	 * vma_lookup() or __kvm_faultin_pfn() become stale prior to
