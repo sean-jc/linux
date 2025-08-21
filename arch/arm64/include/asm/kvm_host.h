@@ -440,6 +440,9 @@ struct kvm_page_fault {
 	} vma;
 
 	long pagesize;
+
+	bool force_pte;
+	bool s2_force_noncacheable;
 };
 
 /*

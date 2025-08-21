@@ -1469,8 +1469,7 @@ static bool kvm_vma_is_cacheable(struct vm_area_struct *vma)
 static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	int ret = 0;
-	bool writable, force_pte = false;
-	bool s2_force_noncacheable = false;
+	bool writable;
 	struct kvm *kvm = vcpu->kvm;
 	struct vm_area_struct *vma;
 	void *memcache;
@@ -1526,7 +1525,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * memslots.
 	 */
 	if (logging_active) {
-		force_pte = true;
+		fault->force_pte = true;
 		fault->vma.pageshift = PAGE_SHIFT;
 	} else {
 		fault->vma.pageshift = get_vma_page_shift(vma, fault->hva);
@@ -1548,7 +1547,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		fallthrough;
 	case CONT_PTE_SHIFT:
 		fault->vma.pageshift = PAGE_SHIFT;
-		force_pte = true;
+		fault->force_pte = true;
 		fallthrough;
 	case PAGE_SHIFT:
 		break;
@@ -1561,7 +1560,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (fault->nested) {
 		unsigned long max_map_size;
 
-		max_map_size = force_pte ? PAGE_SIZE : PUD_SIZE;
+		max_map_size = fault->force_pte ? PAGE_SIZE : PUD_SIZE;
 
 		WARN_ON_ONCE(fault->ipa != kvm_s2_trans_output(fault->nested));
 
@@ -1581,7 +1580,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		else if (max_map_size >= PAGE_SIZE && max_map_size < PMD_SIZE)
 			max_map_size = PAGE_SIZE;
 
-		force_pte = (max_map_size == PAGE_SIZE);
+		fault->force_pte = (max_map_size == PAGE_SIZE);
 		fault->pagesize = min(fault->pagesize, (long)max_map_size);
 	}
 
@@ -1656,7 +1655,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			 * In both cases, we don't let transparent_hugepage_adjust()
 			 * change things at the last minute.
 			 */
-			s2_force_noncacheable = true;
+			fault->s2_force_noncacheable = true;
 		}
 	} else if (logging_active && !fault->write) {
 		/*
@@ -1666,7 +1665,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		writable = false;
 	}
 
-	if (fault->exec && s2_force_noncacheable)
+	if (fault->exec && fault->s2_force_noncacheable)
 		return -ENOEXEC;
 
 	/*
@@ -1699,7 +1698,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * If we are not forced to use page mapping, check if we are
 	 * backed by a THP and thus use block mapping if possible.
 	 */
-	if (fault->pagesize == PAGE_SIZE && !(force_pte || s2_force_noncacheable)) {
+	if (fault->pagesize == PAGE_SIZE &&
+	    !(fault->force_pte || fault->s2_force_noncacheable)) {
 		if (fault->is_perm && fault->granule > PAGE_SIZE)
 			fault->pagesize = fault->granule;
 		else
@@ -1711,7 +1711,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		}
 	}
 
-	if (!fault->is_perm && !s2_force_noncacheable && kvm_has_mte(kvm)) {
+	if (!fault->is_perm && !fault->s2_force_noncacheable && kvm_has_mte(kvm)) {
 		/* Check the VMM hasn't introduced a new disallowed VMA */
 		if (fault->vma.vm_flags & VM_MTE_ALLOWED) {
 			sanitise_mte_tags(kvm, fault->pfn, fault->pagesize);
@@ -1727,7 +1727,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (fault->exec)
 		prot |= KVM_PGTABLE_PROT_X;
 
-	if (s2_force_noncacheable) {
+	if (fault->s2_force_noncacheable) {
 		if (fault->vma.vm_flags & VM_ALLOW_ANY_UNCACHED)
 			prot |= KVM_PGTABLE_PROT_NORMAL_NC;
 		else
