@@ -789,6 +789,12 @@ config NOMMU_INITIAL_TRIM_EXCESS
 
 	  See Documentation/admin-guide/mm/nommu-mmap.rst for more information.
 
+config USER_SHRINKER
+	tristate "Userspace shrinker"
+	depends on MEMCG
+	help
+	  Blah blah blah.
+
 config ARCH_WANT_GENERAL_HUGETLB
 	bool
 

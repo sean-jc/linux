@@ -6901,6 +6901,7 @@ int access_remote_vm(struct mm_struct *mm, unsigned long addr,
 {
 	return __access_remote_vm(mm, addr, buf, len, gup_flags);
 }
+EXPORT_SYMBOL_GPL(access_remote_vm);
 
 /*
  * Access another process' address space.
