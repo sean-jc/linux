@@ -1,0 +1,37 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+.globl __tdcall
+/*
+ * u64 __tdcall(u64 leaf, u64 r12, u64 r13, u64 r14, u64 r15)
+ */
+__tdcall:
+	push %r12
+	push %r13
+	push %r14
+	push %r15
+
+	/* Map C ABI fast arguments to TDX GHCI payload registers */
+	/* RDI=leaf, RSI=r12, RDX=r13, RCX=r14, R8=r15 */
+
+	mov %rdi, %r11
+	mov %rsi, %r12
+	mov %rdx, %r13
+	mov %rcx, %r14
+	mov %r8,  %r15
+
+	/* TDCALL boilerplate */
+	mov $0, %rax
+	mov $0xFC00, %rcx	/* Expose R10-R15 */
+	mov $0, %r10
+
+	/* tdcall instruction */
+	.byte 0x66, 0x0f, 0x01, 0xcc
+
+	/* Extract status */
+	mov %r10, %rax
+
+	pop %r15
+	pop %r14
+	pop %r13
+	pop %r12
+	ret
