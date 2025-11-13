@@ -144,11 +144,6 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	return 0;
 }
 
-static inline u64 pdptr_rsvd_bits(struct kvm_vcpu *vcpu)
-{
-	return vcpu->arch.reserved_gpa_bits | rsvd_bits(5, 8) | rsvd_bits(1, 2);
-}
-
 /*
  * Load the pae pdptrs.  Return 1 if they are all valid, 0 otherwise.
  */

@@ -351,8 +351,10 @@ retry_walk:
 	if (walker->level == PT32E_ROOT_LEVEL) {
 		pte = w->get_pdptr(vcpu, (addr >> 30) & 3);
 		trace_kvm_mmu_paging_element(pte, walker->level);
-		if (!FNAME(is_present_gpte)(w, pte))
+		if (!FNAME(is_present_gpte)(w, pte) ||
+		    (pte & pdptr_rsvd_bits(vcpu)))
 			goto error;
+
 		--walker->level;
 	}
 #endif
