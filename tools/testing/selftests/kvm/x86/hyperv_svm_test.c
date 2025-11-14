@@ -94,7 +94,7 @@ static void __attribute__((__flatten__)) guest_code(struct svm_test_data *svm,
 
 	GUEST_SYNC(2);
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_VMMCALL);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_VMMCALL);
 	GUEST_SYNC(4);
 	vmcb->save.rip += 3;
 
@@ -102,13 +102,13 @@ static void __attribute__((__flatten__)) guest_code(struct svm_test_data *svm,
 	vmcb->control.intercept |= 1ULL << INTERCEPT_MSR_PROT;
 	__set_bit(2 * (MSR_FS_BASE & 0x1fff), svm->msr + 0x800);
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_MSR);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_MSR);
 	vmcb->save.rip += 2; /* rdmsr */
 
 	/* Enable enlightened MSR bitmap */
 	hve->hv_enlightenments_control.msr_bitmap = 1;
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_MSR);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_MSR);
 	vmcb->save.rip += 2; /* rdmsr */
 
 	/* Intercept RDMSR 0xc0000101 without telling KVM about it */
@@ -117,13 +117,13 @@ static void __attribute__((__flatten__)) guest_code(struct svm_test_data *svm,
 	vmcb->control.clean |= HV_VMCB_NESTED_ENLIGHTENMENTS;
 	run_guest(vmcb, svm->vmcb_gpa);
 	/* Make sure we don't see SVM_EXIT_MSR here so eMSR bitmap works */
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_VMMCALL);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_VMMCALL);
 	vmcb->save.rip += 3; /* vmcall */
 
 	/* Now tell KVM we've changed MSR-Bitmap */
 	vmcb->control.clean &= ~HV_VMCB_NESTED_ENLIGHTENMENTS;
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_MSR);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_MSR);
 	vmcb->save.rip += 2; /* rdmsr */
 
 
@@ -132,16 +132,16 @@ static void __attribute__((__flatten__)) guest_code(struct svm_test_data *svm,
 	 * no VMCALL exit expected.
 	 */
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_MSR);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_MSR);
 	vmcb->save.rip += 2; /* rdmsr */
 	/* Enable synthetic vmexit */
 	*(u32 *)(hv_pages->partition_assist) = 1;
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == HV_SVM_EXITCODE_ENL);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  HV_SVM_EXITCODE_ENL);
 	GUEST_ASSERT(vmcb->control.exit_info_1 == HV_SVM_ENL_EXITCODE_TRAP_AFTER_FLUSH);
 
 	run_guest(vmcb, svm->vmcb_gpa);
-	GUEST_ASSERT(vmcb->control.exit_code == SVM_EXIT_VMMCALL);
+	GUEST_ASSERT_EQ(vmcb->control.exit_code,  SVM_EXIT_VMMCALL);
 	GUEST_SYNC(6);
 
 	GUEST_DONE();
