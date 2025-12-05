@@ -131,7 +131,6 @@ struct nested_vmx {
 	 */
 	bool vmcs02_initialized;
 
-	bool change_vmcs01_virtual_apic_mode;
 	bool update_vmcs01_hwapic_isr;
 
 	/*
