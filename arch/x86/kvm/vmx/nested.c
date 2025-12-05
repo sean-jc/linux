@@ -5150,11 +5150,6 @@ void __nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 
 	nested_put_vmcs12_pages(vcpu);
 
-	if (vmx->nested.reload_vmcs01_apic_access_page) {
-		vmx->nested.reload_vmcs01_apic_access_page = false;
-		kvm_make_request(KVM_REQ_APIC_PAGE_RELOAD, vcpu);
-	}
-
 	if (vmx->nested.update_vmcs01_hwapic_isr) {
 		vmx->nested.update_vmcs01_hwapic_isr = false;
 		kvm_apic_update_hwapic_isr(vcpu);
