@@ -5201,6 +5201,19 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
 	}
 
+	/*
+	 * If the vCPU is migrated to a different pCPU than the one on which
+	 * the vCPU last ran, and IBPB is advertised to the vCPU, then flush
+	 * indirect branch predictors before the next VM-Enter to ensure the
+	 * vCPU doesn't consume prediction information from a previous run on
+	 * the "new" pCPU.
+	 */
+	if (unlikely(vcpu->arch.last_vmentry_cpu != cpu &&
+		     vcpu->arch.last_vmentry_cpu >= 0) &&
+	    (guest_cpu_cap_has(vcpu, X86_FEATURE_SPEC_CTRL) ||
+	     guest_cpu_cap_has(vcpu, X86_FEATURE_AMD_IBPB)))
+		vcpu->arch.need_ibpb = true;
+
 	if (unlikely(vcpu->cpu != cpu) || kvm_check_tsc_unstable()) {
 		s64 tsc_delta = !vcpu->arch.last_host_tsc ? 0 :
 				rdtsc() - vcpu->arch.last_host_tsc;
