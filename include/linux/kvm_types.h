@@ -6,7 +6,23 @@
 #include <linux/bits.h>
 #include <linux/export.h>
 #include <linux/types.h>
+
+/*
+ * Include the arch-defined kvm_types.h if and only if the target architecture
+ * supports KVM, so that linux/kvm_types.h can be included in generic code
+ * without requiring _all_ architectures to add generic-y += kvm_types.h.
+ */
+#if defined(CONFIG_ARM64)	|| \
+    defined(CONFIG_LOONGARCH)	|| \
+    defined(CONFIG_MIPS)	|| \
+    defined(CONFIG_PPC)		|| \
+    defined(CONFIG_RISCV)	|| \
+    defined(CONFIG_S390)	|| \
+    defined(CONFIG_X86)
 #include <asm/kvm_types.h>
+#else
+static_assert(!IS_ENABLED(CONFIG_KVM));
+#endif
 
 #ifdef KVM_SUB_MODULES
 #define EXPORT_SYMBOL_FOR_KVM_INTERNAL(symbol) \
