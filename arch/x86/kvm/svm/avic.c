@@ -882,6 +882,51 @@ static void svm_ir_list_del(struct kvm_kernel_irqfd *irqfd)
 	raw_spin_unlock_irqrestore(&to_svm(vcpu)->ir_list_lock, flags);
 }
 
+static int avic_pi_add_irte(struct kvm_kernel_irqfd *irqfd, void *ir_data,
+			    struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	int r;
+
+	/*
+	 * Prevent the vCPU from being scheduled out or migrated until the IRTE
+	 * is updated and its metadata has been added to the list of IRQs being
+	 * posted to the vCPU, to ensure the IRTE isn't programmed with stale
+	 * pCPU/IsRunning information.
+	 */
+	guard(raw_spinlock_irqsave)(&svm->ir_list_lock);
+
+	if (kvm_vcpu_apicv_active(vcpu)) {
+		u64 entry = svm->avic_physical_id_entry;
+		bool ga_log_intr;
+		int cpu;
+
+		/*
+		 * Update the target pCPU for IOMMU doorbells if the vCPU is
+		 * running.  If the vCPU is NOT running, i.e. is blocking or
+		 * scheduled out, KVM will update the pCPU info when the vCPU
+		 * is awakened and/or scheduled in.  See also avic_vcpu_load().
+		 */
+		if (entry & AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK) {
+			cpu = entry & AVIC_PHYSICAL_ID_ENTRY_HOST_PHYSICAL_ID_MASK;
+			ga_log_intr = false;
+		} else {
+			cpu = -1;
+			ga_log_intr = entry & AVIC_PHYSICAL_ID_ENTRY_GA_LOG_INTR;
+		}
+		r = amd_iommu_activate_guest_mode(ir_data, cpu, ga_log_intr);
+	} else {
+		r = amd_iommu_deactivate_guest_mode(ir_data);
+	}
+
+	if (r)
+		return r;
+
+	irqfd->irq_bypass_data = ir_data;
+	list_add(&irqfd->vcpu_list, &svm->ir_list);
+	return 0;
+}
+
 int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 			unsigned int host_irq, uint32_t guest_irq,
 			struct kvm_vcpu *vcpu, u32 vector)
@@ -902,35 +947,10 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 		struct amd_iommu_pi_data pi_data = {
 			.ga_tag = AVIC_GATAG(to_kvm_svm(kvm)->avic_vm_id,
 					     vcpu->vcpu_idx),
-			.is_guest_mode = kvm_vcpu_apicv_active(vcpu),
 			.vapic_addr = avic_get_backing_page_address(to_svm(vcpu)),
 			.vector = vector,
 		};
-		struct vcpu_svm *svm = to_svm(vcpu);
-		u64 entry;
 		int ret;
-
-		/*
-		 * Prevent the vCPU from being scheduled out or migrated until
-		 * the IRTE is updated and its metadata has been added to the
-		 * list of IRQs being posted to the vCPU, to ensure the IRTE
-		 * isn't programmed with stale pCPU/IsRunning information.
-		 */
-		guard(raw_spinlock_irqsave)(&svm->ir_list_lock);
-
-		/*
-		 * Update the target pCPU for IOMMU doorbells if the vCPU is
-		 * running.  If the vCPU is NOT running, i.e. is blocking or
-		 * scheduled out, KVM will update the pCPU info when the vCPU
-		 * is awakened and/or scheduled in.  See also avic_vcpu_load().
-		 */
-		entry = svm->avic_physical_id_entry;
-		if (entry & AVIC_PHYSICAL_ID_ENTRY_IS_RUNNING_MASK) {
-			pi_data.cpu = entry & AVIC_PHYSICAL_ID_ENTRY_HOST_PHYSICAL_ID_MASK;
-		} else {
-			pi_data.cpu = -1;
-			pi_data.ga_log_intr = entry & AVIC_PHYSICAL_ID_ENTRY_GA_LOG_INTR;
-		}
 
 		ret = irq_set_vcpu_affinity(host_irq, &pi_data);
 		if (ret)
@@ -946,9 +966,11 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 			return -EIO;
 		}
 
-		irqfd->irq_bypass_data = pi_data.ir_data;
-		list_add(&irqfd->vcpu_list, &svm->ir_list);
-		return 0;
+		ret = avic_pi_add_irte(irqfd, pi_data.ir_data, vcpu);
+		if (WARN_ON_ONCE(ret))
+			irq_set_vcpu_affinity(host_irq, NULL);
+
+		return ret;
 	}
 	return irq_set_vcpu_affinity(host_irq, NULL);
 }

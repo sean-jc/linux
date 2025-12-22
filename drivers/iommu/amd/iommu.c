@@ -4077,7 +4077,6 @@ EXPORT_SYMBOL(amd_iommu_deactivate_guest_mode);
 
 static int amd_ir_set_vcpu_affinity(struct irq_data *data, void *info)
 {
-	int ret;
 	struct amd_iommu_pi_data *pi_data = info;
 	struct amd_ir_data *ir_data = data->chip_data;
 	struct irq_2_irte *irte_info = &ir_data->irq_2_irte;
@@ -4100,24 +4099,15 @@ static int amd_ir_set_vcpu_affinity(struct irq_data *data, void *info)
 
 	ir_data->cfg = irqd_cfg(data);
 
-	if (pi_data) {
-		pi_data->ir_data = ir_data;
+	if (!pi_data)
+		return amd_iommu_deactivate_guest_mode(ir_data);
 
-		ir_data->ga_root_ptr = (pi_data->vapic_addr >> 12);
-		ir_data->ga_vector = pi_data->vector;
-		ir_data->ga_tag = pi_data->ga_tag;
-		if (pi_data->is_guest_mode)
-			ret = amd_iommu_activate_guest_mode(ir_data, pi_data->cpu,
-							    pi_data->ga_log_intr);
-		else
-			ret = amd_iommu_deactivate_guest_mode(ir_data);
-	} else {
-		ret = amd_iommu_deactivate_guest_mode(ir_data);
-	}
-
-	return ret;
+	pi_data->ir_data = ir_data;
+	ir_data->ga_root_ptr = (pi_data->vapic_addr >> 12);
+	ir_data->ga_vector = pi_data->vector;
+	ir_data->ga_tag = pi_data->ga_tag;
+	return 0;
 }
-
 
 static void amd_ir_update_irte(struct irq_data *irqd, struct amd_iommu *iommu,
 			       struct amd_ir_data *ir_data,
