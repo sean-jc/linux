@@ -6957,61 +6957,40 @@ void vmx_set_apic_access_page_addr(struct kvm_vcpu *vcpu)
 	read_unlock(&vcpu->kvm->mmu_lock);
 }
 
-void vmx_hwapic_isr_update(struct kvm_vcpu *vcpu, int max_isr)
+static void vmx_sync_guest_intr_status(struct kvm_vcpu *vcpu, int rvi)
 {
-	u16 status;
-	u8 old;
+	int svi = kvm_lapic_find_highest_isr(vcpu);
+	u16 status, new;
 
-	/*
-	 * If L2 is active, defer the SVI update until vmcs01 is loaded, as SVI
-	 * is only relevant for if and only if Virtual Interrupt Delivery is
-	 * enabled in vmcs12, and if VID is enabled then L2 EOIs affect L2's
-	 * vAPIC, not L1's vAPIC.  KVM must update vmcs01 on the next nested
-	 * VM-Exit, otherwise L1 with run with a stale SVI.
-	 */
-	if (is_guest_mode(vcpu)) {
-		to_vmx(vcpu)->nested.update_vmcs01_hwapic_isr = true;
-		return;
-	}
-
-	if (max_isr == -1)
-		max_isr = 0;
+	if (rvi == -1)
+		rvi = 0;
+	if (svi == -1)
+		svi = 0;
 
 	status = vmcs_read16(GUEST_INTR_STATUS);
-	old = status >> 8;
-	if (max_isr != old) {
-		status &= 0xff;
-		status |= max_isr << 8;
-		vmcs_write16(GUEST_INTR_STATUS, status);
-	}
-}
-
-static void vmx_set_rvi(int vector)
-{
-	u16 status;
-	u8 old;
-
-	if (vector == -1)
-		vector = 0;
-
-	status = vmcs_read16(GUEST_INTR_STATUS);
-	old = (u8)status & 0xff;
-	if ((u8)vector != old) {
-		status &= ~0xff;
-		status |= (u8)vector;
-		vmcs_write16(GUEST_INTR_STATUS, status);
-	}
+	new = (rvi & 0xff) | ((svi & 0xff) << 8);
+	if (new != status)
+		vmcs_write16(GUEST_INTR_STATUS, new);
 }
 
 int vmx_sync_pir_to_irr(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vt *vt = to_vt(vcpu);
-	int max_irr;
 	bool got_posted_interrupt;
+	int max_irr;
 
 	if (KVM_BUG_ON(!enable_apicv, vcpu->kvm))
 		return -EIO;
 
+	/*
+	 * Process Posted Interrupts even if APICv is disabled, as KVM does NOT
+	 * update IRTEs in the IOMMU when APICv is inhibited, i.e. assigned
+	 * devices may still to post IRQs to the vCPU.  If an IRQ is posted
+	 * while APICv is disabled, the notification vector IRQ will cause a
+	 * VM-Exit, and the subsequent VM-Enter will call into here.  Leaving
+	 * IRTEs in posted mode significantly reduces the cost and complexity
+	 * of toggling APICv.
+	 */
 	if (pi_test_on(&vt->pi_desc)) {
 		pi_clear_on(&vt->pi_desc);
 		/*
@@ -7027,22 +7006,37 @@ int vmx_sync_pir_to_irr(struct kvm_vcpu *vcpu)
 	}
 
 	/*
-	 * Newly recognized interrupts are injected via either virtual interrupt
-	 * delivery (RVI) or KVM_REQ_EVENT.  Virtual interrupt delivery is
-	 * disabled in two cases:
+	 * Virtual interrupts are delivered via Virtual Interrupt Delivery (by
+	 * setting RVI) or via injection by way of KVM_REQ_EVENT.  VID is used
+	 * if and only if L1 is running with APICv enabled (VID is disabled in
+	 * hardware if APICv is disabled).  If L2 is running, then KVM enables
+	 * VID in hardware if and only if VID is enabled in vmcs12, in which
+	 * case L2 IRQs and EOIs affect L2's vAPIC, not L1's vAPIC, as enabling
+	 * VID requires enabling external-interrupt exiting.  I.e. IRQs in L1's
+	 * PIR/vIRR need to be delivered to L1, not L2.
 	 *
-	 * 1) If L2 is running and the vCPU has a new pending interrupt.  If L1
-	 * wants to exit on interrupts, KVM_REQ_EVENT is needed to synthesize a
-	 * VM-Exit to L1.  If L1 doesn't want to exit, the interrupt is injected
-	 * into L2, but KVM doesn't use virtual interrupt delivery to inject
-	 * interrupts into L2, and so KVM_REQ_EVENT is again needed.
+	 * When KVM is using VID, simply set Requesting Virtual Interrupt (RVI)
+	 * to the highest requested IRQ and hardware will deliver the IRQ as
+	 * appropriate, based on masking and priority.
 	 *
-	 * 2) If APICv is disabled for this vCPU, assigned devices may still
-	 * attempt to post interrupts.  The posted interrupt vector will cause
-	 * a VM-Exit and the subsequent entry will call sync_pir_to_irr.
+	 * If VID is not being used, trigger KVM_REQ_EVENT only if the vCPU has
+	 * a _new_ requested IRQ; KVM must NOT set KVM_REQ_EVENT for IRQs that
+	 * are already pending, as doing so would put the vCPU into an infinite
+	 * loop (requests block VM-Enter, and KVM needs to complete VM-Enter to
+	 * inject the IRQ).  In response to KVM_REQ_EVENT, KVM will inject the
+	 * IRQ or enable interrupt-window exiting (if L1 is running with APICv
+	 * inactive), synthesize a VM-Exit (if L2 is active and the L1 IRQ is
+	 * not the nested posted IRQ notification vector), or trigger posted
+	 * IRQ processing for L2 if L2 is active and the L1 IRQ vector matches
+	 * the notification vector in vmcs12.
+	 *
+	 * For simplicity, synchronize both RVI and Servicing Virtual Interrupt
+	 * (SVI) on every VM-Enter if APICv (and thus VID) is enabled to ensure
+	 * vmcs.GUEST_INTR_STATUS is synchronized with L1's vAPIC, i.e. so that
+	 * KVM modifications of vIRR or vISR are reflected into the VMCS.
 	 */
 	if (!is_guest_mode(vcpu) && kvm_vcpu_apicv_active(vcpu))
-		vmx_set_rvi(max_irr);
+		vmx_sync_guest_intr_status(vcpu, max_irr);
 	else if (got_posted_interrupt)
 		kvm_make_request(KVM_REQ_EVENT, vcpu);
 

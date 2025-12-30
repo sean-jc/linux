@@ -10894,8 +10894,6 @@ void __kvm_vcpu_update_apicv(struct kvm_vcpu *vcpu)
 	 */
 	if (!apic->apicv_active)
 		kvm_make_request(KVM_REQ_EVENT, vcpu);
-	else
-		kvm_apic_update_hwapic_isr(vcpu);
 
 out:
 	preempt_enable();
