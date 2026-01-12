@@ -153,6 +153,8 @@ irqfd_shutdown(struct work_struct *work)
 	irq_bypass_unregister_consumer(&irqfd->consumer);
 #endif
 	eventfd_ctx_put(irqfd->eventfd);
+
+	memset(irqfd, 0, sizeof(*irqfd));
 	kfree(irqfd);
 }
 
