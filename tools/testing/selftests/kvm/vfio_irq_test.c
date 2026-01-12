@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <semaphore.h>
@@ -36,6 +37,7 @@
 
 /* Shared variables. */
 static bool do_guest_irq = true;
+static bool irqfd_assigned;
 
 /* Guest-only variables, shared across vCPUs. */
 static int irqs_received;
@@ -99,6 +101,8 @@ static void guest_code(uint32_t vcpu_id)
 	}
 
 	if (vcpu_id == 0) {
+		GUEST_ASSERT(READ_ONCE(irqfd_assigned));
+
 		irqs_sent++;
 		GUEST_ASSERT(READ_ONCE(do_guest_irq));
 		mercury_issue_reset(mercury_bar0);
@@ -107,6 +111,11 @@ static void guest_code(uint32_t vcpu_id)
 		status = mercury_get_status(mercury_bar0);
 		__GUEST_ASSERT(status & BIT(MERCURY_STATUS_BIT_READY),
 			"Expected device ready after reset");
+		GUEST_SYNC(irqs_received);
+	}
+
+	for ( ; !READ_ONCE(irqfd_assigned); ) {
+		mercury_force_irq(mercury_bar0);
 		GUEST_SYNC(irqs_received);
 	}
 
@@ -270,6 +279,17 @@ static void set_gsi_dest(struct kvm_vcpu *vcpu, struct kvm_irq_routing *routing,
 	vm_ioctl(vcpu->vm, KVM_SET_GSI_ROUTING, routing);
 }
 
+static void set_kvm_irqfd(struct kvm_vm *vm, int eventfd, bool assign)
+{
+	if (assign)
+		kvm_assign_irqfd(vm, MERCURY_GSI, eventfd);
+	else
+		kvm_deassign_irqfd(vm, MERCURY_GSI, eventfd);
+
+	WRITE_ONCE(irqfd_assigned, assign);
+	sync_global_to_guest(vm, irqfd_assigned);
+}
+
 static void vcpu_run_and_verify(struct kvm_vcpu *vcpu, int nr_irqs)
 {
 	struct ucall uc;
@@ -281,7 +301,7 @@ static void vcpu_run_and_verify(struct kvm_vcpu *vcpu, int nr_irqs)
 
 int main(int argc, char *argv[])
 {
-	bool migrate = false, nmi = false, async = false, empty = false;
+	bool migrate = false, nmi = false, async = false, empty = false, deassign = false;
 	pthread_t migration_thread, irq_thread;
 	struct kvm_irq_routing *routing;
 	struct vfio_pci_dev *dev;
@@ -295,7 +315,7 @@ int main(int argc, char *argv[])
 
 	sem_init(&do_irq, 0, 0);
 
-	while ((opt = getopt(argc, argv, "had:ei:mnx")) != -1) {
+	while ((opt = getopt(argc, argv, "had:ei:mnux")) != -1) {
 		switch (opt) {
 		case 'a':
 			async = true;
@@ -314,6 +334,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'n':
 			nmi = true;
+			break;
+		case 'u':
+			deassign = true;
 			break;
 		case 'x':
 			x2apic = false;
@@ -351,7 +374,8 @@ int main(int argc, char *argv[])
 
 	eventfd = kvm_new_eventfd();
 	vfio_pci_assign_msix(dev, eventfd);
-	kvm_assign_irqfd(vm, MERCURY_GSI, eventfd);
+
+	set_kvm_irqfd(vm, eventfd, true);
 
 	r = sched_getaffinity(0, sizeof(possible_mask), &possible_mask);
 	TEST_ASSERT(!r, "sched_getaffinity failed, errno = %d (%s)", errno,
@@ -370,6 +394,22 @@ int main(int argc, char *argv[])
 	set_gsi_dest(vcpus[0], routing, false);
 	vcpu_run_and_verify(vcpus[0], 1);
 
+	if (deassign) {
+		u64 nr_events;
+
+		set_kvm_irqfd(vm, eventfd, false);
+
+		for (i = 0; i < 100; i++) {
+			vcpu_run_and_verify(vcpus[0], 1);
+
+			r = read(eventfd, &nr_events, sizeof(nr_events));
+			TEST_ASSERT(r == sizeof(nr_events) && nr_events == 1,
+				    "read() eventfd return '%u', nr events = %lu",
+				    r, nr_events);
+		}
+
+		set_kvm_irqfd(vm, eventfd, true);
+	}
 #if 0
 	for (i = 1; i < nr_irqs; i++) {
 		usleep(1000 * 1000);
