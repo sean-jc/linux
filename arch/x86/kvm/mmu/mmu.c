@@ -3540,6 +3540,14 @@ static int kvm_handle_noslot_fault(struct kvm_vcpu *vcpu,
 	if (unlikely(fault->gfn > kvm_mmu_max_gfn()))
 		return RET_PF_EMULATE;
 
+	/*
+	 * Similarly, if KVM can't map the faulting address, don't attempt to
+	 * install a SPTE because KVM will effectively truncate the address
+	 * when walking KVM's page tables.
+	 */
+	if (unlikely(fault->addr & vcpu->arch.mmu->unmappable_mask))
+		return RET_PF_EMULATE;
+
 	return RET_PF_CONTINUE;
 }
 
@@ -4681,6 +4689,11 @@ static int kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 		return RET_PF_RETRY;
 	}
 
+	if (fault->addr & vcpu->arch.mmu->unmappable_mask) {
+		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
+		return -EFAULT;
+	}
+
 	if (slot->id == APIC_ACCESS_PAGE_PRIVATE_MEMSLOT) {
 		/*
 		 * Don't map L1's APIC access page into L2, KVM doesn't support
@@ -5772,6 +5785,29 @@ u8 kvm_mmu_get_max_tdp_level(void)
 	return tdp_root_level ? tdp_root_level : max_tdp_level;
 }
 
+static void reset_tdp_unmappable_mask(struct kvm_mmu *mmu)
+{
+	int max_addr_bit;
+
+	switch (mmu->root_role.level) {
+	case PT64_ROOT_5LEVEL:
+		max_addr_bit = 52;
+		break;
+	case PT64_ROOT_4LEVEL:
+		max_addr_bit = 48;
+		break;
+	case PT32E_ROOT_LEVEL:
+		max_addr_bit = 32;
+		break;
+	default:
+		WARN_ONCE(1, "Unhandled root level %u\n", mmu->root_role.level);
+		mmu->unmappable_mask = 0;
+		return;
+	}
+
+	mmu->unmappable_mask = rsvd_bits(max_addr_bit, 63);
+}
+
 static union kvm_mmu_page_role
 kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu,
 				union kvm_cpu_role cpu_role)
@@ -5816,6 +5852,7 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu,
 	else
 		context->gva_to_gpa = paging32_gva_to_gpa;
 
+	reset_tdp_unmappable_mask(context);
 	reset_guest_paging_metadata(vcpu, context);
 	reset_tdp_shadow_zero_bits_mask(context);
 }
@@ -5889,6 +5926,8 @@ void kvm_init_shadow_npt_mmu(struct kvm_vcpu *vcpu, unsigned long cr0,
 		root_role.passthrough = 1;
 
 	shadow_mmu_init_context(vcpu, context, cpu_role, root_role);
+	reset_tdp_unmappable_mask(context);
+
 	kvm_mmu_new_pgd(vcpu, nested_cr3);
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_init_shadow_npt_mmu);
@@ -5939,6 +5978,7 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 
 		update_permission_bitmask(context, true);
 		context->pkru_mask = 0;
+		reset_tdp_unmappable_mask(context);
 		reset_rsvds_bits_mask_ept(vcpu, context, execonly, huge_page_level);
 		reset_ept_shadow_zero_bits_mask(context, execonly);
 	}
@@ -5953,6 +5993,8 @@ static void init_kvm_softmmu(struct kvm_vcpu *vcpu,
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 
 	kvm_init_shadow_mmu(vcpu, cpu_role);
+
+	context->unmappable_mask = 0;
 
 	context->get_guest_pgd     = get_guest_cr3;
 	context->get_pdptr         = kvm_pdptr_read;

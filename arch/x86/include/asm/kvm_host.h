@@ -493,6 +493,12 @@ struct kvm_mmu {
 	 */
 	u8 permissions[16];
 
+	/*
+	 * Mask of address bits that KVM can't map with this MMU given the root
+	 * level, e.g. 5-level EPT/NPT only consume bits 51:0.
+	 */
+	gpa_t unmappable_mask;
+
 	u64 *pae_root;
 	u64 *pml4_root;
 	u64 *pml5_root;
