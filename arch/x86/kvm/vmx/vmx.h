@@ -408,6 +408,11 @@ static inline void vmx_guest_debugctl_write(struct kvm_vcpu *vcpu, u64 val)
 	WARN_ON_ONCE(val & VMX_HOST_OWNED_DEBUGCTL_BITS);
 
 	val |= vcpu->arch.host_debugctl & VMX_HOST_OWNED_DEBUGCTL_BITS;
+
+	if (kvm_vcpu_has_mediated_pmu(vcpu) &&
+	    (kvm_host.perf_capabilities & PERF_CAP_FREEZE_IN_SMM))
+		val |= DEBUGCTLMSR_FREEZE_IN_SMM;
+
 	vmcs_write64(GUEST_IA32_DEBUGCTL, val);
 }
 
