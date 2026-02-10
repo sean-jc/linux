@@ -284,6 +284,14 @@ struct fetch_cache {
 	u8 *end;
 };
 
+/*
+ * To complete userspace MMIO and I/O reads, KVM re-emulates (NO_DECODE) the
+ * _entire_ instruction to propagate the read data to its final destination.
+ * To avoid re-reading values from memory and/or getting "stuck" on the access
+ * that triggered an exit to userspace, KVM caches all values that have been
+ * read for a given instruction, and reads from this cache instead of reading
+ * from guest memory or from userspace.
+ */
 struct read_cache {
 	u8 data[1024];
 	unsigned long pos;
