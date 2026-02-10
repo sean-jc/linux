@@ -11832,7 +11832,10 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *run = vcpu->run;
 	struct kvm_mmio_fragment *frag;
+	u8 clobber[4096];
 	unsigned len;
+
+	memset(clobber, 0xaa, sizeof(clobber));
 
 	BUG_ON(!vcpu->mmio_needed);
 
