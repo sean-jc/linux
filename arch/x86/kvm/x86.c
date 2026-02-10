@@ -10082,18 +10082,6 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 		return -EIO;
 	}
 
-	if (boot_cpu_has(X86_FEATURE_SHSTK) || boot_cpu_has(X86_FEATURE_IBT)) {
-		rdmsrq(MSR_IA32_S_CET, kvm_host.s_cet);
-		/*
-		 * Linux doesn't yet support supervisor shadow stacks (SSS), so
-		 * KVM doesn't save/restore the associated MSRs, i.e. KVM may
-		 * clobber the host values.  Yell and refuse to load if SSS is
-		 * unexpectedly enabled, e.g. to avoid crashing the host.
-		 */
-		if (WARN_ON_ONCE(kvm_host.s_cet & CET_SHSTK_EN))
-			return -EIO;
-	}
-
 	memset(&kvm_caps, 0, sizeof(kvm_caps));
 
 	x86_emulator_cache = kvm_alloc_emulator_cache();
@@ -10108,6 +10096,20 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 
 	kvm_caps.supported_vm_types = BIT(KVM_X86_DEFAULT_VM);
 	kvm_caps.supported_mce_cap = MCG_CTL_P | MCG_SER_P;
+	kvm_caps.supported_quirks = KVM_X86_VALID_QUIRKS;
+	kvm_caps.inapplicable_quirks = KVM_X86_CONDITIONAL_QUIRKS;
+
+	if (boot_cpu_has(X86_FEATURE_SHSTK) || boot_cpu_has(X86_FEATURE_IBT)) {
+		rdmsrq(MSR_IA32_S_CET, kvm_host.s_cet);
+		/*
+		 * Linux doesn't yet support supervisor shadow stacks (SSS), so
+		 * KVM doesn't save/restore the associated MSRs, i.e. KVM may
+		 * clobber the host values.  Yell and refuse to load if SSS is
+		 * unexpectedly enabled, e.g. to avoid crashing the host.
+		 */
+		if (WARN_ON_ONCE(kvm_host.s_cet & CET_SHSTK_EN))
+			return -EIO;
+	}
 
 	if (boot_cpu_has(X86_FEATURE_XSAVE)) {
 		kvm_host.xcr0 = xgetbv(XCR_XFEATURE_ENABLED_MASK);
@@ -10119,15 +10121,12 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 		kvm_caps.supported_xss = kvm_host.xss & KVM_SUPPORTED_XSS;
 	}
 
-	kvm_caps.supported_quirks = KVM_X86_VALID_QUIRKS;
-	kvm_caps.inapplicable_quirks = KVM_X86_CONDITIONAL_QUIRKS;
+	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
+		rdmsrq(MSR_IA32_ARCH_CAPABILITIES, kvm_host.arch_capabilities);
 
 	rdmsrq_safe(MSR_EFER, &kvm_host.efer);
 
 	kvm_init_pmu_capability(ops->pmu_ops);
-
-	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
-		rdmsrq(MSR_IA32_ARCH_CAPABILITIES, kvm_host.arch_capabilities);
 
 	WARN_ON_ONCE(kvm_nr_uret_msrs);
 
