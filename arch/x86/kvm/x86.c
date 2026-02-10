@@ -8109,7 +8109,7 @@ int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa,
 }
 
 struct read_write_emulator_ops {
-	int (*read_write_prepare)(struct kvm_vcpu *vcpu, void *val,
+	int (*read_mmio_fragment)(struct kvm_vcpu *vcpu, void *val,
 				  int bytes);
 	int (*read_write_emulate)(struct kvm_vcpu *vcpu, gpa_t gpa,
 				  void *val, int bytes);
@@ -8120,16 +8120,30 @@ struct read_write_emulator_ops {
 	bool write;
 };
 
-static int read_prepare(struct kvm_vcpu *vcpu, void *val, int bytes)
+static int read_mmio_fragment(struct kvm_vcpu *vcpu, void *val, int bytes)
 {
-	if (vcpu->mmio_read_completed) {
-		trace_kvm_mmio(KVM_TRACE_MMIO_READ, bytes,
-			       vcpu->mmio_fragments[0].gpa, val);
-		vcpu->mmio_read_completed = 0;
-		return 1;
+	int *head = &vcpu->mmio_head_fragment;
+	int tail = vcpu->mmio_tail_fragment;
+	struct kvm_mmio_fragment *frag;
+
+	if (vcpu->mmio_head_fragment >= vcpu->mmio_tail_fragment)
+		return 0;
+
+	if (WARN_ON_ONCE(tail > vcpu->mmio_nr_fragments ||
+			 tail > ARRAY_SIZE(vcpu->mmio_fragments)))
+		return 0;
+
+	for ( ; *head < tail; ++(*head)) {
+		frag = &vcpu->mmio_fragments[*head];
+		if (WARN_ON_ONCE(bytes < frag->len))
+			break;
+
+		val += frag->len;
+		bytes -= frag->len;
 	}
 
-	return 0;
+	trace_kvm_mmio(KVM_TRACE_MMIO_READ, bytes, frag->gpa, val);
+	return 1;
 }
 
 static int read_emulate(struct kvm_vcpu *vcpu, gpa_t gpa,
@@ -8167,7 +8181,7 @@ static int write_exit_mmio(struct kvm_vcpu *vcpu, gpa_t gpa,
 }
 
 static const struct read_write_emulator_ops read_emultor = {
-	.read_write_prepare = read_prepare,
+	.read_mmio_fragment = read_mmio_fragment,
 	.read_write_emulate = read_emulate,
 	.read_write_mmio = vcpu_mmio_read,
 	.read_write_exit_mmio = read_exit_mmio,
@@ -8241,11 +8255,13 @@ static int emulator_read_write(struct x86_emulate_ctxt *ctxt,
 	gpa_t gpa;
 	int rc;
 
-	if (ops->read_write_prepare &&
-		  ops->read_write_prepare(vcpu, val, bytes))
+	if (ops->read_mmio_fragment &&
+	    ops->read_mmio_fragment(vcpu, val, bytes))
 		return X86EMUL_CONTINUE;
 
 	vcpu->mmio_nr_fragments = 0;
+	vcpu->mmio_head_fragment = 0;
+	vcpu->mmio_tail_fragment = 0;
 
 	/* Crossing a page boundary? */
 	if (((addr + bytes - 1) ^ addr) & PAGE_MASK) {
@@ -8275,7 +8291,6 @@ static int emulator_read_write(struct x86_emulate_ctxt *ctxt,
 	gpa = vcpu->mmio_fragments[0].gpa;
 
 	vcpu->mmio_needed = 1;
-	vcpu->mmio_cur_fragment = 0;
 
 	vcpu->run->mmio.len = min(8u, vcpu->mmio_fragments[0].len);
 	vcpu->run->mmio.is_write = vcpu->mmio_is_write = ops->write;
@@ -11836,8 +11851,9 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 
 	BUG_ON(!vcpu->mmio_needed);
 
-	/* Complete previous fragment */
-	frag = &vcpu->mmio_fragments[vcpu->mmio_cur_fragment];
+	/* Complete MMIO for the active fragment. */
+	frag = &vcpu->mmio_fragments[vcpu->mmio_tail_fragment];
+
 	len = min(8u, frag->len);
 	if (!vcpu->mmio_is_write)
 		memcpy(frag->data, run->mmio.data, len);
@@ -11845,7 +11861,7 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 	if (frag->len <= 8) {
 		/* Switch to the next fragment. */
 		frag++;
-		vcpu->mmio_cur_fragment++;
+		vcpu->mmio_tail_fragment++;
 	} else {
 		/* Go forward to the next mmio piece. */
 		frag->data += len;
@@ -11853,13 +11869,21 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 		frag->len -= len;
 	}
 
-	if (vcpu->mmio_cur_fragment >= vcpu->mmio_nr_fragments) {
+	if (vcpu->mmio_tail_fragment >= vcpu->mmio_nr_fragments) {
 		vcpu->mmio_needed = 0;
+		WARN_ON_ONCE(vcpu->mmio_head_fragment);
 
-		/* FIXME: return into emulator if single-stepping.  */
-		if (vcpu->mmio_is_write)
+		/*
+		 * Don't re-emulate the instruction for MMIO writes, as KVM has
+		 * already committed all side effects.
+		 *
+		 * FIXME: Return into emulator if single-stepping.
+		 */
+		if (vcpu->mmio_is_write) {
+			vcpu->mmio_tail_fragment = 0;
 			return 1;
-		vcpu->mmio_read_completed = 1;
+		}
+
 		return complete_emulated_io(vcpu);
 	}
 
@@ -14246,8 +14270,8 @@ static int complete_sev_es_emulated_mmio(struct kvm_vcpu *vcpu)
 
 	BUG_ON(!vcpu->mmio_needed);
 
-	/* Complete previous fragment */
-	frag = &vcpu->mmio_fragments[vcpu->mmio_cur_fragment];
+	/* Complete MMIO for the active fragment */
+	frag = &vcpu->mmio_fragments[vcpu->mmio_tail_fragment];
 	len = min(8u, frag->len);
 	if (!vcpu->mmio_is_write)
 		memcpy(frag->data, run->mmio.data, len);
@@ -14255,7 +14279,7 @@ static int complete_sev_es_emulated_mmio(struct kvm_vcpu *vcpu)
 	if (frag->len <= 8) {
 		/* Switch to the next fragment. */
 		frag++;
-		vcpu->mmio_cur_fragment++;
+		vcpu->mmio_tail_fragment++;
 	} else {
 		/* Go forward to the next mmio piece. */
 		frag->data += len;
@@ -14263,8 +14287,9 @@ static int complete_sev_es_emulated_mmio(struct kvm_vcpu *vcpu)
 		frag->len -= len;
 	}
 
-	if (vcpu->mmio_cur_fragment >= vcpu->mmio_nr_fragments) {
+	if (vcpu->mmio_tail_fragment >= vcpu->mmio_nr_fragments) {
 		vcpu->mmio_needed = 0;
+		vcpu->mmio_tail_fragment = 0;
 
 		// VMG change, at this point, we're always done
 		// RIP has already been advanced
@@ -14303,13 +14328,14 @@ int kvm_sev_es_mmio_write(struct kvm_vcpu *vcpu, gpa_t gpa, unsigned int bytes,
 
 	/*TODO: Check if need to increment number of frags */
 	frag = vcpu->mmio_fragments;
-	vcpu->mmio_nr_fragments = 1;
 	frag->len = bytes;
 	frag->gpa = gpa;
 	frag->data = data;
 
 	vcpu->mmio_needed = 1;
-	vcpu->mmio_cur_fragment = 0;
+	vcpu->mmio_nr_fragments = 1;
+	vcpu->mmio_head_fragment = 0;
+	vcpu->mmio_tail_fragment = 0;
 
 	vcpu->run->mmio.phys_addr = gpa;
 	vcpu->run->mmio.len = min(8u, frag->len);
@@ -14342,13 +14368,14 @@ int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t gpa, unsigned int bytes,
 
 	/*TODO: Check if need to increment number of frags */
 	frag = vcpu->mmio_fragments;
-	vcpu->mmio_nr_fragments = 1;
 	frag->len = bytes;
 	frag->gpa = gpa;
 	frag->data = data;
 
 	vcpu->mmio_needed = 1;
-	vcpu->mmio_cur_fragment = 0;
+	vcpu->mmio_nr_fragments = 1;
+	vcpu->mmio_head_fragment = 0;
+	vcpu->mmio_tail_fragment = 0;
 
 	vcpu->run->mmio.phys_addr = gpa;
 	vcpu->run->mmio.len = min(8u, frag->len);

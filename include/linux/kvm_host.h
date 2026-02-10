@@ -354,9 +354,9 @@ struct kvm_vcpu {
 
 #ifdef CONFIG_HAS_IOMEM
 	int mmio_needed;
-	int mmio_read_completed;
 	int mmio_is_write;
-	int mmio_cur_fragment;
+	int mmio_head_fragment;
+	int mmio_tail_fragment;
 	int mmio_nr_fragments;
 	struct kvm_mmio_fragment mmio_fragments[KVM_MAX_MMIO_FRAGMENTS];
 #endif
