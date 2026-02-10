@@ -8138,6 +8138,9 @@ static int read_mmio_fragment(struct kvm_vcpu *vcpu, void *val, int bytes)
 		if (WARN_ON_ONCE(bytes < frag->len))
 			break;
 
+		if (frag->data == &frag->val)
+			memcpy(val, frag->data, frag->len);
+
 		val += frag->len;
 		bytes -= frag->len;
 	}
@@ -8240,7 +8243,14 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 	WARN_ON(vcpu->mmio_nr_fragments >= KVM_MAX_MMIO_FRAGMENTS);
 	frag = &vcpu->mmio_fragments[vcpu->mmio_nr_fragments++];
 	frag->gpa = gpa;
-	frag->data = val;
+	if (bytes > 8u) {
+		frag->data = val;
+	} else {
+		frag->val = 0;
+		frag->data = &frag->val;
+		if (write)
+			memcpy(&frag->val, val, bytes);
+	}
 	frag->len = bytes;
 	return X86EMUL_CONTINUE;
 }
@@ -8254,6 +8264,9 @@ static int emulator_read_write(struct x86_emulate_ctxt *ctxt,
 	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
 	gpa_t gpa;
 	int rc;
+
+	if (WARN_ON_ONCE(bytes > 8u && object_is_on_stack(val)))
+		return X86EMUL_UNHANDLEABLE;
 
 	if (ops->read_mmio_fragment &&
 	    ops->read_mmio_fragment(vcpu, val, bytes))
@@ -11863,6 +11876,9 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 		frag++;
 		vcpu->mmio_tail_fragment++;
 	} else {
+		if (WARN_ON_ONCE(frag->data == &frag->val))
+			return -EIO;
+
 		/* Go forward to the next mmio piece. */
 		frag->data += len;
 		frag->gpa += len;
@@ -14291,8 +14307,10 @@ static int complete_sev_es_emulated_mmio(struct kvm_vcpu *vcpu)
 		vcpu->mmio_needed = 0;
 		vcpu->mmio_tail_fragment = 0;
 
-		// VMG change, at this point, we're always done
-		// RIP has already been advanced
+		/*
+		 * All done, as frag->data always points at the GHCB scratch
+		 * area and VMGEXIT is trap-like (RIP is advanced by hardware).
+		 */
 		return 1;
 	}
 
@@ -14315,7 +14333,7 @@ int kvm_sev_es_mmio_write(struct kvm_vcpu *vcpu, gpa_t gpa, unsigned int bytes,
 	int handled;
 	struct kvm_mmio_fragment *frag;
 
-	if (!data)
+	if (!data || WARN_ON_ONCE(object_is_on_stack(data)))
 		return -EINVAL;
 
 	handled = write_emultor.read_write_mmio(vcpu, gpa, bytes, data);
@@ -14355,7 +14373,7 @@ int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t gpa, unsigned int bytes,
 	int handled;
 	struct kvm_mmio_fragment *frag;
 
-	if (!data)
+	if (!data || WARN_ON_ONCE(object_is_on_stack(data)))
 		return -EINVAL;
 
 	handled = read_emultor.read_write_mmio(vcpu, gpa, bytes, data);
