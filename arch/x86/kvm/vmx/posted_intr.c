@@ -31,7 +31,21 @@ static DEFINE_PER_CPU(struct list_head, wakeup_vcpus_on_cpu);
  * CPU.  IRQs must be disabled when taking this lock, otherwise deadlock will
  * occur if a wakeup IRQ arrives and attempts to acquire the lock.
  */
-static DEFINE_PER_CPU(raw_spinlock_t, wakeup_vcpus_on_cpu_lock);
+static DEFINE_PER_CPU(raw_spinlock_t, wakeup_vcpus_on_cpu_lock__do_not_touch);
+
+/*
+ * Route accesses to the lock through a CLASS() to effectively force users to
+ * capture the lock in a local variable.  The kernel's per_cpu() implementation
+ * deliberately obfuscates the address of the data to prevent the compiler from
+ * making incorrect assumptions about the symbol.  However, hiding the address
+ * triggers false-positive thread-safety warnings if lock() vs. unlock() are
+ * called with different per_cpu() invocations, because the compiler can't tell
+ * its the same lock under the hood.
+ */
+DEFINE_CLASS(pi_wakeup_vcpus_lock, raw_spinlock_t *,
+	     lockdep_assert_not_held(_T),
+	     &per_cpu(wakeup_vcpus_on_cpu_lock__do_not_touch, cpu),
+	     int cpu);
 
 #define PI_LOCK_SCHED_OUT SINGLE_DEPTH_NESTING
 
@@ -90,7 +104,7 @@ void vmx_vcpu_pi_load(struct kvm_vcpu *vcpu, int cpu)
 	 * current pCPU if the task was migrated.
 	 */
 	if (pi_desc->nv == POSTED_INTR_WAKEUP_VECTOR) {
-		raw_spinlock_t *spinlock = &per_cpu(wakeup_vcpus_on_cpu_lock, vcpu->cpu);
+		CLASS(pi_wakeup_vcpus_lock, spinlock)(cpu);
 
 		/*
 		 * In addition to taking the wakeup lock for the regular/IRQ
@@ -165,6 +179,8 @@ static void pi_enable_wakeup_handler(struct kvm_vcpu *vcpu)
 	struct vcpu_vt *vt = to_vt(vcpu);
 	struct pi_desc old, new;
 
+	CLASS(pi_wakeup_vcpus_lock, spinlock)(vcpu->cpu);
+
 	lockdep_assert_irqs_disabled();
 
 	/*
@@ -179,11 +195,10 @@ static void pi_enable_wakeup_handler(struct kvm_vcpu *vcpu)
 	 * entirety of the sched_out critical section, i.e. the wakeup handler
 	 * can't run while the scheduler locks are held.
 	 */
-	raw_spin_lock_nested(&per_cpu(wakeup_vcpus_on_cpu_lock, vcpu->cpu),
-			     PI_LOCK_SCHED_OUT);
+	raw_spin_lock_nested(spinlock, PI_LOCK_SCHED_OUT);
 	list_add_tail(&vt->pi_wakeup_list,
 		      &per_cpu(wakeup_vcpus_on_cpu, vcpu->cpu));
-	raw_spin_unlock(&per_cpu(wakeup_vcpus_on_cpu_lock, vcpu->cpu));
+	raw_spin_unlock(spinlock);
 
 	WARN(pi_test_sn(pi_desc), "PI descriptor SN field set before blocking");
 
@@ -254,8 +269,9 @@ void pi_wakeup_handler(void)
 {
 	int cpu = smp_processor_id();
 	struct list_head *wakeup_list = &per_cpu(wakeup_vcpus_on_cpu, cpu);
-	raw_spinlock_t *spinlock = &per_cpu(wakeup_vcpus_on_cpu_lock, cpu);
 	struct vcpu_vt *vt;
+
+	CLASS(pi_wakeup_vcpus_lock, spinlock)(cpu);
 
 	raw_spin_lock(spinlock);
 	list_for_each_entry(vt, wakeup_list, pi_wakeup_list) {
@@ -269,7 +285,7 @@ void pi_wakeup_handler(void)
 void __init pi_init_cpu(int cpu)
 {
 	INIT_LIST_HEAD(&per_cpu(wakeup_vcpus_on_cpu, cpu));
-	raw_spin_lock_init(&per_cpu(wakeup_vcpus_on_cpu_lock, cpu));
+	raw_spin_lock_init(&per_cpu(wakeup_vcpus_on_cpu_lock__do_not_touch, cpu));
 }
 
 void pi_apicv_pre_state_restore(struct kvm_vcpu *vcpu)
