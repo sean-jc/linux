@@ -234,6 +234,8 @@ struct srcu_struct {
 					__DEFINE_SRCU(name, SRCU_READ_FLAVOR_FAST_UPDOWN, static)
 
 int __srcu_read_lock(struct srcu_struct *ssp) __acquires_shared(ssp);
+void call_srcu_expedited(struct srcu_struct *ssp, struct rcu_head *head,
+			 rcu_callback_t func);
 void synchronize_srcu_expedited(struct srcu_struct *ssp);
 void srcu_barrier(struct srcu_struct *ssp);
 void srcu_expedite_current(struct srcu_struct *ssp);

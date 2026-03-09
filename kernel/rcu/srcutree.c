@@ -1495,6 +1495,13 @@ void call_srcu(struct srcu_struct *ssp, struct rcu_head *rhp,
 }
 EXPORT_SYMBOL_GPL(call_srcu);
 
+void call_srcu_expedited(struct srcu_struct *ssp, struct rcu_head *rhp,
+			 rcu_callback_t func)
+{
+	__call_srcu(ssp, rhp, func, rcu_gp_is_normal());
+}
+EXPORT_SYMBOL_GPL(call_srcu_expedited);
+
 /*
  * Helper function for synchronize_srcu() and synchronize_srcu_expedited().
  */
