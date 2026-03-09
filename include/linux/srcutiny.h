@@ -64,8 +64,6 @@ struct srcu_usage { };
 #define init_srcu_struct_fast_updown init_srcu_struct
 #endif // #ifndef CONFIG_DEBUG_LOCK_ALLOC
 
-void synchronize_srcu(struct srcu_struct *ssp);
-
 /*
  * Counts the new reader in the appropriate per-CPU element of the
  * srcu_struct.  Can be invoked from irq/bh handlers, but the matching
