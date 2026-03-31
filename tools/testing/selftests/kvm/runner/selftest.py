@@ -18,6 +18,7 @@ class SelftestStatus(enum.IntEnum):
     SKIPPED = 23
     FAILED = 24
     SEGFAULT = 25
+    TIMED_OUT = 26
 
     def __str__(self):
         return str.__str__(self.name)
@@ -29,7 +30,7 @@ class Selftest:
     Extract the test execution command from test file and executes it.
     """
 
-    def __init__(self, test_path, path):
+    def __init__(self, test_path, path, timeout):
         test_command = pathlib.Path(test_path).read_text().strip()
         if not test_command:
             raise ValueError("Empty test command in " + test_path)
@@ -38,6 +39,7 @@ class Selftest:
         self.exists = os.path.isfile(test_command.split(maxsplit=1)[0])
         self.test_path = test_path
         self.command = test_command
+        self.timeout = timeout
         self.status = SelftestStatus.NO_RUN
         self.stdout = ""
         self.stderr = ""
@@ -51,19 +53,24 @@ class Selftest:
             "universal_newlines": True,
             "shell": True,
             "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE
+            "stderr": subprocess.PIPE,
+            "timeout": self.timeout,
         }
-        proc = subprocess.run(self.command, **run_args)
+        try:
+            proc = subprocess.run(self.command, **run_args)
+            out, err = proc.stdout, proc.stderr
 
-        out, err = proc.stdout, proc.stderr
+            if proc.returncode == 0:
+                self.status = SelftestStatus.PASSED
+            elif proc.returncode == 4:
+                self.status = SelftestStatus.SKIPPED
+            elif proc.returncode == 139:
+                self.status = SelftestStatus.SEGFAULT
+            else:
+                self.status = SelftestStatus.FAILED
+        except subprocess.TimeoutExpired as e:
+            self.status = SelftestStatus.TIMED_OUT
+            out, err = e.stdout, e.stderr
+
         self.stdout = out.decode("utf-8", "replace") if isinstance(out, bytes) else (out or "")
         self.stderr = err.decode("utf-8", "replace") if isinstance(err, bytes) else (err or "")
-
-        if proc.returncode == 0:
-            self.status = SelftestStatus.PASSED
-        elif proc.returncode == 4:
-            self.status = SelftestStatus.SKIPPED
-        elif proc.returncode == 139:
-            self.status = SelftestStatus.SEGFAULT
-        else:
-            self.status = SelftestStatus.FAILED
