@@ -1,0 +1,1 @@
+dirty_log_perf_test -x 2 -v 5 -i 10
