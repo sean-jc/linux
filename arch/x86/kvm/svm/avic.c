@@ -171,6 +171,9 @@ static void avic_set_x2apic_msr_interception(struct vcpu_svm *svm,
 		svm_set_intercept_for_msr(vcpu, APIC_BASE_MSR + i,
 					  MSR_TYPE_R, intercept);
 
+	if (!intercept)
+		svm_enable_intercept_for_msr(vcpu, X2APIC_MSR(APIC_TMCCT), MSR_TYPE_R);
+
 	for (i = 0; i < ARRAY_SIZE(x2avic_passthrough_msrs); i++)
 		svm_set_intercept_for_msr(vcpu, x2avic_passthrough_msrs[i],
 					  MSR_TYPE_W, intercept);
