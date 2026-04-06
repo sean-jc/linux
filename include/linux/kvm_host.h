@@ -1753,6 +1753,15 @@ static inline bool kvm_vcpu_is_blocking(struct kvm_vcpu *vcpu)
 	return rcuwait_active(kvm_arch_vcpu_get_wait(vcpu));
 }
 
+static inline bool kvm_vcpu_is_runnable_and_scheduled_out(struct kvm_vcpu *vcpu)
+{
+	return READ_ONCE(vcpu->preempted) ||
+	       (READ_ONCE(vcpu->scheduled_out) &&
+		READ_ONCE(vcpu->wants_to_run) &&
+		READ_ONCE(vcpu->stat.generic.blocking) &&
+	        !kvm_vcpu_is_blocking(vcpu));
+}
+
 #ifdef __KVM_HAVE_ARCH_INTC_INITIALIZED
 /*
  * returns true if the virtual interrupt controller is initialized and
