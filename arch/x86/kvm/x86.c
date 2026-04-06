@@ -10399,7 +10399,7 @@ static void kvm_sched_yield(struct kvm_vcpu *vcpu, unsigned long dest_id)
 
 	rcu_read_unlock();
 
-	if (!target || !READ_ONCE(target->ready))
+	if (!target || !kvm_vcpu_is_runnable_and_scheduled_out(target))
 		goto no_yield;
 
 	/* Ignore requests to yield to self */
