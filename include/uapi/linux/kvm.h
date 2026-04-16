@@ -997,6 +997,7 @@ struct kvm_enable_cap {
 #define KVM_CAP_S390_KEYOP 247
 #define KVM_CAP_S390_VSIE_ESAMODE 248
 #define KVM_CAP_S390_HPAGE_2G 249
+#define KVM_CAP_CLOCK_GUEST 250
 
 struct kvm_irq_routing_irqchip {
 	__u32 irqchip;
@@ -1669,5 +1670,8 @@ struct kvm_pre_fault_memory {
 	__u64 flags;
 	__u64 padding[5];
 };
+
+#define KVM_SET_CLOCK_GUEST	_IOW(KVMIO, 0xd6, struct pvclock_vcpu_time_info)
+#define KVM_GET_CLOCK_GUEST	_IOR(KVMIO, 0xd7, struct pvclock_vcpu_time_info)
 
 #endif /* __LINUX_KVM_H */
