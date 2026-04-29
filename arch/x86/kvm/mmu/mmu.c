@@ -8055,8 +8055,7 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 		gfn_t nr_pages = KVM_PAGES_PER_HPAGE(level);
 
 		if ((start != range->start || start + nr_pages > range->end) &&
-		    start >= slot->base_gfn &&
-		    start + nr_pages <= slot->base_gfn + slot->npages &&
+		    is_gfn_range_in_memslot(slot, start, nr_pages) &&
 		    !hugepage_test_mixed(slot, start, level))
 			kvm_mmu_invalidate_range_add(kvm, start, start + nr_pages);
 
@@ -8131,8 +8130,7 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 			 * by the memslot, KVM can't use a hugepage due to the
 			 * misaligned address regardless of memory attributes.
 			 */
-			if (gfn >= slot->base_gfn &&
-			    gfn + nr_pages <= slot->base_gfn + slot->npages) {
+			if (is_gfn_range_in_memslot(slot, gfn, nr_pages)) {
 				if (hugepage_has_attrs(kvm, slot, gfn, level, attrs))
 					hugepage_clear_mixed(slot, gfn, level);
 				else

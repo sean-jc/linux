@@ -1820,6 +1820,13 @@ static inline bool is_gfn_in_memslot(const struct kvm_memory_slot *slot, gfn_t g
 	return gfn >= slot->base_gfn && gfn < slot->base_gfn + slot->npages;
 }
 
+static inline bool is_gfn_range_in_memslot(const struct kvm_memory_slot *slot,
+					   gfn_t gfn, gfn_t nr_pages)
+{
+	return gfn >= slot->base_gfn &&
+	       gfn + nr_pages <= slot->base_gfn + slot->npages;
+}
+
 /*
  * Returns a pointer to the memslot if it contains gfn.
  * Otherwise returns NULL.
