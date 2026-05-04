@@ -58,7 +58,7 @@ static void __sev_test_lengths(u32 cmd, const char *str, void *data,
 		    "Wanted length >= 8, <= 0x%x, got length = 0x%x",
 		    (u32)sizeof(buffer), min2);
 
-	for (i = 1; i < min1; i++) {
+	for (i = 0; i < min1; i++) {
 		*len1 = i;
 
 		r = sev_driver_do_cmd(cmd, data);
@@ -74,7 +74,7 @@ static void __sev_test_lengths(u32 cmd, const char *str, void *data,
 	if (!len2)
 		goto skip_len2;
 
-	for (i = 1; i < min2; i++) {
+	for (i = 0; i < min2; i++) {
 		*len2 = i;
 
 		r = sev_driver_do_cmd(cmd, data);
