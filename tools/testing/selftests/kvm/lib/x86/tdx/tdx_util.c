@@ -17,10 +17,12 @@ void tdx_vm_setup_boot_code_region(struct kvm_vm *vm)
 	gpa_t boot_code_gpa = X86_RESET_VECTOR - TD_BOOT_CODE_SIZE;
 	gpa_t alloc_gpa = round_down(boot_code_gpa, PAGE_SIZE);
 	size_t nr_pages = DIV_ROUND_UP(total_code_size, PAGE_SIZE);
-	const u64 gmem_flags = 0;
+	u64 gmem_flags = 0;
 	gpa_t gpa;
 	u8 *hva;
 
+	if (kvm_has_gmem_attributes)
+		gmem_flags |= GUEST_MEMFD_FLAG_INIT_SHARED | GUEST_MEMFD_FLAG_MMAP;
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, alloc_gpa, TD_BOOT_CODE_SLOT,
 		   nr_pages, KVM_MEM_GUEST_MEMFD, -1, 0, gmem_flags);
 
@@ -56,9 +58,11 @@ void tdx_vm_setup_boot_parameters_region(struct kvm_vm *vm, u32 nr_runnable_vcpu
 		sizeof(struct td_boot_parameters) +
 		nr_runnable_vcpus * sizeof(struct td_per_vcpu_parameters);
 	int npages = DIV_ROUND_UP(boot_params_size, PAGE_SIZE);
-	const u64 gmem_flags = 0;
+	u64 gmem_flags = 0;
 	gpa_t gpa;
 
+	if (kvm_has_gmem_attributes)
+		gmem_flags |= GUEST_MEMFD_FLAG_INIT_SHARED | GUEST_MEMFD_FLAG_MMAP;
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, TD_BOOT_PARAMETERS_GPA,
 		   TD_BOOT_PARAMETERS_SLOT, npages,
 		   KVM_MEM_GUEST_MEMFD, -1, 0, gmem_flags);
