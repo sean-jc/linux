@@ -1629,7 +1629,7 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_IA32_TSC:
 		if (msr_info->host_initiated) {
-			kvm_synchronize_tsc(vcpu, &data);
+			kvm_synchronize_tsc(vcpu, &data, true);
 		} else if (!vcpu->arch.guest_tsc_protected) {
 			u64 adj = kvm_compute_l1_tsc_offset(vcpu, rdtsc(), data) -
 				  vcpu->arch.l1_tsc_offset;
