@@ -210,6 +210,10 @@ extern long __static_call_return0(void);
 
 #define static_call_cond(name)	(void)__static_call(name)
 
+#ifndef ARCH_ADD_TRAMP_KEY
+#define ARCH_ADD_TRAMP_KEY(name)
+#endif
+
 #define EXPORT_STATIC_CALL(name)					\
 	EXPORT_SYMBOL(STATIC_CALL_KEY(name));				\
 	EXPORT_SYMBOL(STATIC_CALL_TRAMP(name))
