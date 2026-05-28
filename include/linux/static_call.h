@@ -206,8 +206,8 @@ extern long __static_call_return0(void);
 #define ARCH_ADD_TRAMP_KEY(name)
 #endif
 
-#define __EXPORT_STATIC_CALL(name, scope)				\
-	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name));			\
+#define __EXPORT_STATIC_CALL(name, scope, ...)				\
+	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name), ##__VA_ARGS__);	\
 	ARCH_ADD_TRAMP_KEY(name)
 
 #elif defined(CONFIG_HAVE_STATIC_CALL)
@@ -255,8 +255,8 @@ static inline int static_call_text_reserved(void *start, void *end)
 
 extern long __static_call_return0(void);
 
-#define __EXPORT_STATIC_CALL(name, scope)				\
-	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name))
+#define __EXPORT_STATIC_CALL(name, scope, ...)				\
+	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name), ##__VA_ARGS__)
 
 #else /* Generic implementation */
 
@@ -319,7 +319,7 @@ static inline int static_call_text_reserved(void *start, void *end)
 	return 0;
 }
 
-#define __EXPORT_STATIC_CALL(name, scope)
+#define __EXPORT_STATIC_CALL(name, scope, ...)
 
 #endif /* CONFIG_HAVE_STATIC_CALL */
 
@@ -339,5 +339,7 @@ static inline int static_call_text_reserved(void *start, void *end)
 	__EXPORT_STATIC_CALL(name, )
 #define EXPORT_STATIC_CALL_GPL(name)					\
 	__EXPORT_STATIC_CALL(name, _GPL)
+#define EXPORT_STATIC_CALL_FOR_MODULES(name, mods)				\
+	__EXPORT_STATIC_CALL(name, _FOR_MODULES, mods)
 
 #endif /* _LINUX_STATIC_CALL_H */

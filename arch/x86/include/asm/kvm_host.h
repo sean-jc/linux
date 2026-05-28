@@ -1799,7 +1799,7 @@ extern struct kvm_x86_nested_ops kvm_nested_ops __read_mostly;
 #define KVM_X86_OP_OPTIONAL_RET0 KVM_X86_OP
 #include <asm/kvm-x86-ops.h>
 
-#define kvm_nested_call(func) static_call(kvm_x86_nested_##func)
+#define kvm_nested_call(func) static_call_mod(kvm_x86_nested_##func)
 
 #define KVM_X86_NESTED_OP(func) \
 	DECLARE_STATIC_CALL(kvm_x86_nested_##func, *(((struct kvm_x86_nested_ops *)0)->func));
