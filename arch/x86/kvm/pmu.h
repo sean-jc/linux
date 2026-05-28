@@ -54,7 +54,7 @@ struct kvm_pmu_ops {
 	const u32 MSR_STRIDE;
 };
 
-#define kvm_pmu_call(func) static_call(kvm_x86_pmu_##func)
+#define kvm_pmu_call(func) static_call_mod(kvm_x86_pmu_##func)
 
 #define KVM_X86_PMU_OP(func) \
 	DECLARE_STATIC_CALL(kvm_x86_pmu_##func, *(((struct kvm_pmu_ops *)0)->func));

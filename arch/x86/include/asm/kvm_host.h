@@ -1791,7 +1791,7 @@ extern bool __read_mostly enable_device_posted_irqs;
 extern struct kvm_x86_ops kvm_x86_ops;
 extern struct kvm_x86_nested_ops kvm_nested_ops __read_mostly;
 
-#define kvm_x86_call(func) static_call(kvm_x86_##func)
+#define kvm_x86_call(func) static_call_mod(kvm_x86_##func)
 
 #define KVM_X86_OP(func) \
 	DECLARE_STATIC_CALL(kvm_x86_##func, *(((struct kvm_x86_ops *)0)->func));
