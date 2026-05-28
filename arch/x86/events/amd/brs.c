@@ -424,7 +424,7 @@ void noinstr perf_amd_brs_lopwr_cb(bool lopwr_in)
 }
 
 DEFINE_STATIC_CALL_NULL(perf_lopwr_cb, perf_amd_brs_lopwr_cb);
-EXPORT_STATIC_CALL_TRAMP_GPL(perf_lopwr_cb);
+EXPORT_STATIC_CALL_GPL(perf_lopwr_cb);
 
 void __init amd_brs_lopwr_init(void)
 {

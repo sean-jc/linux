@@ -23,7 +23,7 @@
 #include "xen-ops.h"
 
 DEFINE_STATIC_CALL(xen_hypercall, xen_hypercall_hvm);
-EXPORT_STATIC_CALL_TRAMP(xen_hypercall);
+EXPORT_STATIC_CALL(xen_hypercall);
 
 /*
  * Pointer to the xen_vcpu_info structure or

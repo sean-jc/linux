@@ -26,7 +26,7 @@
  *   static_call_update(name, func);
  *   static_call_query(name);
  *
- *   EXPORT_STATIC_CALL{,_TRAMP}{,_GPL}()
+ *   EXPORT_STATIC_CALL{,_GPL}()
  *
  * Usage example:
  *
@@ -121,14 +121,6 @@
  *   completely eliding any function call overhead.
  *
  *   Notably argument setup is unconditional.
- *
- *
- * EXPORT_STATIC_CALL() vs EXPORT_STATIC_CALL_TRAMP():
- *
- *   The difference is that the _TRAMP variant tries to only export the
- *   trampoline with the result that a module can use static_call{,_cond}() but
- *   not static_call_update().
- *
  */
 
 #include <linux/types.h>
@@ -214,19 +206,8 @@ extern long __static_call_return0(void);
 #define ARCH_ADD_TRAMP_KEY(name)
 #endif
 
-#define EXPORT_STATIC_CALL(name)					\
-	EXPORT_SYMBOL(STATIC_CALL_KEY(name));				\
-	EXPORT_SYMBOL(STATIC_CALL_TRAMP(name))
-#define EXPORT_STATIC_CALL_GPL(name)					\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_KEY(name));			\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_TRAMP(name))
-
-/* Leave the key unexported, so modules can't change static call targets: */
-#define EXPORT_STATIC_CALL_TRAMP(name)					\
-	EXPORT_SYMBOL(STATIC_CALL_TRAMP(name));				\
-	ARCH_ADD_TRAMP_KEY(name)
-#define EXPORT_STATIC_CALL_TRAMP_GPL(name)				\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_TRAMP(name));			\
+#define __EXPORT_STATIC_CALL(name, scope)				\
+	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name));			\
 	ARCH_ADD_TRAMP_KEY(name)
 
 #elif defined(CONFIG_HAVE_STATIC_CALL)
@@ -274,18 +255,8 @@ static inline int static_call_text_reserved(void *start, void *end)
 
 extern long __static_call_return0(void);
 
-#define EXPORT_STATIC_CALL(name)					\
-	EXPORT_SYMBOL(STATIC_CALL_KEY(name));				\
-	EXPORT_SYMBOL(STATIC_CALL_TRAMP(name))
-#define EXPORT_STATIC_CALL_GPL(name)					\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_KEY(name));			\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_TRAMP(name))
-
-/* Leave the key unexported, so modules can't change static call targets: */
-#define EXPORT_STATIC_CALL_TRAMP(name)					\
-	EXPORT_SYMBOL(STATIC_CALL_TRAMP(name))
-#define EXPORT_STATIC_CALL_TRAMP_GPL(name)				\
-	EXPORT_SYMBOL_GPL(STATIC_CALL_TRAMP(name))
+#define __EXPORT_STATIC_CALL(name, scope)				\
+	EXPORT_SYMBOL##scope(STATIC_CALL_TRAMP(name))
 
 #else /* Generic implementation */
 
@@ -348,9 +319,25 @@ static inline int static_call_text_reserved(void *start, void *end)
 	return 0;
 }
 
-#define EXPORT_STATIC_CALL(name)	EXPORT_SYMBOL(STATIC_CALL_KEY(name))
-#define EXPORT_STATIC_CALL_GPL(name)	EXPORT_SYMBOL_GPL(STATIC_CALL_KEY(name))
+#define __EXPORT_STATIC_CALL(name, scope)
 
 #endif /* CONFIG_HAVE_STATIC_CALL */
+
+#define __EXPORT_TRACEPOINT_STATIC_CALL(name, scope)			\
+	EXPORT_SYMBOL##scope(STATIC_CALL_KEY(name));			\
+	__EXPORT_STATIC_CALL(name, scope)
+#define EXPORT_TRACEPOINT_STATIC_CALL(name)				\
+	__EXPORT_TRACEPOINT_STATIC_CALL(name, )
+#define EXPORT_TRACEPOINT_STATIC_CALL_GPL(name)				\
+	__EXPORT_TRACEPOINT_STATIC_CALL(name, _GPL)
+
+/*
+ * For non-tracepoint usage, leave the key unexported, so modules can't change
+ * static call targets, i.e. can only invoke the static call.
+ */
+#define EXPORT_STATIC_CALL(name)					\
+	__EXPORT_STATIC_CALL(name, )
+#define EXPORT_STATIC_CALL_GPL(name)					\
+	__EXPORT_STATIC_CALL(name, _GPL)
 
 #endif /* _LINUX_STATIC_CALL_H */

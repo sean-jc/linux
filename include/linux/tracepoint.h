@@ -427,12 +427,12 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 	TRACEPOINT_CHECK(name)						\
 	EXPORT_SYMBOL_GPL(__tracepoint_##name);				\
 	EXPORT_SYMBOL_GPL(__traceiter_##name);				\
-	EXPORT_STATIC_CALL_GPL(tp_func_##name)
+	EXPORT_TRACEPOINT_STATIC_CALL_GPL(tp_func_##name)
 #define EXPORT_TRACEPOINT_SYMBOL(name)					\
 	TRACEPOINT_CHECK(name)						\
 	EXPORT_SYMBOL(__tracepoint_##name);				\
 	EXPORT_SYMBOL(__traceiter_##name);				\
-	EXPORT_STATIC_CALL(tp_func_##name)
+	EXPORT_TRACEPOINT_STATIC_CALL(tp_func_##name)
 
 
 #else /* !TRACEPOINTS_ENABLED */

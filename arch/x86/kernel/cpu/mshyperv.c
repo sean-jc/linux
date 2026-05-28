@@ -334,7 +334,7 @@ static void __init x86_setup_ops_for_tsc_pg_clock(void)
 
 #ifdef CONFIG_X86_64
 DEFINE_STATIC_CALL(hv_hypercall, hv_std_hypercall);
-EXPORT_STATIC_CALL_TRAMP_GPL(hv_hypercall);
+EXPORT_STATIC_CALL_GPL(hv_hypercall);
 #define hypercall_update(hc) static_call_update(hv_hypercall, hc)
 #endif
 #endif /* CONFIG_HYPERV */

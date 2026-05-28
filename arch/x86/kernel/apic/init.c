@@ -30,8 +30,8 @@ DEFINE_APIC_CALL(wakeup_secondary_cpu);
 DEFINE_APIC_CALL(wakeup_secondary_cpu_64);
 DEFINE_APIC_CALL(write);
 
-EXPORT_STATIC_CALL_TRAMP_GPL(apic_call_send_IPI_mask);
-EXPORT_STATIC_CALL_TRAMP_GPL(apic_call_send_IPI_self);
+EXPORT_STATIC_CALL_GPL(apic_call_send_IPI_mask);
+EXPORT_STATIC_CALL_GPL(apic_call_send_IPI_self);
 
 /* The container for function call overrides */
 struct apic_override __x86_apic_override __initdata;
