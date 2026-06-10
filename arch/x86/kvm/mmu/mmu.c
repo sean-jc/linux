@@ -3539,14 +3539,12 @@ static int kvm_handle_noslot_fault(struct kvm_vcpu *vcpu,
 				   struct kvm_page_fault *fault,
 				   unsigned int access)
 {
-	gva_t gva = fault->is_tdp ? 0 : fault->addr;
-
 	if (fault->is_private) {
 		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
 		return -EFAULT;
 	}
 
-	vcpu_cache_mmio_info(vcpu, gva, fault->gfn,
+	vcpu_cache_mmio_info(vcpu, fault->addr, fault->gfn,
 			     access & shadow_mmio_access_mask);
 
 	fault->slot = NULL;
@@ -4377,19 +4375,20 @@ static gpa_t nonpaging_gva_to_gpa(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 				 exception, ACC_ALL);
 }
 
-static bool mmio_info_in_cache(struct kvm_vcpu *vcpu, u64 addr, bool direct)
+static bool mmio_info_in_cache(struct kvm_vcpu *vcpu, u64 cr2_or_gpa)
 {
 	/*
-	 * A nested guest cannot use the MMIO cache if it is using nested
-	 * page tables, because cr2 is a nGPA while the cache stores GPAs.
+	 * A nested guest cannot use the software MMIO cache if it is using
+	 * nested TDP, because the address at the time of fault is a nGPA,
+	 * while the cache stores GPAs.
 	 */
 	if (mmu_is_nested(vcpu))
 		return false;
 
-	if (direct)
-		return vcpu_match_mmio_gpa(vcpu, addr);
+	if (vcpu_can_cache_mmio_gva(vcpu))
+		return vcpu_match_mmio_gva(vcpu, cr2_or_gpa);
 
-	return vcpu_match_mmio_gva(vcpu, addr);
+	return vcpu_match_mmio_gpa(vcpu, cr2_or_gpa);
 }
 
 /*
@@ -4475,12 +4474,12 @@ static bool get_mmio_spte(struct kvm_vcpu *vcpu, u64 addr, u64 *sptep)
 	return reserved;
 }
 
-static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
+static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr)
 {
 	u64 spte;
 	bool reserved;
 
-	if (mmio_info_in_cache(vcpu, addr, direct))
+	if (mmio_info_in_cache(vcpu, addr))
 		return RET_PF_EMULATE;
 
 	reserved = get_mmio_spte(vcpu, addr, &spte);
@@ -4493,9 +4492,6 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
 
 		if (!check_mmio_spte(vcpu, spte))
 			return RET_PF_INVALID;
-
-		if (direct)
-			addr = 0;
 
 		trace_handle_mmio_page_fault(addr, gfn, access);
 		vcpu_cache_mmio_info(vcpu, addr, gfn, access);
@@ -6430,7 +6426,7 @@ static int kvm_mmu_write_protect_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	 * and could put the vCPU into an infinite loop because the processor
 	 * will keep faulting on the non-existent MMIO address.
 	 */
-	if (WARN_ON_ONCE(mmio_info_in_cache(vcpu, cr2_or_gpa, direct)))
+	if (WARN_ON_ONCE(mmio_info_in_cache(vcpu, cr2_or_gpa)))
 		return RET_PF_EMULATE;
 
 	/*
@@ -6492,7 +6488,6 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 		       void *insn, int insn_len)
 {
 	int r, emulation_type = EMULTYPE_PF;
-	bool direct = vcpu->arch.mmu->root_role.direct;
 
 	if (WARN_ON_ONCE(!VALID_PAGE(vcpu->arch.mmu->root.hpa)))
 		return RET_PF_RETRY;
@@ -6516,7 +6511,7 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 		if (WARN_ON_ONCE(error_code & PFERR_PRIVATE_ACCESS))
 			return -EFAULT;
 
-		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);
+		r = handle_mmio_page_fault(vcpu, cr2_or_gpa);
 		if (r == RET_PF_EMULATE)
 			goto emulate;
 	}

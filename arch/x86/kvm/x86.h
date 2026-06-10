@@ -310,6 +310,19 @@ static inline bool is_noncanonical_invlpg_address(u64 la, struct kvm_vcpu *vcpu)
 	return is_noncanonical_address(la, vcpu, X86EMUL_F_INVLPG);
 }
 
+static inline bool vcpu_can_cache_mmio_gva(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * Disable GVA-based caching if TDP is enabled, as GVA is actually a
+	 * GPA or nGPA (if L2 is active), and KVM doesn't track CR3 changes,
+	 * i.e. can't know when to flush the cache.  Similarly, don't track
+	 * GVAs for direct MMUs (CR0.PG=0), as CR2 == GPA, i.e. KVM can simply
+	 * use the GFN cache, so that KVM doesn't have to flush the cache even
+	 * when all other shadow paging update/sync operations can be skipped.
+	 */
+	return !tdp_enabled && is_paging(vcpu);
+}
+
 static inline void vcpu_cache_mmio_info(struct kvm_vcpu *vcpu,
 					gva_t gva, gfn_t gfn, unsigned access)
 {
@@ -318,11 +331,7 @@ static inline void vcpu_cache_mmio_info(struct kvm_vcpu *vcpu,
 	if (unlikely(gen & KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS))
 		return;
 
-	/*
-	 * If this is a shadow nested page table, the "GVA" is
-	 * actually a nGPA.
-	 */
-	vcpu->arch.mmio_gva = mmu_is_nested(vcpu) ? 0 : gva & PAGE_MASK;
+	vcpu->arch.mmio_gva = vcpu_can_cache_mmio_gva(vcpu) ? gva & PAGE_MASK : 0;
 	vcpu->arch.mmio_access = access;
 	vcpu->arch.mmio_gfn = gfn;
 	vcpu->arch.mmio_gen = gen;
@@ -349,8 +358,9 @@ static inline void vcpu_clear_mmio_info(struct kvm_vcpu *vcpu, gva_t gva)
 
 static inline bool vcpu_match_mmio_gva(struct kvm_vcpu *vcpu, unsigned long gva)
 {
-	if (vcpu_match_mmio_gen(vcpu) && vcpu->arch.mmio_gva &&
-	      vcpu->arch.mmio_gva == (gva & PAGE_MASK))
+	if (vcpu_can_cache_mmio_gva(vcpu) &&
+	    vcpu_match_mmio_gen(vcpu) &&
+	    vcpu->arch.mmio_gva && vcpu->arch.mmio_gva == (gva & PAGE_MASK))
 		return true;
 
 	return false;
