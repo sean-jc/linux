@@ -6577,8 +6577,6 @@ static void __kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu
 {
 	struct kvm_shadow_walk_iterator iterator;
 
-	vcpu_clear_mmio_info(vcpu, addr);
-
 	/*
 	 * Walking and synchronizing SPTEs both assume they are operating in
 	 * the context of the current MMU, and would need to be reworked if
@@ -6624,6 +6622,8 @@ void kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 
 		kvm_x86_call(flush_tlb_gva)(vcpu, addr);
 	}
+
+	vcpu_clear_mmio_info(vcpu, addr);
 
 	if (!mmu->sync_spte)
 		return;
