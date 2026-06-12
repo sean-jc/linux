@@ -55,8 +55,7 @@ On x86:
 - vcpu->mutex is taken outside kvm->arch.hyperv.hv_lock and kvm->arch.xen.xen_lock
 
 - kvm->arch.mmu_lock is an rwlock; critical sections for
-  kvm->arch.tdp_mmu_pages_lock and kvm->arch.mmu_unsync_pages_lock must
-  also take kvm->arch.mmu_lock
+  kvm->arch.tdp_mmu_pages_lock must also take kvm->arch.mmu_lock
 
 Everything else is a leaf: no other lock is taken inside the critical
 sections.

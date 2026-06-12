@@ -881,18 +881,6 @@ out_unlock:
 	return r;
 }
 
-static gpa_t FNAME(get_level1_sp_gpa)(struct kvm_mmu_page *sp)
-{
-	int offset = 0;
-
-	WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
-
-	if (PTTYPE == 32)
-		offset = sp->role.quadrant << SPTE_LEVEL_BITS;
-
-	return gfn_to_gpa(sp->gfn) + offset * sizeof(pt_element_t);
-}
-
 /* Note, @addr is a GPA when gva_to_gpa() translates an L2 GPA to an L1 GPA. */
 static gpa_t FNAME(gva_to_gpa)(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 			       gpa_t addr, u64 access,
@@ -917,6 +905,20 @@ static gpa_t FNAME(gva_to_gpa)(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 
 	return gpa;
 }
+
+#if PTTYPE != PTTYPE_EPT
+static gpa_t FNAME(get_level1_sp_gpa)(struct kvm_mmu_page *sp)
+{
+	int offset = 0;
+
+	WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
+
+	if (PTTYPE == 32)
+		offset = sp->role.quadrant << SPTE_LEVEL_BITS;
+
+	return gfn_to_gpa(sp->gfn) + offset * sizeof(pt_element_t);
+}
+
 
 /*
  * Using the information in sp->shadowed_translation (kvm_mmu_page_get_gfn()) is
@@ -1001,6 +1003,7 @@ static int FNAME(sync_spte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp, int 
 	 */
 	return mmu_spte_update(sptep, spte);
 }
+#endif
 
 #undef pt_element_t
 #undef guest_walker

@@ -754,6 +754,11 @@ void kvm_mmu_gfn_allow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn)
 	update_gfn_disallow_lpage_count(slot, gfn, -1);
 }
 
+static bool kvm_sp_can_be_unsync(struct kvm_mmu_page *sp)
+{
+	return !tdp_enabled && sp->role.level == PG_LEVEL_4K;
+}
+
 static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	struct kvm_memslots *slots;
@@ -775,7 +780,7 @@ static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	slot = __gfn_to_memslot(slots, gfn);
 
 	/* the non-leaf shadow pages are keeping readonly. */
-	if (sp->role.level > PG_LEVEL_4K)
+	if (!kvm_sp_can_be_unsync(sp))
 		return __kvm_write_track_add_gfn(kvm, slot, gfn);
 
 	kvm_mmu_gfn_disallow_lpage(slot, gfn);
@@ -823,7 +828,7 @@ static void unaccount_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	gfn = sp->gfn;
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);
 	slot = __gfn_to_memslot(slots, gfn);
-	if (sp->role.level > PG_LEVEL_4K)
+	if (!kvm_sp_can_be_unsync(sp))
 		return __kvm_write_track_remove_gfn(kvm, slot, gfn);
 
 	kvm_mmu_gfn_allow_lpage(slot, gfn);
@@ -2948,7 +2953,6 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 			    gfn_t gfn, bool synchronizing, bool prefetch)
 {
 	struct kvm_mmu_page *sp;
-	bool locked = false;
 
 	/*
 	 * Force write-protection if the page is being tracked.  Note, the page
@@ -2957,6 +2961,12 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 	 */
 	if (kvm_gfn_is_write_tracked(kvm, slot, gfn))
 		return -EPERM;
+
+	/* KVM doesn't utilize unsysnc SPTEs for nested TDP. */
+	if (tdp_enabled)
+		return 0;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	/*
 	 * Only 4KiB mappings can become unsync, and KVM disallows hugepages
@@ -2983,34 +2993,9 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 		if (prefetch)
 			return -EEXIST;
 
-		/*
-		 * TDP MMU page faults require an additional spinlock as they
-		 * run with mmu_lock held for read, not write, and the unsync
-		 * logic is not thread safe.  Take the spinklock regardless of
-		 * the MMU type to avoid extra conditionals/parameters, there's
-		 * no meaningful penalty if mmu_lock is held for write.
-		 */
-		if (!locked) {
-			locked = true;
-			spin_lock(&kvm->arch.mmu_unsync_pages_lock);
-
-			/*
-			 * Recheck after taking the spinlock, a different vCPU
-			 * may have since marked the page unsync.  A false
-			 * negative on the unprotected check above is not
-			 * possible as clearing sp->unsync _must_ hold mmu_lock
-			 * for write, i.e. unsync cannot transition from 1->0
-			 * while this CPU holds mmu_lock for read (or write).
-			 */
-			if (READ_ONCE(sp->unsync))
-				continue;
-		}
-
 		WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
 		kvm_unsync_page(kvm, sp);
 	}
-	if (locked)
-		spin_unlock(&kvm->arch.mmu_unsync_pages_lock);
 
 	/*
 	 * We need to ensure that the marking of unsync pages is visible
@@ -4309,6 +4294,9 @@ void kvm_mmu_sync_roots(struct kvm_vcpu *vcpu)
 {
 	int i;
 	struct kvm_mmu_page *sp;
+
+	if (tdp_enabled)
+		return;
 
 	if (vcpu->arch.mmu->root_role.direct)
 		return;
@@ -6027,7 +6015,7 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 
 		context->page_fault = ept_page_fault;
 		context->gva_to_gpa = ept_gva_to_gpa;
-		context->sync_spte = ept_sync_spte;
+		context->sync_spte = NULL;
 
 		update_permission_bitmask(context, true, true);
 		context->pkru_mask = 0;
@@ -6267,7 +6255,7 @@ static bool detect_write_flooding(struct kvm_mmu_page *sp)
 	 * Skip write-flooding detected for the sp whose level is 1, because
 	 * it can become unsync, then the guest page is not write-protected.
 	 */
-	if (sp->role.level == PG_LEVEL_4K)
+	if (kvm_sp_can_be_unsync(sp))
 		return false;
 
 	atomic_inc(&sp->write_flooding_count);
@@ -6936,7 +6924,6 @@ int kvm_mmu_init_vm(struct kvm *kvm)
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
 	for (i = 0; i < KVM_NR_MMU_TYPES; ++i)
 		INIT_LIST_HEAD(&kvm->arch.possible_nx_huge_pages[i].pages);
-	spin_lock_init(&kvm->arch.mmu_unsync_pages_lock);
 
 	if (tdp_mmu_enabled) {
 		kvm_mmu_init_tdp_mmu(kvm);
