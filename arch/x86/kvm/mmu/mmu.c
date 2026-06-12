@@ -2461,13 +2461,6 @@ static struct kvm_mmu_page *kvm_mmu_get_child_sp(struct kvm_vcpu *vcpu,
 {
 	union kvm_mmu_page_role role = kvm_mmu_child_role(sptep, direct, access);
 
-	if (is_shadow_present_pte(*sptep) &&
-	    !is_large_pte(*sptep) &&
-	    spte_to_child_sp(*sptep) &&
-	    spte_to_child_sp(*sptep)->gfn == gfn &&
-	    spte_to_child_sp(*sptep)->role.word == role.word)
-		return ERR_PTR(-EEXIST);
-
 	return kvm_mmu_get_shadow_page(vcpu, gfn, role);
 }
 
@@ -2555,9 +2548,12 @@ static void __link_shadow_page(struct kvm *kvm,
 			       struct kvm_mmu_memory_cache *cache, u64 *sptep,
 			       struct kvm_mmu_page *sp, bool flush)
 {
-	u64 spte;
+	u64 spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	BUILD_BUG_ON(VMX_EPT_WRITABLE_MASK != PT_WRITABLE_MASK);
+
+	if (*sptep == spte)
+		return;
 
 	if (is_shadow_present_pte(*sptep)) {
 		struct kvm_mmu_page *parent_sp;
@@ -2571,8 +2567,6 @@ static void __link_shadow_page(struct kvm *kvm,
 		else if (flush)
 			kvm_flush_remote_tlbs_sptep(kvm, sptep);
 	}
-
-	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	mmu_spte_set(sptep, spte);
 
@@ -3486,8 +3480,6 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			break;
 
 		sp = kvm_mmu_get_child_sp(vcpu, it.sptep, base_gfn, true, access);
-		if (sp == ERR_PTR(-EEXIST))
-			continue;
 
 		link_shadow_page(vcpu, it.sptep, sp);
 		if (fault->huge_page_disallowed)

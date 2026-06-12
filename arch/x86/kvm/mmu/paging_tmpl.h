@@ -714,8 +714,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		 * the #PF (mmu_sync_children() ensures forward progress will
 		 * be made).
 		 */
-		if (sp != ERR_PTR(-EEXIST) && sp->unsync_children &&
-		    mmu_sync_children(vcpu, sp, false))
+		if (sp->unsync_children && mmu_sync_children(vcpu, sp, false))
 			return RET_PF_RETRY;
 
 		/*
@@ -731,8 +730,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		if (FNAME(gpte_changed)(vcpu, gw, it.level - 1))
 			return RET_PF_RETRY;
 
-		if (sp != ERR_PTR(-EEXIST))
-			link_shadow_page(vcpu, it.sptep, sp);
+		link_shadow_page(vcpu, it.sptep, sp);
 
 		if (fault->write && table_gfn == fault->gfn)
 			fault->write_fault_to_shadow_pgtable = true;
@@ -764,8 +762,6 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 
 		sp = kvm_mmu_get_child_sp(vcpu, it.sptep, base_gfn,
 					  true, direct_access);
-		if (sp == ERR_PTR(-EEXIST))
-			continue;
 
 		link_shadow_page(vcpu, it.sptep, sp);
 		if (fault->huge_page_disallowed)
