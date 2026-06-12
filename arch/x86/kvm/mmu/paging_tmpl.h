@@ -698,6 +698,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		sp = kvm_mmu_get_child_sp(vcpu, it.sptep, table_gfn,
 					  false, access);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 		/*
 		 * Synchronize the new page before linking it, as the CPU (KVM)
 		 * is architecturally disallowed from inserting non-present
@@ -717,7 +718,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		if (sp != ERR_PTR(-EEXIST) && sp->unsync_children &&
 		    mmu_sync_children(vcpu, sp, false))
 			return RET_PF_RETRY;
-
+#endif
 		/*
 		 * Verify that the gpte in the page, which is now either
 		 * write-protected or unsync, wasn't modified between the fault
@@ -906,7 +907,8 @@ static gpa_t FNAME(gva_to_gpa)(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 	return gpa;
 }
 
-#if PTTYPE != PTTYPE_EPT
+
+#if defined(CONFIG_KVM_LEGACY_SHADOW_PAGING) && PTTYPE != PTTYPE_EPT
 static gpa_t FNAME(get_level1_sp_gpa)(struct kvm_mmu_page *sp)
 {
 	int offset = 0;
@@ -918,7 +920,6 @@ static gpa_t FNAME(get_level1_sp_gpa)(struct kvm_mmu_page *sp)
 
 	return gfn_to_gpa(sp->gfn) + offset * sizeof(pt_element_t);
 }
-
 
 /*
  * Using the information in sp->shadowed_translation (kvm_mmu_page_get_gfn()) is

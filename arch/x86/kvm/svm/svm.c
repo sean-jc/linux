@@ -137,7 +137,9 @@ module_param(pause_filter_count_max, ushort, 0444);
  * svm_hardware_setup() if it's unsupported by hardware or the host kernel.
  */
 bool __ro_after_init npt_enabled = true;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 module_param_named(npt, npt_enabled, bool, 0444);
+#endif
 
 bool gmet_enabled = true;
 module_param_named(gmet, gmet_enabled, bool, 0444);
@@ -5662,8 +5664,11 @@ static __init int svm_hardware_setup(void)
 		gmet_enabled = false;
 
 	/* Force VM NPT level equal to the host's paging level */
-	kvm_configure_mmu(npt_enabled, get_npt_level(),
-			  get_npt_level(), PG_LEVEL_1G);
+	r = kvm_configure_mmu(npt_enabled, get_npt_level(), get_npt_level(),
+			      PG_LEVEL_1G);
+	if (r)
+		return r;
+
 	pr_info("Nested Paging %s\n", str_enabled_disabled(npt_enabled));
 
 	/*

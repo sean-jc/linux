@@ -3673,6 +3673,7 @@ static void kvm_vcpu_flush_tlb_guest(struct kvm_vcpu *vcpu)
 {
 	++vcpu->stat.tlb_flush;
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	if (!tdp_enabled) {
 		/*
 		 * A TLB flush on behalf of the guest is equivalent to
@@ -3683,6 +3684,7 @@ static void kvm_vcpu_flush_tlb_guest(struct kvm_vcpu *vcpu)
 		kvm_mmu_sync_roots(vcpu);
 		kvm_mmu_sync_prev_roots(vcpu);
 	}
+#endif
 
 	kvm_x86_call(flush_tlb_guest)(vcpu);
 

@@ -15,12 +15,18 @@
 	__field(__u32, root_count)	\
 	__field(bool, unsync)
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
+#define KVM_MMU_PAGE_IS_UNSYNC(sp) sp->unsync
+#else
+#define KVM_MMU_PAGE_IS_UNSYNC(sp) false
+#endif
+
 #define KVM_MMU_PAGE_ASSIGN(sp)				\
 	__entry->mmu_valid_gen = sp->mmu_valid_gen;	\
 	__entry->gfn = sp->gfn;				\
 	__entry->role = sp->role.word;			\
 	__entry->root_count = sp->root_count;		\
-	__entry->unsync = sp->unsync;
+	__entry->unsync = KVM_MMU_PAGE_IS_UNSYNC(sp);
 
 #define KVM_MMU_PAGE_PRINTK() ({				        \
 	const char *saved_ptr = trace_seq_buffer_ptr(p);		\

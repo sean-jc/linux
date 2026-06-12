@@ -491,8 +491,10 @@ struct kvm_mmu {
 	gpa_t (*gva_to_gpa)(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 			    gpa_t gva_or_gpa, u64 access,
 			    struct x86_exception *exception);
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	int (*sync_spte)(struct kvm_vcpu *vcpu,
 			 struct kvm_mmu_page *sp, int i);
+#endif
 	struct kvm_mmu_root_info root;
 	hpa_t mirror_root_hpa;
 	union kvm_cpu_role cpu_role;
@@ -2149,7 +2151,11 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
 
 int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 extern bool tdp_enabled;
+#else
+#define tdp_enabled true
+#endif
 
 /*
  * EMULTYPE_NO_DECODE - Set when re-emulating an instruction (after completing
@@ -2391,8 +2397,8 @@ void kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 void kvm_mmu_invpcid_gva(struct kvm_vcpu *vcpu, gva_t gva, unsigned long pcid);
 void kvm_mmu_new_pgd(struct kvm_vcpu *vcpu, gpa_t new_pgd);
 
-void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
-		       int tdp_max_root_level, int tdp_huge_page_level);
+int kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+		      int tdp_max_root_level, int tdp_huge_page_level);
 
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES

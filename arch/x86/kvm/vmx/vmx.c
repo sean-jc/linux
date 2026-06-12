@@ -100,7 +100,9 @@ bool __read_mostly flexpriority_enabled = 1;
 module_param_named(flexpriority, flexpriority_enabled, bool, 0444);
 
 bool __read_mostly enable_ept = 1;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 module_param_named(ept, enable_ept, bool, 0444);
+#endif
 
 bool __read_mostly enable_unrestricted_guest = 1;
 module_param_named(unrestricted_guest,
@@ -8712,8 +8714,10 @@ __init int vmx_hardware_setup(void)
 	 */
 	vmx_setup_me_spte_mask();
 
-	kvm_configure_mmu(enable_ept, 0, vmx_get_max_ept_level(),
-			  ept_caps_to_lpage_level(vmx_capability.ept));
+	r = kvm_configure_mmu(enable_ept, 0, vmx_get_max_ept_level(),
+			      ept_caps_to_lpage_level(vmx_capability.ept));
+	if (r)
+		return r;
 
 	/*
 	 * Only enable PML when hardware supports PML feature, and both EPT

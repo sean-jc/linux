@@ -213,6 +213,14 @@ config KVM_XEN
 
 	  If in doubt, say "N".
 
+config KVM_LEGACY_SHADOW_PAGING
+	bool "Enable support for CPUs without TDP (EPT or NPT)"
+	depends on KVM_X86
+	help
+	  Enable support for CPUs without TDP (EPT or NPT) support.
+
+	  If in doubt, and you don't need to support pre-2010 hardware, say "N".
+
 config KVM_PROVE_MMU
 	bool "Prove KVM MMU correctness"
 	depends on DEBUG_KERNEL

@@ -50,7 +50,9 @@ struct kvm_mmu_page {
 	struct hlist_node hash_link;
 
 	bool tdp_mmu_page;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	bool unsync;
+#endif
 	union {
 		u8 mmu_valid_gen;
 
@@ -99,7 +101,9 @@ struct kvm_mmu_page {
 	union {
 		/* These two members aren't used for TDP MMU */
 		struct {
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 			unsigned int unsync_children;
+#endif
 			/*
 			 * Number of writes since the last time traversal
 			 * visited this page.
@@ -116,7 +120,9 @@ struct kvm_mmu_page {
 		struct kvm_rmap_head parent_ptes; /* rmap pointers to parent sptes */
 		tdp_ptep_t ptep;
 	};
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	DECLARE_BITMAP(unsync_child_bitmap, 512);
+#endif
 
 	/*
 	 * Tracks shadow pages that, if zapped, would allow KVM to create an NX

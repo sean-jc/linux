@@ -104,7 +104,9 @@ module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
  * 2. while doing 1. it walks guest-physical to host-physical
  * If the hardware supports that we don't need to do shadow paging.
  */
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 bool tdp_enabled = false;
+#endif
 
 static bool __ro_after_init tdp_mmu_allowed;
 
@@ -1494,14 +1496,6 @@ bool kvm_mmu_slot_gfn_write_protect(struct kvm *kvm,
 	return write_protected;
 }
 
-static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
-{
-	struct kvm_memory_slot *slot;
-
-	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K);
-}
-
 static bool kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 			 const struct kvm_memory_slot *slot)
 {
@@ -1855,6 +1849,7 @@ static void drop_parent_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
 	mmu_spte_clear_no_track(parent_pte);
 }
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static void mark_unsync(u64 *spte);
 static void kvm_mmu_mark_parents_unsync(struct kvm_mmu_page *sp)
 {
@@ -1970,6 +1965,7 @@ static void kvm_unlink_unsync_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 	sp->unsync = 0;
 	--kvm->stat.mmu_unsync;
 }
+#endif
 
 static bool kvm_mmu_prepare_zap_page(struct kvm *kvm, struct kvm_mmu_page *sp,
 				     struct list_head *invalid_list);
@@ -2017,6 +2013,39 @@ static struct hlist_head *kvm_get_mmu_page_hash(struct kvm *kvm, gfn_t gfn)
 #define for_each_gfn_valid_sp_with_gptes(_kvm, _sp, _gfn)		\
 	for_each_valid_sp(_kvm, _sp, kvm_get_mmu_page_hash(_kvm, _gfn))	\
 		if ((_sp)->gfn != (_gfn) || !sp_has_gptes(_sp)) {} else
+
+static bool kvm_mmu_remote_flush_or_zap(struct kvm *kvm,
+					struct list_head *invalid_list,
+					bool remote_flush)
+{
+	if (!remote_flush && list_empty(invalid_list))
+		return false;
+
+	if (!list_empty(invalid_list))
+		kvm_mmu_commit_zap_page(kvm, invalid_list);
+	else
+		kvm_flush_remote_tlbs(kvm);
+	return true;
+}
+
+static bool is_obsolete_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
+{
+	if (sp->role.invalid)
+		return true;
+
+	/* TDP MMU pages do not use the MMU generation. */
+	return !is_tdp_mmu_page(sp) &&
+	       unlikely(sp->mmu_valid_gen != kvm->arch.mmu_valid_gen);
+}
+
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
+static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
+{
+	struct kvm_memory_slot *slot;
+
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K);
+}
 
 static bool kvm_sync_page_check(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 {
@@ -2096,30 +2125,6 @@ static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	if (ret < 0)
 		kvm_mmu_prepare_zap_page(vcpu->kvm, sp, invalid_list);
 	return ret;
-}
-
-static bool kvm_mmu_remote_flush_or_zap(struct kvm *kvm,
-					struct list_head *invalid_list,
-					bool remote_flush)
-{
-	if (!remote_flush && list_empty(invalid_list))
-		return false;
-
-	if (!list_empty(invalid_list))
-		kvm_mmu_commit_zap_page(kvm, invalid_list);
-	else
-		kvm_flush_remote_tlbs(kvm);
-	return true;
-}
-
-static bool is_obsolete_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
-{
-	if (sp->role.invalid)
-		return true;
-
-	/* TDP MMU pages do not use the MMU generation. */
-	return !is_tdp_mmu_page(sp) &&
-	       unlikely(sp->mmu_valid_gen != kvm->arch.mmu_valid_gen);
 }
 
 struct mmu_page_path {
@@ -2235,6 +2240,7 @@ static int mmu_sync_children(struct kvm_vcpu *vcpu,
 	kvm_mmu_remote_flush_or_zap(vcpu->kvm, &invalid_list, flush);
 	return 0;
 }
+#endif /* CONFIG_KVM_LEGACY_SHADOW_PAGING */
 
 static void __clear_sp_write_flooding_count(struct kvm_mmu_page *sp)
 {
@@ -2259,7 +2265,6 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 						     union kvm_mmu_page_role role)
 {
 	struct kvm_mmu_page *sp;
-	int ret;
 	int collisions = 0;
 	LIST_HEAD(invalid_list);
 
@@ -2270,6 +2275,7 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 		}
 
 		if (sp->role.word != role.word) {
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 			/*
 			 * If the guest is creating an upper-level page, zap
 			 * unsync pages for the same gfn.  While it's possible
@@ -2282,6 +2288,7 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 			if (role.level > PG_LEVEL_4K && sp->unsync)
 				kvm_mmu_prepare_zap_page(kvm, sp,
 							 &invalid_list);
+#endif
 			continue;
 		}
 
@@ -2289,7 +2296,10 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 		if (sp->role.direct)
 			goto out;
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 		if (sp->unsync) {
+			int ret;
+
 			if (KVM_BUG_ON(!vcpu, kvm))
 				break;
 
@@ -2313,7 +2323,7 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 			if (ret > 0)
 				kvm_flush_remote_tlbs(kvm);
 		}
-
+#endif
 		__clear_sp_write_flooding_count(sp);
 
 		goto out;
@@ -2581,6 +2591,7 @@ static void __link_shadow_page(struct kvm *kvm,
 
 	mmu_page_add_parent_pte(kvm, cache, sp, sptep);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	/*
 	 * The non-direct sub-pagetable must be updated before linking.  For
 	 * L1 sp, the pagetable is updated via kvm_sync_page() in
@@ -2592,6 +2603,7 @@ static void __link_shadow_page(struct kvm *kvm,
 	 */
 	if (WARN_ON_ONCE(sp->unsync_children) || sp->unsync)
 		mark_unsync(sptep);
+#endif
 }
 
 static void link_shadow_page(struct kvm_vcpu *vcpu, u64 *sptep,
@@ -2676,6 +2688,7 @@ static void kvm_mmu_unlink_parents(struct kvm *kvm, struct kvm_mmu_page *sp)
 		drop_parent_pte(kvm, sp, sptep);
 }
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static int mmu_zap_unsync_children(struct kvm *kvm,
 				   struct kvm_mmu_page *parent,
 				   struct list_head *invalid_list)
@@ -2699,6 +2712,7 @@ static int mmu_zap_unsync_children(struct kvm *kvm,
 
 	return zapped;
 }
+#endif /* CONFIG_KVM_LEGACY_SHADOW_PAGING */
 
 static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 				       struct kvm_mmu_page *sp,
@@ -2710,7 +2724,9 @@ static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 	lockdep_assert_held_write(&kvm->mmu_lock);
 	trace_kvm_mmu_prepare_zap_page(sp);
 	++kvm->stat.mmu_shadow_zapped;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	*nr_zapped = mmu_zap_unsync_children(kvm, sp, invalid_list);
+#endif
 	*nr_zapped += kvm_mmu_page_unlink_children(kvm, sp, invalid_list);
 	kvm_mmu_unlink_parents(kvm, sp);
 
@@ -2720,8 +2736,10 @@ static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 	if (!sp->role.invalid && sp_has_gptes(sp))
 		unaccount_shadowed(kvm, sp);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	if (sp->unsync)
 		kvm_unlink_unsync_page(kvm, sp);
+#endif
 	if (!sp->root_count) {
 		/* Count self */
 		(*nr_zapped)++;
@@ -2943,7 +2961,7 @@ out:
 int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 			    gfn_t gfn, bool synchronizing, bool prefetch)
 {
-	struct kvm_mmu_page *sp;
+	struct kvm_mmu_page *sp __maybe_unused;
 
 	/*
 	 * Force write-protection if the page is being tracked.  Note, the page
@@ -2953,6 +2971,7 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 	if (kvm_gfn_is_write_tracked(kvm, slot, gfn))
 		return -EPERM;
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	/* KVM doesn't utilize unsysnc SPTEs for nested TDP. */
 	if (tdp_enabled)
 		return 0;
@@ -3031,8 +3050,9 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 	 * in is_unsync_root(), placed between 2.1's load of SPTE.W and 2.3.
 	 */
 	smp_wmb();
-
+#endif
 	return 0;
+
 }
 
 static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
@@ -4251,6 +4271,7 @@ err_pml4:
 #endif
 }
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static bool is_unsync_root(hpa_t root)
 {
 	struct kvm_mmu_page *sp;
@@ -4342,6 +4363,7 @@ void kvm_mmu_sync_prev_roots(struct kvm_vcpu *vcpu)
 	/* sync prev_roots by simply freeing them */
 	kvm_mmu_free_roots(vcpu->kvm, vcpu->arch.mmu, roots_to_free);
 }
+#endif
 
 static gpa_t nonpaging_gva_to_gpa(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 				  gpa_t vaddr, u64 access,
@@ -5119,7 +5141,11 @@ static void nonpaging_init_context(struct kvm_mmu *context)
 {
 	context->page_fault = nonpaging_page_fault;
 	context->gva_to_gpa = nonpaging_gva_to_gpa;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	context->sync_spte = NULL;
+#else
+	WARN_ON_ONCE(1);
+#endif
 }
 
 static inline bool is_root_usable(struct kvm_mmu_root_info *root, gpa_t pgd,
@@ -5265,6 +5291,7 @@ void kvm_mmu_new_pgd(struct kvm_vcpu *vcpu, gpa_t new_pgd)
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_new_pgd);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static bool sync_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, gfn_t gfn,
 			   unsigned int access)
 {
@@ -5280,6 +5307,7 @@ static bool sync_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, gfn_t gfn,
 
 	return false;
 }
+#endif
 
 #define PTTYPE_EPT 18 /* arbitrary */
 #define PTTYPE PTTYPE_EPT
@@ -5750,14 +5778,18 @@ static void paging64_init_context(struct kvm_mmu *context)
 {
 	context->page_fault = paging64_page_fault;
 	context->gva_to_gpa = paging64_gva_to_gpa;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	context->sync_spte = paging64_sync_spte;
+#endif
 }
 
 static void paging32_init_context(struct kvm_mmu *context)
 {
 	context->page_fault = paging32_page_fault;
 	context->gva_to_gpa = paging32_gva_to_gpa;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	context->sync_spte = paging32_sync_spte;
+#endif
 }
 
 static union kvm_cpu_role kvm_calc_cpu_role(struct kvm_vcpu *vcpu,
@@ -5878,7 +5910,9 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu,
 	context->cpu_role.as_u64 = cpu_role.as_u64;
 	context->root_role.word = root_role.word;
 	context->page_fault = kvm_tdp_page_fault;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	context->sync_spte = NULL;
+#endif
 	context->get_guest_pgd = get_guest_cr3;
 	context->get_pdptr = kvm_pdptr_read;
 	context->inject_page_fault = kvm_inject_page_fault;
@@ -5916,6 +5950,7 @@ static void shadow_mmu_init_context(struct kvm_vcpu *vcpu, struct kvm_mmu *conte
 	reset_shadow_zero_bits_mask(vcpu, context);
 }
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static void kvm_init_shadow_mmu(struct kvm_vcpu *vcpu,
 				union kvm_cpu_role cpu_role)
 {
@@ -5940,6 +5975,7 @@ static void kvm_init_shadow_mmu(struct kvm_vcpu *vcpu,
 
 	shadow_mmu_init_context(vcpu, context, cpu_role, root_role);
 }
+#endif
 
 void kvm_init_shadow_npt_mmu(struct kvm_vcpu *vcpu, unsigned long cr4,
 			     u64 efer, gpa_t nested_cr3, u64 misc_ctl)
@@ -6011,8 +6047,9 @@ void kvm_init_shadow_ept_mmu(struct kvm_vcpu *vcpu, bool execonly,
 
 		context->page_fault = ept_page_fault;
 		context->gva_to_gpa = ept_gva_to_gpa;
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 		context->sync_spte = NULL;
-
+#endif
 		update_permission_bitmask(context, true, true);
 		context->pkru_mask = 0;
 		reset_rsvds_bits_mask_ept(vcpu, context, execonly, huge_page_level);
@@ -6026,6 +6063,7 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_init_shadow_ept_mmu);
 static void init_kvm_softmmu(struct kvm_vcpu *vcpu,
 			     union kvm_cpu_role cpu_role)
 {
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 
 	kvm_init_shadow_mmu(vcpu, cpu_role);
@@ -6033,6 +6071,9 @@ static void init_kvm_softmmu(struct kvm_vcpu *vcpu,
 	context->get_guest_pgd     = get_guest_cr3;
 	context->get_pdptr         = kvm_pdptr_read;
 	context->inject_page_fault = kvm_inject_page_fault;
+#else
+	BUILD_BUG();
+#endif
 }
 
 static void init_kvm_nested_mmu(struct kvm_vcpu *vcpu,
@@ -6052,7 +6093,9 @@ static void init_kvm_nested_mmu(struct kvm_vcpu *vcpu,
 	 * L2 page tables are never shadowed, so there is no need to sync
 	 * SPTEs.
 	 */
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	g_context->sync_spte         = NULL;
+#endif
 
 	/*
 	 * Note that arch.mmu->gva_to_gpa translates l2_gpa to l1_gpa using
@@ -6556,6 +6599,7 @@ void kvm_mmu_print_sptes(struct kvm_vcpu *vcpu, gpa_t gpa, const char *msg)
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_print_sptes);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 static void __kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 				      u64 addr, hpa_t root_hpa)
 {
@@ -6590,11 +6634,12 @@ static void __kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu
 	}
 	write_unlock(&vcpu->kvm->mmu_lock);
 }
+#endif
 
 void kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 			     u64 addr, unsigned long roots)
 {
-	int i;
+	int i __maybe_unused;
 
 	WARN_ON_ONCE(roots & ~KVM_MMU_ROOTS_ALL);
 
@@ -6609,6 +6654,7 @@ void kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 
 	vcpu_clear_mmio_info(vcpu, addr);
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	if (!mmu->sync_spte)
 		return;
 
@@ -6619,6 +6665,7 @@ void kvm_mmu_invalidate_addr(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 		if (roots & KVM_MMU_ROOT_PREVIOUS(i))
 			__kvm_mmu_invalidate_addr(vcpu, mmu, addr, mmu->prev_roots[i].hpa);
 	}
+#endif
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_invalidate_addr);
 
@@ -6666,10 +6713,17 @@ void kvm_mmu_invpcid_gva(struct kvm_vcpu *vcpu, gva_t gva, unsigned long pcid)
 	 */
 }
 
-void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
-		       int tdp_max_root_level, int tdp_huge_page_level)
+int kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+		      int tdp_max_root_level, int tdp_huge_page_level)
 {
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 	tdp_enabled = enable_tdp;
+#else
+	if (!enable_tdp) {
+		pr_err("TDP (EPT or NPT) not supported by hardware\n");
+		return -EOPNOTSUPP;
+	}
+#endif
 	tdp_root_level = tdp_forced_root_level;
 	max_tdp_level = tdp_max_root_level;
 
@@ -6689,6 +6743,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
 		max_huge_page_level = PG_LEVEL_1G;
 	else
 		max_huge_page_level = PG_LEVEL_2M;
+	return 0;
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_configure_mmu);
 
@@ -7228,9 +7283,11 @@ restart:
 		if (WARN_ON_ONCE(!is_large_pte(*huge_sptep)))
 			continue;
 
+#ifdef CONFIG_KVM_LEGACY_SHADOW_PAGING
 		/* SPs with level >PG_LEVEL_4K should never by unsync. */
 		if (WARN_ON_ONCE(sp->unsync))
 			continue;
+#endif
 
 		/* Don't bother splitting huge pages on invalid SPs. */
 		if (sp->role.invalid)
