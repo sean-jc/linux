@@ -252,8 +252,7 @@ static inline int kvm_hv_verify_vp_assist(struct kvm_vcpu *vcpu)
 	return kvm_hv_get_assist_page(vcpu);
 }
 
-static inline void kvm_hv_nested_transtion_tlb_flush(struct kvm_vcpu *vcpu,
-						     bool tdp_enabled)
+static inline void kvm_hv_nested_transtion_tlb_flush(struct kvm_vcpu *vcpu)
 {
 	/*
 	 * KVM_REQ_HV_TLB_FLUSH flushes entries from either L1's VP_ID or
@@ -261,7 +260,7 @@ static inline void kvm_hv_nested_transtion_tlb_flush(struct kvm_vcpu *vcpu,
 	 * pending entries in the right FIFO upon L1/L2 transition as these
 	 * requests are put by other vCPUs asynchronously.
 	 */
-	if (to_hv_vcpu(vcpu) && tdp_enabled)
+	if (to_hv_vcpu(vcpu))
 		kvm_make_request(KVM_REQ_HV_TLB_FLUSH, vcpu);
 }
 
@@ -313,7 +312,7 @@ static inline u32 kvm_hv_get_vpindex(struct kvm_vcpu *vcpu)
 {
 	return vcpu->vcpu_idx;
 }
-static inline void kvm_hv_nested_transtion_tlb_flush(struct kvm_vcpu *vcpu, bool tdp_enabled) {}
+static inline void kvm_hv_nested_transtion_tlb_flush(struct kvm_vcpu *vcpu) {}
 #endif /* CONFIG_KVM_HYPERV */
 
 #endif /* __ARCH_X86_KVM_HYPERV_H__ */

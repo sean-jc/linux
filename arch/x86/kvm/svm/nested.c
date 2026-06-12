@@ -688,7 +688,8 @@ static void nested_save_pending_event_to_vmcb12(struct vcpu_svm *svm,
 static void nested_svm_transition_tlb_flush(struct kvm_vcpu *vcpu)
 {
 	/* Handle pending Hyper-V TLB flush requests */
-	kvm_hv_nested_transtion_tlb_flush(vcpu, npt_enabled);
+	if (npt_enabled)
+		kvm_hv_nested_transtion_tlb_flush(vcpu);
 
 	/*
 	 * TODO: optimize unconditional TLB flush/MMU sync.  A partial list of

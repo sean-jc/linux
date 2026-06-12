@@ -1257,7 +1257,8 @@ static void nested_vmx_transition_tlb_flush(struct kvm_vcpu *vcpu,
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
 	/* Handle pending Hyper-V TLB flush requests */
-	kvm_hv_nested_transtion_tlb_flush(vcpu, enable_ept);
+	if (enable_ept)
+		kvm_hv_nested_transtion_tlb_flush(vcpu);
 
 	/*
 	 * If VPID is disabled, then guest TLB accesses use VPID=0, i.e. the
