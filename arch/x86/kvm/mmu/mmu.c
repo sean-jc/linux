@@ -2934,15 +2934,6 @@ out:
 	return r;
 }
 
-static void kvm_unsync_page(struct kvm *kvm, struct kvm_mmu_page *sp)
-{
-	trace_kvm_mmu_unsync_page(sp);
-	++kvm->stat.mmu_unsync;
-	sp->unsync = 1;
-
-	kvm_mmu_mark_parents_unsync(sp);
-}
-
 /*
  * Attempt to unsync any shadow pages that can be reached by the specified gfn,
  * KVM is creating a writable mapping for said gfn.  Returns 0 if all pages
@@ -2994,7 +2985,12 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 			return -EEXIST;
 
 		WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
-		kvm_unsync_page(kvm, sp);
+
+		trace_kvm_mmu_unsync_page(sp);
+		++kvm->stat.mmu_unsync;
+		sp->unsync = 1;
+
+		kvm_mmu_mark_parents_unsync(sp);
 	}
 
 	/*
