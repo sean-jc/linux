@@ -2461,6 +2461,13 @@ static struct kvm_mmu_page *kvm_mmu_get_child_sp(struct kvm_vcpu *vcpu,
 {
 	union kvm_mmu_page_role role = kvm_mmu_child_role(sptep, direct, access);
 
+	if (is_shadow_present_pte(*sptep) && !is_large_pte(*sptep) &&
+	    spte_to_child_sp(*sptep) &&
+	    spte_to_child_sp(*sptep)->gfn == gfn &&
+	    spte_to_child_sp(*sptep)->role.word == role.word &&
+	    spte_to_child_sp(*sptep)->unsync)
+		pr_err_ratelimited("Unsync SP that would have been used as is, RIP = %lx\n", kvm_rip_read(vcpu));
+
 	return kvm_mmu_get_shadow_page(vcpu, gfn, role);
 }
 
