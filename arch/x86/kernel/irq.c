@@ -430,7 +430,6 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_posted_msi_notification)
 	/* Mark the handler active for intel_ack_posted_msi_irq() */
 	__this_cpu_write(posted_msi_handler_active, true);
 	inc_irq_stat(POSTED_MSI_NOTIFICATION);
-	irq_enter();
 
 	/*
 	 * Loop only MAX_POSTED_MSI_COALESCING_LOOP - 1 times here to take
@@ -456,7 +455,6 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_posted_msi_notification)
 	handle_pending_pir(pid->pir, regs);
 
 	apic_eoi();
-	irq_exit();
 	__this_cpu_write(posted_msi_handler_active, false);
 	set_irq_regs(old_regs);
 }
