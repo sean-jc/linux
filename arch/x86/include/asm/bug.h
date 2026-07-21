@@ -172,7 +172,7 @@ static __always_inline __printf(1, 2) void __WARN_validate_printf(const char *fm
 #define __WARN_print_arg(flags, format, arg...)				\
 do {									\
 	int __flags = (flags) | BUGFLAG_WARNING | BUGFLAG_ARGS ;	\
-	__WARN_validate_printf(format, ## arg);				\
+	if (0) __WARN_validate_printf(format, ## arg);			\
 	static_call_mod(WARN_trap)(__WARN_bug_entry(__flags, format), ## arg); \
 	asm (""); /* inhibit tail-call optimization */			\
 } while (0)
