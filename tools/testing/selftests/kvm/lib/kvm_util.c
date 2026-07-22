@@ -985,6 +985,7 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 		int gmem_fd, u64 gmem_offset, u64 gmem_flags)
 {
 	int ret;
+	int mmap_flags = vm_mem_backing_src_alias(src_type)->flag;
 	struct userspace_mem_region *region;
 	size_t backing_src_pagesz = get_backing_src_pagesz(src_type);
 	size_t mem_size = npages * vm->page_size;
@@ -1083,16 +1084,14 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 	if (flags & KVM_MEM_GUEST_MEMFD && gmem_flags & GUEST_MEMFD_FLAG_MMAP) {
 		region->fd = kvm_dup(gmem_fd);
 		mmap_offset = gmem_offset;
+		mmap_flags = MAP_SHARED;
 	} else if (backing_src_is_shared(src_type)) {
 		region->fd = kvm_memfd_alloc(region->mmap_size,
 					     src_type == VM_MEM_SRC_SHARED_HUGETLB);
 	}
 
-	TEST_ASSERT(region->fd == -1 || backing_src_is_shared(src_type),
-		    "A valid fd provided to mmap() must be accompanied by MAP_SHARED.");
-
 	region->mmap_start = __kvm_mmap(region->mmap_size, PROT_READ | PROT_WRITE,
-					vm_mem_backing_src_alias(src_type)->flag,
+					mmap_flags,
 					region->fd, mmap_offset);
 
 	TEST_ASSERT(!is_backing_src_hugetlb(src_type) ||
@@ -1141,7 +1140,7 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 	if (region->fd >= 0) {
 		region->mmap_alias = kvm_mmap(region->mmap_size,
 					      PROT_READ | PROT_WRITE,
-					      vm_mem_backing_src_alias(src_type)->flag,
+					      mmap_flags,
 					      region->fd);
 
 		/* Align host alias address */
