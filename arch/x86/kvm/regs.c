@@ -683,8 +683,15 @@ int kvm_vcpu_ioctl_x86_set_sregs2(struct kvm_vcpu *vcpu,
 	if (sregs2->flags & ~KVM_SREGS2_FLAGS_PDPTRS_VALID)
 		return -EINVAL;
 
-	if (valid_pdptrs && (!pae || vcpu->arch.guest_state_protected))
-		return -EINVAL;
+	if (valid_pdptrs) {
+		if (!pae || vcpu->arch.guest_state_protected)
+			return -EINVAL;
+
+		for (i = 0; i < 4 ; i++) {
+			if (sregs2->pdptrs[i] & pdptr_rsvd_bits(vcpu))
+				return -EINVAL;
+		}
+	}
 
 	ret = __set_sregs_common(vcpu, (struct kvm_sregs *)sregs2,
 				 &mmu_reset_needed, !valid_pdptrs);
