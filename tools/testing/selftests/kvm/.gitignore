@@ -3,8 +3,12 @@
 !/**/
 !*.c
 !*.h
+!*.py
+!*.rst
 !*.S
 !*.sh
+!*.test
+default.test
 !.gitignore
 !config
 !settings
