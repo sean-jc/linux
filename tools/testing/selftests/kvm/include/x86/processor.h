@@ -499,8 +499,7 @@ static inline u16 get_es(void)
 {
 	u16 es;
 
-	__asm__ __volatile__("mov %%es, %[es]"
-			     : /* output */ [es]"=rm"(es));
+	__asm__ __volatile__("mov %%es, %[es]" : [es]"=rm"(es));
 	return es;
 }
 
@@ -508,8 +507,7 @@ static inline u16 get_cs(void)
 {
 	u16 cs;
 
-	__asm__ __volatile__("mov %%cs, %[cs]"
-			     : /* output */ [cs]"=rm"(cs));
+	__asm__ __volatile__("mov %%cs, %[cs]" : [cs]"=rm"(cs));
 	return cs;
 }
 
@@ -517,8 +515,7 @@ static inline u16 get_ss(void)
 {
 	u16 ss;
 
-	__asm__ __volatile__("mov %%ss, %[ss]"
-			     : /* output */ [ss]"=rm"(ss));
+	__asm__ __volatile__("mov %%ss, %[ss]": [ss]"=rm"(ss));
 	return ss;
 }
 
@@ -526,8 +523,7 @@ static inline u16 get_ds(void)
 {
 	u16 ds;
 
-	__asm__ __volatile__("mov %%ds, %[ds]"
-			     : /* output */ [ds]"=rm"(ds));
+	__asm__ __volatile__("mov %%ds, %[ds]" : [ds]"=rm"(ds));
 	return ds;
 }
 
@@ -535,8 +531,7 @@ static inline u16 get_fs(void)
 {
 	u16 fs;
 
-	__asm__ __volatile__("mov %%fs, %[fs]"
-			     : /* output */ [fs]"=rm"(fs));
+	__asm__ __volatile__("mov %%fs, %[fs]" : [fs]"=rm"(fs));
 	return fs;
 }
 
@@ -544,8 +539,7 @@ static inline u16 get_gs(void)
 {
 	u16 gs;
 
-	__asm__ __volatile__("mov %%gs, %[gs]"
-			     : /* output */ [gs]"=rm"(gs));
+	__asm__ __volatile__("mov %%gs, %[gs]" : [gs]"=rm"(gs));
 	return gs;
 }
 
@@ -553,8 +547,7 @@ static inline u16 get_tr(void)
 {
 	u16 tr;
 
-	__asm__ __volatile__("str %[tr]"
-			     : /* output */ [tr]"=rm"(tr));
+	__asm__ __volatile__("str %[tr]" : [tr]"=rm"(tr));
 	return tr;
 }
 
@@ -562,8 +555,7 @@ static inline u64 get_cr0(void)
 {
 	u64 cr0;
 
-	__asm__ __volatile__("mov %%cr0, %[cr0]"
-			     : /* output */ [cr0]"=r"(cr0));
+	__asm__ __volatile__("mov %%cr0, %[cr0]" : [cr0]"=r"(cr0));
 	return cr0;
 }
 
@@ -576,8 +568,7 @@ static inline u64 get_cr3(void)
 {
 	u64 cr3;
 
-	__asm__ __volatile__("mov %%cr3, %[cr3]"
-			     : /* output */ [cr3]"=r"(cr3));
+	__asm__ __volatile__("mov %%cr3, %[cr3]" : [cr3]"=r"(cr3));
 	return cr3;
 }
 
@@ -590,8 +581,7 @@ static inline u64 get_cr4(void)
 {
 	u64 cr4;
 
-	__asm__ __volatile__("mov %%cr4, %[cr4]"
-			     : /* output */ [cr4]"=r"(cr4));
+	__asm__ __volatile__("mov %%cr4, %[cr4]" : [cr4]"=r"(cr4));
 	return cr4;
 }
 
@@ -646,16 +636,16 @@ static inline void wrpkru(u32 pkru)
 static inline struct desc_ptr get_gdt(void)
 {
 	struct desc_ptr gdt;
-	__asm__ __volatile__("sgdt %[gdt]"
-			     : /* output */ [gdt]"=m"(gdt));
+
+	__asm__ __volatile__("sgdt %[gdt]" : [gdt]"=m"(gdt));
 	return gdt;
 }
 
 static inline struct desc_ptr get_idt(void)
 {
 	struct desc_ptr idt;
-	__asm__ __volatile__("sidt %[idt]"
-			     : /* output */ [idt]"=m"(idt));
+
+	__asm__ __volatile__("sidt %[idt]" : [idt]"=m"(idt));
 	return idt;
 }
 
