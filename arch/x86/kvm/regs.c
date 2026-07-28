@@ -699,8 +699,8 @@ int kvm_vcpu_ioctl_x86_set_sregs2(struct kvm_vcpu *vcpu,
 		return ret;
 
 	if (valid_pdptrs) {
-		for (i = 0; i < 4 ; i++)
-			kvm_pdptr_write(vcpu, i, sregs2->pdptrs[i]);
+		BUILD_BUG_ON(sizeof(sregs2->pdptrs) != sizeof(vcpu->arch.pdptrs));
+		memcpy(vcpu->arch.pdptrs, sregs2->pdptrs, sizeof(sregs2->pdptrs));
 
 		kvm_register_mark_dirty(vcpu, VCPU_REG_PDPTR);
 		mmu_reset_needed = 1;
