@@ -495,18 +495,6 @@ static inline void wrmsr(u32 msr, u64 value)
 	__asm__ __volatile__("wrmsr" :: "a"(a), "d"(d), "c"(msr) : "memory");
 }
 
-
-static inline u16 inw(u16 port)
-{
-	u16 tmp;
-
-	__asm__ __volatile__("in %%dx, %%ax"
-		: /* output */ "=a" (tmp)
-		: /* input */ "d" (port));
-
-	return tmp;
-}
-
 static inline u16 get_es(void)
 {
 	u16 es;
