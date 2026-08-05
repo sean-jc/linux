@@ -5762,9 +5762,6 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 	if (!kvm_require_dr(vcpu, dr))
 		return 1;
 
-	if (vmx_get_cpl(vcpu) > 0)
-		goto out;
-
 	dr7 = vmcs_readl(GUEST_DR7);
 	if (dr7 & DR7_GD) {
 		/*
@@ -5784,6 +5781,9 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 			return 1;
 		}
 	}
+
+	if (vmx_get_cpl(vcpu) > 0)
+		goto out;
 
 	if (vcpu->guest_debug == 0) {
 		exec_controls_clearbit(to_vmx(vcpu), CPU_BASED_MOV_DR_EXITING);
@@ -6034,7 +6034,7 @@ static int handle_nmi_window(struct kvm_vcpu *vcpu)
  * with unsrestricted guest mode disabled) and KVM can't faithfully emulate the
  * current vCPU state.
  */
-static bool vmx_unhandleable_emulation_required(struct kvm_vcpu *vcpu)
+bool vmx_unhandleable_emulation_required(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
@@ -6104,16 +6104,6 @@ static int handle_invalid_guest_state(struct kvm_vcpu *vcpu)
 		 */
 		if (__xfer_to_guest_mode_work_pending())
 			return 1;
-	}
-
-	return 1;
-}
-
-int vmx_vcpu_pre_run(struct kvm_vcpu *vcpu)
-{
-	if (vmx_unhandleable_emulation_required(vcpu)) {
-		kvm_prepare_emulation_failure_exit(vcpu);
-		return 0;
 	}
 
 	return 1;
@@ -8789,6 +8779,7 @@ __init int vmx_hardware_setup(void)
 		if (r)
 			return r;
 	}
+	vmx_nested_ops.enabled = nested;
 
 	kvm_set_posted_intr_wakeup_handler(pi_wakeup_handler);
 
