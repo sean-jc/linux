@@ -108,7 +108,7 @@ static void test_invalid_l2_guest_state(void)
 	vm = vm_create_and_run_l2(&vcpu);
 
 	/*
-	 * Stuff invalid guest state for L2 by making TR unusuable.  The next
+	 * Stuff invalid guest state for L2 by making TR unusable.  The next
 	 * KVM_RUN should induce a TRIPLE_FAULT in L2 as KVM doesn't support
 	 * emulating invalid guest state for L2.
 	 */
