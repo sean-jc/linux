@@ -1823,9 +1823,10 @@ static int setup_modinfo(struct module *mod, struct load_info *info)
 	for_each_modinfo_entry(imported_namespace, info, "import_ns") {
 		/*
 		 * 'module:' prefixed namespaces are implicit, disallow
-		 * explicit imports.
+		 * explicit imports, except for livepatching.
 		 */
-		if (strstarts(imported_namespace, "module:")) {
+		if (!is_livepatch_module(mod) &&
+		    strstarts(imported_namespace, "module:")) {
 			pr_err("%s: module tries to import module namespace: %s\n",
 			       mod->name, imported_namespace);
 			return -EPERM;

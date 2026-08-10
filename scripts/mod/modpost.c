@@ -1583,6 +1583,7 @@ static void mod_set_crcs(struct module *mod)
 
 static void read_symbols(const char *modname)
 {
+	bool is_livepatch_module;
 	const char *symname;
 	char *version;
 	char *license;
@@ -1610,6 +1611,8 @@ static void read_symbols(const char *modname)
 		mod->no_trim_symbol_len = info.no_trim_symbol_len;
 	}
 
+	is_livepatch_module = !!get_modinfo(&info, "livepatch");
+
 	if (!mod->is_vmlinux) {
 		license = get_modinfo(&info, "license");
 		if (!license)
@@ -1625,7 +1628,7 @@ static void read_symbols(const char *modname)
 		for (namespace = get_modinfo(&info, "import_ns");
 		     namespace;
 		     namespace = get_next_modinfo(&info, "import_ns", namespace)) {
-			if (strstarts(namespace, MODULE_NS_PREFIX))
+			if (!is_livepatch_module && strstarts(namespace, MODULE_NS_PREFIX))
 				error("%s: explicitly importing namespace \"%s\" is not allowed.\n",
 				      mod->name, namespace);
 
