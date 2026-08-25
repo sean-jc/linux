@@ -118,6 +118,9 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(tdp_mmu_enabled);
 bool __read_mostly eager_page_split = true;
 module_param(eager_page_split, bool, 0644);
 
+static unsigned int __read_mostly auto_prefault_nr_pages = KVM_PAGES_PER_HPAGE(PG_LEVEL_2M);
+module_param(auto_prefault_nr_pages, uint, 0644);
+
 static int max_huge_page_level __read_mostly;
 static int tdp_root_level __read_mostly;
 static int max_tdp_level __read_mostly;
@@ -3205,69 +3208,6 @@ static bool kvm_mmu_prefetch_sptes(struct kvm_vcpu *vcpu, gfn_t gfn, u64 *sptep,
 	return true;
 }
 
-static bool direct_pte_prefetch_many(struct kvm_vcpu *vcpu,
-				     struct kvm_mmu_page *sp,
-				     u64 *start, u64 *end)
-{
-	gfn_t gfn = kvm_mmu_page_get_gfn(sp, spte_index(start));
-	unsigned int access = sp->role.access;
-
-	return kvm_mmu_prefetch_sptes(vcpu, gfn, start, end - start, access);
-}
-
-static void __direct_pte_prefetch(struct kvm_vcpu *vcpu,
-				  struct kvm_mmu_page *sp, u64 *sptep)
-{
-	u64 *spte, *start = NULL;
-	int i;
-
-	WARN_ON_ONCE(!sp->role.direct);
-
-	i = spte_index(sptep) & ~(PTE_PREFETCH_NUM - 1);
-	spte = sp->spt + i;
-
-	for (i = 0; i < PTE_PREFETCH_NUM; i++, spte++) {
-		if (is_shadow_present_pte(*spte) || spte == sptep) {
-			if (!start)
-				continue;
-			if (!direct_pte_prefetch_many(vcpu, sp, start, spte))
-				return;
-
-			start = NULL;
-		} else if (!start)
-			start = spte;
-	}
-	if (start)
-		direct_pte_prefetch_many(vcpu, sp, start, spte);
-}
-
-static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
-{
-	struct kvm_mmu_page *sp;
-
-	sp = sptep_to_sp(sptep);
-
-	/*
-	 * Without accessed bits, there's no way to distinguish between
-	 * actually accessed translations and prefetched, so disable pte
-	 * prefetch if accessed bits aren't available.
-	 */
-	if (sp_ad_disabled(sp))
-		return;
-
-	if (sp->role.level > PG_LEVEL_4K)
-		return;
-
-	/*
-	 * If addresses are being invalidated, skip prefetching to avoid
-	 * accidentally prefetching those addresses.
-	 */
-	if (unlikely(vcpu->kvm->mmu_invalidate_in_progress))
-		return;
-
-	__direct_pte_prefetch(vcpu, sp, sptep);
-}
-
 /*
  * Lookup the mapping level for @gfn in the current mm.
  *
@@ -3502,8 +3442,8 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
-	int ret, access;
 	gfn_t base_gfn = fault->gfn;
+	int access;
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
@@ -3534,13 +3474,8 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
 
-	ret = mmu_set_spte(vcpu, fault->slot, it.sptep, access,
-			   base_gfn, fault->pfn, fault);
-	if (ret == RET_PF_SPURIOUS)
-		return ret;
-
-	direct_pte_prefetch(vcpu, it.sptep);
-	return ret;
+	return mmu_set_spte(vcpu, fault->slot, it.sptep, access, base_gfn,
+			    fault->pfn, fault);
 }
 
 static void kvm_send_hwpoison_signal(struct kvm_memory_slot *slot, gfn_t gfn)
@@ -6580,11 +6515,38 @@ static int kvm_mmu_write_protect_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	return RET_PF_EMULATE;
 }
 
+static void kvm_mmu_auto_prefault(struct kvm_vcpu *vcpu, gpa_t start,
+				  u64 error_code, u8 level)
+{
+	gfn_t nr_pages = READ_ONCE(auto_prefault_nr_pages);
+	int nr_pages_msb;
+	gfn_t i;
+
+	if (unlikely(error_code & PFERR_RSVD_MASK))
+		return;
+
+	nr_pages = min(nr_pages, KVM_PAGES_PER_HPAGE(PG_LEVEL_1G));
+	nr_pages_msb = find_last_bit((unsigned long *)&nr_pages, sizeof(nr_pages));
+
+	start = ALIGN_DOWN(start, gfn_to_gpa(BIT_ULL(nr_pages_msb)));
+
+	for (i = KVM_PAGES_PER_HPAGE(level); i < nr_pages; i += KVM_PAGES_PER_HPAGE(level)) {
+		gpa_t gpa = start + gfn_to_gpa(i);
+
+		if (gpa < start || gpa_to_gfn(gpa) > kvm_mmu_max_gfn())
+			return;
+
+		if (kvm_tdp_page_prefault(vcpu, gpa, error_code, &level))
+			return;
+	}
+}
+
 int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		       void *insn, int insn_len)
 {
 	int r, emulation_type = EMULTYPE_PF;
 	bool direct = vcpu->arch.mmu->root_role.direct;
+	u8 level;
 
 	if (WARN_ON_ONCE(!VALID_PAGE(vcpu->arch.mmu->root.hpa)))
 		return RET_PF_RETRY;
@@ -6617,7 +6579,7 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 		vcpu->stat.pf_taken++;
 
 		r = kvm_mmu_do_page_fault(vcpu, cr2_or_gpa, error_code, false,
-					  &emulation_type, NULL);
+					  &emulation_type, &level);
 		if (KVM_BUG_ON(r == RET_PF_INVALID, vcpu->kvm))
 			return -EIO;
 	}
@@ -6628,6 +6590,8 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 	if (r == RET_PF_WRITE_PROTECTED)
 		r = kvm_mmu_write_protect_fault(vcpu, cr2_or_gpa, error_code,
 						&emulation_type);
+	else if (r == RET_PF_FIXED)
+		kvm_mmu_auto_prefault(vcpu, cr2_or_gpa, error_code, level);
 
 	if (r == RET_PF_FIXED)
 		vcpu->stat.pf_fixed++;

@@ -617,7 +617,7 @@ static void FNAME(pte_prefetch)(struct kvm_vcpu *vcpu, struct guest_walker *gw,
 
 	sp = sptep_to_sp(sptep);
 
-	if (sp->role.level > PG_LEVEL_4K)
+	if (sp->role.level > PG_LEVEL_4K || sp->role.direct)
 		return;
 
 	/*
@@ -626,9 +626,6 @@ static void FNAME(pte_prefetch)(struct kvm_vcpu *vcpu, struct guest_walker *gw,
 	 */
 	if (unlikely(vcpu->kvm->mmu_invalidate_in_progress))
 		return;
-
-	if (sp->role.direct)
-		return __direct_pte_prefetch(vcpu, sp, sptep);
 
 	i = spte_index(sptep) & ~(PTE_PREFETCH_NUM - 1);
 	spte = sp->spt + i;
