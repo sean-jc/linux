@@ -2992,12 +2992,16 @@ void sev_vm_destroy(struct kvm *kvm)
 	struct list_head *head = &sev->regions_list;
 	struct list_head *pos, *q;
 
+	/*
+	 * Free the mask even if the VM is not *currently* an SEV VM, as it may
+	 * have been an SEV VM prior to intra-host migration.
+	 */
+	sev_free_have_run_cpus(sev);
+
 	if (!sev_guest(kvm))
 		return;
 
 	WARN_ON(!list_empty(&sev->mirror_vms));
-
-	sev_free_have_run_cpus(sev);
 
 	/*
 	 * If this is a mirror VM, remove it from the owner's list of a mirrors
