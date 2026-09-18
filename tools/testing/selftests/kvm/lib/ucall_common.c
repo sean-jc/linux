@@ -83,7 +83,6 @@ void ucall_assert(u64 cmd, const char *exp, const char *file,
 		  unsigned int line, const char *fmt, ...)
 {
 	struct ucall *uc;
-	va_list va;
 
 	uc = ucall_alloc();
 	uc->cmd = cmd;
@@ -92,9 +91,7 @@ void ucall_assert(u64 cmd, const char *exp, const char *file,
 	WRITE_ONCE(uc->args[GUEST_FILE], (u64)(file));
 	WRITE_ONCE(uc->args[GUEST_LINE], line);
 
-	va_start(va, fmt);
-	guest_vsnprintf(uc->buffer, UCALL_BUFFER_LEN, fmt, va);
-	va_end(va);
+	guest_snprintf(uc->buffer, UCALL_BUFFER_LEN, fmt);
 
 	ucall_arch_do_ucall((gva_t)uc->hva);
 
@@ -104,14 +101,11 @@ void ucall_assert(u64 cmd, const char *exp, const char *file,
 void ucall_fmt(u64 cmd, const char *fmt, ...)
 {
 	struct ucall *uc;
-	va_list va;
 
 	uc = ucall_alloc();
 	uc->cmd = cmd;
 
-	va_start(va, fmt);
-	guest_vsnprintf(uc->buffer, UCALL_BUFFER_LEN, fmt, va);
-	va_end(va);
+	guest_snprintf(uc->buffer, UCALL_BUFFER_LEN, fmt);
 
 	ucall_arch_do_ucall((gva_t)uc->hva);
 

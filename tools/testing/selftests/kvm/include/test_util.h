@@ -238,7 +238,17 @@ static inline u32 atoi_non_negative(const char *name, const char *num_str)
 }
 
 int guest_vsnprintf(char *buf, int n, const char *fmt, va_list args);
-__printf(3, 4) int guest_snprintf(char *buf, int n, const char *fmt, ...);
+
+#define guest_snprintf(__buf, __n, __fmt)		\
+({							\
+	va_list va;					\
+	int len;					\
+							\
+	va_start(va, __fmt);				\
+	len = guest_vsnprintf(__buf, __n, __fmt, va);	\
+	va_end(va);					\
+	len;						\
+})
 
 char *strdup_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2), nonnull(1)));
 
