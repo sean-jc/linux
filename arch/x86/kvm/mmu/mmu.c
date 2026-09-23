@@ -123,8 +123,8 @@ static int tdp_root_level __read_mostly;
 static int max_tdp_level __read_mostly;
 
 /*
- * The exact number of PTEs that can be prefetched for the shadow MMU, and the
- * default number of pages to prefault/prefetch pages for the TDP MMU.
+ * The exact number of PTEs that can be prefetched for indirect MMUs, and the
+ * default number of pages to prefault/prefetch pages for direct MMUs.
  */
 #define PTE_PREFETCH_NUM		8
 
@@ -3268,8 +3268,8 @@ static bool direct_pte_prefetch_many(struct kvm_vcpu *vcpu,
 	return kvm_mmu_prefetch_sptes(vcpu, gfn, start, end - start, access);
 }
 
-static void __direct_pte_prefetch(struct kvm_vcpu *vcpu,
-				  struct kvm_mmu_page *sp, u64 *sptep)
+static void direct_pte_prefetch(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
+				u64 *sptep)
 {
 	u64 *spte, *start = NULL;
 	int i;
@@ -3292,33 +3292,6 @@ static void __direct_pte_prefetch(struct kvm_vcpu *vcpu,
 	}
 	if (start)
 		direct_pte_prefetch_many(vcpu, sp, start, spte);
-}
-
-static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
-{
-	struct kvm_mmu_page *sp;
-
-	sp = sptep_to_sp(sptep);
-
-	/*
-	 * Without accessed bits, there's no way to distinguish between
-	 * actually accessed translations and prefetched, so disable pte
-	 * prefetch if accessed bits aren't available.
-	 */
-	if (sp_ad_disabled(sp))
-		return;
-
-	if (sp->role.level > PG_LEVEL_4K)
-		return;
-
-	/*
-	 * If addresses are being invalidated, skip prefetching to avoid
-	 * accidentally prefetching those addresses.
-	 */
-	if (unlikely(vcpu->kvm->mmu_invalidate_in_progress))
-		return;
-
-	__direct_pte_prefetch(vcpu, sp, sptep);
 }
 
 /*
@@ -3555,8 +3528,8 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
-	int ret, access;
 	gfn_t base_gfn = fault->gfn;
+	int access;
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
@@ -3587,13 +3560,8 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
 
-	ret = mmu_set_spte(vcpu, fault->slot, it.sptep, access,
-			   base_gfn, fault->pfn, fault);
-	if (ret == RET_PF_SPURIOUS)
-		return ret;
-
-	direct_pte_prefetch(vcpu, it.sptep);
-	return ret;
+	return mmu_set_spte(vcpu, fault->slot, it.sptep, access, base_gfn,
+			    fault->pfn, fault);
 }
 
 static void kvm_send_hwpoison_signal(struct kvm_memory_slot *slot, gfn_t gfn)
@@ -6660,7 +6628,7 @@ static void kvm_mmu_auto_prefault(struct kvm_vcpu *vcpu, gpa_t start,
 	if (error_code & (PFERR_RSVD_MASK | PFERR_PRESENT_MASK))
 		return;
 
-	if (!tdp_mmu_enabled || vcpu->arch.mmu->page_fault != kvm_tdp_page_fault)
+	if (vcpu->arch.mmu->page_fault != kvm_tdp_page_fault)
 		return;
 
 	nr_pages = min(nr_pages, KVM_PAGES_PER_HPAGE(PG_LEVEL_1G));
