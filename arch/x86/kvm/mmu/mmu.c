@@ -4741,6 +4741,12 @@ static int kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 	if (KVM_BUG_ON(kvm_is_gfn_alias(kvm, fault->gfn), kvm))
 		return -EFAULT;
 
+	if (fault->prefetch) {
+		ret = kvm_check_memslot_usable_for_prefetch(fault->slot, access);
+		if (ret)
+			return ret;
+	}
+
 	/*
 	 * Note that the mmu_invalidate_seq also serves to detect a concurrent
 	 * change in attributes.  is_page_fault_stale() will detect an
@@ -4765,16 +4771,10 @@ static int kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 	/*
 	 * Retry the page fault if the gfn hit a memslot that is being deleted
 	 * or moved.  This ensures any existing SPTEs for the old memslot will
-	 * be zapped before KVM inserts a new MMIO SPTE for the gfn.  Punt the
-	 * error to userspace if this is a prefault, as KVM's prefaulting ABI
-	 * doesn't provide the same forward progress guarantees as KVM_RUN.
+	 * be zapped before KVM inserts a new MMIO SPTE for the gfn.
 	 */
-	if (slot->flags & KVM_MEMSLOT_INVALID) {
-		if (fault->prefetch)
-			return -EAGAIN;
-
+	if (slot->flags & KVM_MEMSLOT_INVALID)
 		return RET_PF_RETRY;
-	}
 
 	if (slot->id == APIC_ACCESS_PAGE_PRIVATE_MEMSLOT) {
 		/*
