@@ -631,7 +631,7 @@ static void FNAME(pte_prefetch)(struct kvm_vcpu *vcpu, struct guest_walker *gw,
 		return;
 
 	if (sp->role.direct)
-		return __direct_pte_prefetch(vcpu, sp, sptep);
+		return direct_pte_prefetch(vcpu, sp, sptep);
 
 	i = spte_index(sptep) & ~(PTE_PREFETCH_NUM - 1);
 	spte = sp->spt + i;
