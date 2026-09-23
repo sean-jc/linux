@@ -871,19 +871,19 @@ static void unaccount_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 	untrack_possible_nx_huge_page(kvm, sp, KVM_SHADOW_MMU);
 }
 
-static struct kvm_memory_slot *gfn_to_memslot_dirty_bitmap(struct kvm_vcpu *vcpu,
-							   gfn_t gfn,
-							   bool no_dirty_log)
+static int kvm_check_memslot_usable_for_prefetch(struct kvm_memory_slot *slot,
+						 unsigned int access)
 {
-	struct kvm_memory_slot *slot;
+	if (!slot)
+		return -ENOENT;
 
-	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	if (!slot || slot->flags & KVM_MEMSLOT_INVALID)
-		return NULL;
-	if (no_dirty_log && kvm_slot_dirty_track_enabled(slot))
-		return NULL;
+	if (slot->flags & KVM_MEMSLOT_INVALID)
+		return -EAGAIN;
 
-	return slot;
+	if ((access & ACC_WRITE_MASK) && kvm_slot_dirty_track_enabled(slot))
+		return -EACCES;
+
+	return 0;
 }
 
 /*
@@ -3224,8 +3224,8 @@ static bool kvm_mmu_prefetch_sptes(struct kvm_vcpu *vcpu, gfn_t gfn, u64 *sptep,
 	if (WARN_ON_ONCE(nr_pages > PTE_PREFETCH_NUM))
 		return false;
 
-	slot = gfn_to_memslot_dirty_bitmap(vcpu, gfn, access & ACC_WRITE_MASK);
-	if (!slot)
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	if (kvm_check_memslot_usable_for_prefetch(slot, access))
 		return false;
 
 	nr_pages = kvm_prefetch_pages(slot, gfn, pages, nr_pages);
