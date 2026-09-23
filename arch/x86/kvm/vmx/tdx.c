@@ -1936,8 +1936,8 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 
 	if (vt_is_tdx_private_gpa(vcpu->kvm, gpa)) {
 		if (tdx_is_sept_violation_unexpected_pending(vcpu)) {
-			pr_warn("Guest access before accepting 0x%llx on vCPU %d\n",
-				gpa, vcpu->vcpu_id);
+			pr_warn_ratelimited("Guest access before accepting 0x%llx on vCPU %d\n",
+					    gpa, vcpu->vcpu_id);
 			kvm_prepare_shutdown_exit(vcpu);
 			return 0;
 		}
