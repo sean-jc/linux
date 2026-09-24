@@ -1003,57 +1003,38 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 	return __kvm_gmem_create(kvm, size, flags);
 }
 
-int kvm_gmem_prepare_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot,
-				   unsigned int fd, uoff_t offset)
+int kvm_gmem_prepare_memory_region(struct kvm *kvm,
+				   struct kvm_memory_slot *slot)
 {
-	uoff_t size = slot->npages << PAGE_SHIFT;
 	struct gmem_file *f;
 	struct inode *inode;
-	struct file *file;
 
-
-	BUILD_BUG_ON(sizeof(gpa_t) != sizeof(offset));
 	BUILD_BUG_ON(sizeof(gfn_t) != sizeof(slot->gmem.pgoff));
 
 	if (WARN_ON_ONCE(slot->flags & KVM_MEMSLOT_GMEM_ONLY))
 		return -EINVAL;
 
-	file = fget(fd);
-	if (!file)
-		return -EBADF;
+	if (slot->gmem.file->f_op != &kvm_gmem_fops)
+		return -EINVAL;
 
-	if (file->f_op != &kvm_gmem_fops)
-		goto err;
-
-	f = file->private_data;
+	f = slot->gmem.file->private_data;
 	if (f->kvm != kvm)
-		goto err;
+		return -EINVAL;
 
-	inode = file_inode(file);
+	inode = file_inode(slot->gmem.file);
 
-	if (offset + size > i_size_read(inode))
-		goto err;
+	if (slot->gmem.pgoff + slot->npages  > i_size_read(inode) >> PAGE_SHIFT)
+		return -EINVAL;
 
 	/*
 	 * memslots of flag KVM_MEM_GUEST_MEMFD are immutable to change, so
 	 * kvm_gmem_bind() must occur on a new memslot.  Because the memslot
 	 * is not visible yet, kvm_gmem_get_pfn() is guaranteed to see the file.
 	 */
-	slot->gmem.file = file;
-	slot->gmem.pgoff = offset >> PAGE_SHIFT;
 	if (gmem_in_place_conversion || kvm_gmem_supports_mmap(inode))
 		slot->flags |= KVM_MEMSLOT_GMEM_ONLY;
 
-	/*
-	 * Gift the caller a reference to the file.  The reference will be
-	 * dropped after bindings are established, or if installing the new
-	 * memslot ultimately fails.
-	 */
 	return 0;
-
-err:
-	fput(file);
-	return -EINVAL;
 }
 
 int kvm_gmem_commit_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot)

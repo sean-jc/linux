@@ -2134,10 +2134,21 @@ static int kvm_set_memory_region(struct kvm *kvm,
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
 	if (change == KVM_MR_CREATE && (mem->flags & KVM_MEM_GUEST_MEMFD)) {
-		r = kvm_gmem_prepare_memory_region(kvm, new, mem->guest_memfd,
-						   mem->guest_memfd_offset);
-		if (r)
+#ifdef CONFIG_KVM_GUEST_MEMFD
+		new->gmem.file = fget(mem->guest_memfd);
+		if (!new->gmem.file) {
+			r = -EBADF;
 			goto out;
+		}
+
+		new->gmem.pgoff = mem->guest_memfd_offset >> PAGE_SHIFT;
+
+		r = kvm_gmem_prepare_memory_region(kvm, new);
+		if (r) {
+			fput(new->gmem.file);
+			goto out;
+		}
+#endif
 	}
 
 	r = kvm_set_memslot(kvm, old, new, change);
@@ -2148,7 +2159,7 @@ static int kvm_set_memory_region(struct kvm *kvm,
 	 * the file is closed before memslots are destroyed.
 	 */
 #ifdef CONFIG_KVM_GUEST_MEMFD
-	if (change == KVM_MR_CREATE && (mem->flags & KVM_MEM_GUEST_MEMFD))
+	if (new->gmem.file)
 		fput(new->gmem.file);
 #endif
 
