@@ -1031,7 +1031,7 @@ int kvm_gmem_prepare_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot
 
 	inode = file_inode(file);
 
-	if (!PAGE_ALIGNED(offset) || offset + size > i_size_read(inode))
+	if (offset + size > i_size_read(inode))
 		goto err;
 
 	/*
