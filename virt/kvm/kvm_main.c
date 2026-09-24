@@ -1681,8 +1681,8 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 {
 	int r;
 
-	if (change == KVM_MR_CREATE && (new->flags & KVM_MEM_GUEST_MEMFD)) {
-		r = kvm_gmem_prepare_memory_region(kvm, new);
+	if (new && (new->flags & KVM_MEM_GUEST_MEMFD)) {
+		r = kvm_gmem_prepare_memory_region(kvm, new, change);
 		if (r)
 			return r;
 	}
@@ -1958,8 +1958,8 @@ static int kvm_set_memslot(struct kvm *kvm,
 	if (r)
 		goto err;
 
-	if (change == KVM_MR_CREATE && (new->flags & KVM_MEM_GUEST_MEMFD)) {
-		r = kvm_gmem_commit_memory_region(kvm, new);
+	if (new && (new->flags & KVM_MEM_GUEST_MEMFD)) {
+		r = kvm_gmem_commit_memory_region(kvm, new, change);
 		if (r) {
 			kvm_arch_free_memslot(kvm, new);
 			kvm_destroy_dirty_bitmap(new);
@@ -2139,7 +2139,7 @@ static int kvm_set_memory_region(struct kvm *kvm,
 	new->npages = npages;
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
-	if (change == KVM_MR_CREATE && (mem->flags & KVM_MEM_GUEST_MEMFD)) {
+	if (mem->flags & KVM_MEM_GUEST_MEMFD) {
 #ifdef CONFIG_KVM_GUEST_MEMFD
 		new->gmem.file = fget(mem->guest_memfd);
 		if (!new->gmem.file) {

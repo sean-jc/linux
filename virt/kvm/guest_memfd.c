@@ -1003,13 +1003,16 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 	return __kvm_gmem_create(kvm, size, flags);
 }
 
-int kvm_gmem_prepare_memory_region(struct kvm *kvm,
-				   struct kvm_memory_slot *slot)
+int kvm_gmem_prepare_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot,
+				   enum kvm_mr_change change)
 {
 	struct gmem_file *f;
 	struct inode *inode;
 
 	BUILD_BUG_ON(sizeof(gfn_t) != sizeof(slot->gmem.pgoff));
+
+	if (WARN_ON_ONCE(change != KVM_MR_CREATE))
+		return -EINVAL;
 
 	if (WARN_ON_ONCE(slot->flags & KVM_MEMSLOT_GMEM_ONLY))
 		return -EINVAL;
@@ -1037,12 +1040,16 @@ int kvm_gmem_prepare_memory_region(struct kvm *kvm,
 	return 0;
 }
 
-int kvm_gmem_commit_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot)
+int kvm_gmem_commit_memory_region(struct kvm *kvm, struct kvm_memory_slot *slot,
+				  enum kvm_mr_change change)
 {
 	struct gmem_file *f = slot->gmem.file->private_data;
 	struct inode *inode = file_inode(slot->gmem.file);
 	unsigned long start, end;
 	int r;
+
+	if (WARN_ON_ONCE(change != KVM_MR_CREATE))
+		return -EINVAL;
 
 	if (WARN_ON_ONCE(slot->gmem.file->f_op != &kvm_gmem_fops))
 		return -EIO;
