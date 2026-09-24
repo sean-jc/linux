@@ -1681,6 +1681,12 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 {
 	int r;
 
+	if (change == KVM_MR_CREATE && (new->flags & KVM_MEM_GUEST_MEMFD)) {
+		r = kvm_gmem_prepare_memory_region(kvm, new);
+		if (r)
+			return r;
+	}
+
 	/*
 	 * If dirty logging is disabled, nullify the bitmap; the old bitmap
 	 * will be freed on "commit".  If logging is enabled in both old and
@@ -2142,12 +2148,6 @@ static int kvm_set_memory_region(struct kvm *kvm,
 		}
 
 		new->gmem.pgoff = mem->guest_memfd_offset >> PAGE_SHIFT;
-
-		r = kvm_gmem_prepare_memory_region(kvm, new);
-		if (r) {
-			fput(new->gmem.file);
-			goto out;
-		}
 #endif
 	}
 
