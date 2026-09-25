@@ -399,7 +399,9 @@ void kvm_deliver_exception_payload(struct kvm_vcpu *vcpu,
 		return;
 
 	switch (ex->vector) {
-	case DB_VECTOR:
+	case DB_VECTOR: {
+		unsigned long dr6_fixed_1 = kvm_get_dr6_fixed_1(vcpu);
+
 		/*
 		 * DR6 is a mess.  Reserved/unused bits are fixed-to-1, and so
 		 * to maintain backwards compatibility with existing software,
@@ -426,7 +428,7 @@ void kvm_deliver_exception_payload(struct kvm_vcpu *vcpu,
 		 *  2. Clear active-low bits that are present in the payload.
 		 *  3. Set active-high bits that are present in the payload.
 		 *  4. Clear fixed-0 bits.
-		 *  5. Set fixed-1 bits.
+		 *  5. Sanity check (and set, if necessary) fixed-1 bits.
 		 */
 		vcpu->arch.dr6 &= ~DR_TRAP_BITS;
 		vcpu->arch.dr6 |= DR6_RTM;
@@ -440,8 +442,10 @@ void kvm_deliver_exception_payload(struct kvm_vcpu *vcpu,
 		 * breakpoint), it is reserved and must be zero in DR6.
 		 */
 		vcpu->arch.dr6 &= ~BIT(12);
-		vcpu->arch.dr6 |= DR6_FIXED_1;
+		if (WARN_ON_ONCE((vcpu->arch.dr6 & dr6_fixed_1) != dr6_fixed_1))
+			vcpu->arch.dr6 |= dr6_fixed_1;
 		break;
+	}
 	case PF_VECTOR:
 		vcpu->arch.cr2 = ex->payload;
 		break;
