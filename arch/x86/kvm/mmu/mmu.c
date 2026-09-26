@@ -4701,10 +4701,12 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 	/*
 	 * If resolving the page failed because I/O is needed to fault-in the
 	 * page, then either set up an asynchronous #PF to do the I/O, or if
-	 * doing an async #PF isn't possible, retry with I/O allowed.  All
-	 * other failures are terminal, i.e. retrying won't help.
+	 * doing an async #PF isn't possible, retry with I/O allowed.  Never
+	 * go down the slow I/O path for automatic prefetching, as the goal is
+	 * for it to be light and fast.  All other failures are terminal, i.e.
+	 * retrying won't help.
 	 */
-	if (fault->pfn != KVM_PFN_ERR_NEEDS_IO)
+	if (fault->pfn != KVM_PFN_ERR_NEEDS_IO || fault->auto_prefetch)
 		return RET_PF_CONTINUE;
 
 	if (!fault->prefetch && kvm_can_do_async_pf(vcpu)) {
