@@ -228,6 +228,7 @@ struct kvm_page_fault {
 	const gpa_t addr;
 	const u64 error_code;
 	const bool prefetch;
+	const bool auto_prefetch;
 
 	/* Derived from error_code.  */
 	const bool exec;
