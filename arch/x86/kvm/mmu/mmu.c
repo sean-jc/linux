@@ -122,7 +122,14 @@ static int max_huge_page_level __read_mostly;
 static int tdp_root_level __read_mostly;
 static int max_tdp_level __read_mostly;
 
+/*
+ * The exact number of PTEs that can be prefetched for the shadow MMU, and the
+ * default number of pages to prefault/prefetch pages for the TDP MMU.
+ */
 #define PTE_PREFETCH_NUM		8
+
+static unsigned int __read_mostly auto_prefault_nr_pages = PTE_PREFETCH_NUM;
+module_param(auto_prefault_nr_pages, uint, 0644);
 
 #include <trace/events/kvm.h>
 
@@ -6643,11 +6650,44 @@ static int kvm_mmu_write_protect_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	return RET_PF_EMULATE;
 }
 
+static void kvm_mmu_auto_prefault(struct kvm_vcpu *vcpu, gpa_t start,
+				  u64 error_code, u8 level)
+{
+	gfn_t nr_pages = READ_ONCE(auto_prefault_nr_pages);
+	int nr_pages_msb;
+	gfn_t i;
+
+	if (error_code & (PFERR_RSVD_MASK | PFERR_PRESENT_MASK))
+		return;
+
+	if (!tdp_mmu_enabled || vcpu->arch.mmu->page_fault != kvm_tdp_page_fault)
+		return;
+
+	nr_pages = min(nr_pages, KVM_PAGES_PER_HPAGE(PG_LEVEL_1G));
+	if (KVM_PAGES_PER_HPAGE(level) >= nr_pages)
+		return;
+
+	nr_pages_msb = find_last_bit((unsigned long *)&nr_pages, sizeof(nr_pages));
+
+	start = ALIGN_DOWN(start, gfn_to_gpa(BIT_ULL(nr_pages_msb)));
+
+	for (i = 0; i < nr_pages; i += KVM_PAGES_PER_HPAGE(level)) {
+		gpa_t gpa = start + gfn_to_gpa(i);
+
+		if (gpa < start || gpa_to_gfn(gpa) > kvm_mmu_max_gfn())
+			return;
+
+		if (kvm_tdp_page_prefault(vcpu, gpa, error_code, KVM_PREFETCH_AUTO, &level))
+			return;
+	}
+}
+
 int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		       void *insn, int insn_len)
 {
 	int r, emulation_type = EMULTYPE_PF;
 	bool direct = vcpu->arch.mmu->root_role.direct;
+	u8 level;
 
 	if (WARN_ON_ONCE(!VALID_PAGE(vcpu->arch.mmu->root.hpa)))
 		return RET_PF_RETRY;
@@ -6681,7 +6721,7 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 
 		r = kvm_mmu_do_page_fault(vcpu, cr2_or_gpa, error_code,
 					  KVM_PREFETCH_NONE,
-					  &emulation_type, NULL);
+					  &emulation_type, &level);
 		if (KVM_BUG_ON(r == RET_PF_INVALID, vcpu->kvm))
 			return -EIO;
 	}
@@ -6692,6 +6732,8 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 	if (r == RET_PF_WRITE_PROTECTED)
 		r = kvm_mmu_write_protect_fault(vcpu, cr2_or_gpa, error_code,
 						&emulation_type);
+	else if (r == RET_PF_FIXED)
+		kvm_mmu_auto_prefault(vcpu, cr2_or_gpa, error_code, level);
 
 	if (r == RET_PF_FIXED)
 		vcpu->stat.pf_fixed++;
