@@ -122,7 +122,14 @@ static int max_huge_page_level __read_mostly;
 static int tdp_root_level __read_mostly;
 static int max_tdp_level __read_mostly;
 
+/*
+ * The exact number of PTEs that can be prefetched for the shadow MMU, and the
+ * default number of pages to prefault/prefetch pages for the TDP MMU.
+ */
 #define PTE_PREFETCH_NUM		8
+
+static unsigned int __read_mostly auto_prefault_nr_pages = PTE_PREFETCH_NUM;
+module_param(auto_prefault_nr_pages, uint, 0644);
 
 #include <trace/events/kvm.h>
 
@@ -4699,6 +4706,9 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 {
 	unsigned int foll = fault->write ? FOLL_WRITE : 0;
 
+	if (fault->auto_prefetch)
+		foll |= FOLL_NOFAULT;
+
 	if (fault->is_private || kvm_memslot_is_gmem_only(fault->slot))
 		return kvm_mmu_faultin_pfn_gmem(vcpu, fault);
 
@@ -4709,10 +4719,12 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
 	/*
 	 * If resolving the page failed because I/O is needed to fault-in the
 	 * page, then either set up an asynchronous #PF to do the I/O, or if
-	 * doing an async #PF isn't possible, retry with I/O allowed.  All
-	 * other failures are terminal, i.e. retrying won't help.
+	 * doing an async #PF isn't possible, retry with I/O allowed.  Never
+	 * go down the slow I/O path for automatic prefetching, as the goal is
+	 * for it to be light and fast.  All other failures are terminal, i.e.
+	 * retrying won't help.
 	 */
-	if (fault->pfn != KVM_PFN_ERR_NEEDS_IO)
+	if (fault->pfn != KVM_PFN_ERR_NEEDS_IO || fault->auto_prefetch)
 		return RET_PF_CONTINUE;
 
 	if (!fault->prefetch && kvm_can_do_async_pf(vcpu)) {
@@ -5038,6 +5050,9 @@ enum kvm_prefetch_type {
 	KVM_PREFETCH_AUTO,
 };
 
+static void kvm_mmu_auto_prefault(struct kvm_vcpu *vcpu, gpa_t start,
+				  u64 error_code, u8 level);
+
 static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 				 u64 err, enum kvm_prefetch_type prefetch,
 				 int *emulation_type, u8 *level)
@@ -5073,6 +5088,18 @@ static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		 */
 		fault.gfn = gpa_to_gfn(fault.addr) & ~kvm_gfn_direct_bits(vcpu->kvm);
 		fault.slot = kvm_vcpu_gfn_to_memslot(vcpu, fault.gfn);
+
+		if (fault.auto_prefetch) {
+			r = kvm_check_memslot_usable_for_auto_prefetch(fault.slot, ACC_ALL);
+			if (r)
+				return r;
+		}
+	} else {
+		/*
+		 * Indirect MMUs need to use a dedicated prefetch mechanism, as
+		 * the associated guest PTE factors into the prefetching.
+		 */
+		WARN_ON_ONCE(fault.auto_prefetch);
 	}
 
 	/*
@@ -5099,6 +5126,10 @@ static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		*emulation_type |= EMULTYPE_WRITE_PF_TO_SP;
 	if (level)
 		*level = fault.goal_level;
+
+	if (r == RET_PF_FIXED && prefetch != KVM_PREFETCH_AUTO &&
+	    prefetch != KVM_PREFETCH_MANUAL)
+		kvm_mmu_auto_prefault(vcpu, cr2_or_gpa, err, fault.goal_level);
 
 	return r;
 }
@@ -5150,6 +5181,38 @@ static int kvm_tdp_page_prefault(struct kvm_vcpu *vcpu, gpa_t gpa,
 	default:
 		WARN_ONCE(1, "could not fix page fault during prefault");
 		return -EIO;
+	}
+}
+
+static void kvm_mmu_auto_prefault(struct kvm_vcpu *vcpu, gpa_t start,
+				  u64 error_code, u8 level)
+{
+	gfn_t nr_pages = READ_ONCE(auto_prefault_nr_pages);
+	int nr_pages_msb;
+	gfn_t i;
+
+	if (error_code & (PFERR_RSVD_MASK | PFERR_PRESENT_MASK))
+		return;
+
+	if (!tdp_mmu_enabled || vcpu->arch.mmu->page_fault != kvm_tdp_page_fault)
+		return;
+
+	nr_pages = min(nr_pages, KVM_PAGES_PER_HPAGE(PG_LEVEL_1G));
+	if (KVM_PAGES_PER_HPAGE(level) >= nr_pages)
+		return;
+
+	nr_pages_msb = find_last_bit((unsigned long *)&nr_pages, sizeof(nr_pages));
+
+	start = ALIGN_DOWN(start, gfn_to_gpa(BIT_ULL(nr_pages_msb)));
+
+	for (i = 0; i < nr_pages; i += KVM_PAGES_PER_HPAGE(level)) {
+		gpa_t gpa = start + gfn_to_gpa(i);
+
+		if (gpa < start || gpa_to_gfn(gpa) > kvm_mmu_max_gfn())
+			return;
+
+		if (kvm_tdp_page_prefault(vcpu, gpa, error_code, KVM_PREFETCH_AUTO, &level))
+			return;
 	}
 }
 
