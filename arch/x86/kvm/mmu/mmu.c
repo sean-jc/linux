@@ -5031,9 +5031,15 @@ static int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *faul
 	return direct_page_fault(vcpu, fault);
 }
 
+enum kvm_prefetch_type {
+	KVM_PREFETCH_NONE,
+	KVM_PREFETCH_MANUAL,
+	KVM_PREFETCH_AUTO,
+};
+
 static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
-				 u64 err, bool prefetch, int *emulation_type,
-				 u8 *level)
+				 u64 err, enum kvm_prefetch_type prefetch,
+				 int *emulation_type, u8 *level)
 {
 	struct kvm_page_fault fault = {
 		.addr = cr2_or_gpa,
@@ -5043,7 +5049,8 @@ static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		.present = err & PFERR_PRESENT_MASK,
 		.rsvd = err & PFERR_RSVD_MASK,
 		.user = err & PFERR_USER_MASK,
-		.prefetch = prefetch,
+		.prefetch = prefetch != KVM_PREFETCH_NONE,
+		.auto_prefetch = prefetch == KVM_PREFETCH_AUTO,
 		.is_tdp = likely(vcpu->arch.mmu->page_fault == kvm_tdp_page_fault),
 		.nx_huge_page_workaround_enabled =
 			is_nx_huge_page_enabled(vcpu->kvm),
@@ -5097,7 +5104,8 @@ static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 
 
 static int kvm_tdp_page_prefault(struct kvm_vcpu *vcpu, gpa_t gpa,
-				 u64 error_code, u8 *level)
+				 u64 error_code,
+				 enum kvm_prefetch_type prefetch, u8 *level)
 {
 	int r;
 
@@ -5120,7 +5128,7 @@ static int kvm_tdp_page_prefault(struct kvm_vcpu *vcpu, gpa_t gpa,
 			return r;
 
 		cond_resched();
-		r = kvm_mmu_do_page_fault(vcpu, gpa, error_code, true, NULL, level);
+		r = kvm_mmu_do_page_fault(vcpu, gpa, error_code, prefetch, NULL, level);
 	} while (r == RET_PF_RETRY);
 
 	if (r < 0)
@@ -5170,7 +5178,8 @@ long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
 	 * Shadow paging uses GVA for kvm page fault, so restrict to
 	 * two-dimensional paging.
 	 */
-	r = kvm_tdp_page_prefault(vcpu, range->gpa | direct_bits, error_code, &level);
+	r = kvm_tdp_page_prefault(vcpu, range->gpa | direct_bits, error_code,
+				  KVM_PREFETCH_MANUAL, &level);
 	if (r < 0)
 		return r;
 
@@ -5202,7 +5211,7 @@ void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
 		return;
 
 	r = kvm_mmu_do_page_fault(vcpu, work->cr2_or_gpa, work->arch.error_code,
-				  true, NULL, NULL);
+				  KVM_PREFETCH_AUTO, NULL, NULL);
 
 	/*
 	 * Account fixed page faults, otherwise they'll never be counted, but
@@ -6676,7 +6685,8 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 	if (r == RET_PF_INVALID) {
 		vcpu->stat.pf_taken++;
 
-		r = kvm_mmu_do_page_fault(vcpu, cr2_or_gpa, error_code, false,
+		r = kvm_mmu_do_page_fault(vcpu, cr2_or_gpa, error_code,
+					  KVM_PREFETCH_NONE,
 					  &emulation_type, NULL);
 		if (KVM_BUG_ON(r == RET_PF_INVALID, vcpu->kvm))
 			return -EIO;
