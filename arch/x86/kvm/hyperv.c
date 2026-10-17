@@ -949,6 +949,15 @@ int kvm_hv_get_assist_page(struct kvm_vcpu *vcpu)
 	if (!hv_vcpu || !kvm_hv_assist_page_enabled(vcpu))
 		return -EFAULT;
 
+	/*
+	 * KVM reuses its own PV EOI feature to emulate Hyper-V's EOI Assist,
+	 * and rather stupidly reuses the same MSR and cache storage.  Treat
+	 * the assist page as inaccessible if the shared state is configured
+	 * only for PV EOI's single byte of data.
+	 */
+	if (vcpu->arch.pv_eoi.data.len < sizeof(struct hv_vp_assist_page))
+		return -EFAULT;
+
 	return kvm_read_guest_cached(vcpu->kvm, &vcpu->arch.pv_eoi.data,
 				     &hv_vcpu->vp_assist_page, sizeof(struct hv_vp_assist_page));
 }
