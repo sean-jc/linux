@@ -643,7 +643,7 @@ static int set_efer(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 	r = kvm_x86_call(set_efer)(vcpu, efer);
 	if (r) {
-		WARN_ON(r > 0);
+		WARN_ON_ONCE(r > 0);
 		return r;
 	}
 

@@ -1368,7 +1368,7 @@ static bool __kvm_tdp_mmu_age_gfn_range(struct kvm *kvm,
 	 * this helper must NOT be used to unmap GFNs, as it processes only
 	 * valid roots!
 	 */
-	WARN_ON(types & ~KVM_VALID_ROOTS);
+	WARN_ON_ONCE(types & ~KVM_VALID_ROOTS);
 
 	guard(rcu)();
 	for_each_tdp_mmu_root_rcu(kvm, root, range->slot->as_id, types) {
