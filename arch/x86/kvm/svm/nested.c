@@ -100,7 +100,7 @@ static void nested_svm_init_mmu_context(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	WARN_ON(mmu_is_nested(vcpu));
+	WARN_ON_ONCE(mmu_is_nested(vcpu));
 
 	vcpu->arch.mmu = &vcpu->arch.guest_mmu;
 
@@ -260,7 +260,7 @@ int __init nested_svm_init_msrpm_merge_offsets(void)
 		int bit_nr = svm_msrpm_bit_nr(merge_msrs[i]);
 		u32 offset;
 
-		if (WARN_ON(bit_nr < 0))
+		if (WARN_ON_ONCE(bit_nr < 0))
 			return -EIO;
 
 		/*
@@ -277,7 +277,7 @@ int __init nested_svm_init_msrpm_merge_offsets(void)
 		if (j < nested_svm_nr_msrpm_merge_offsets)
 			continue;
 
-		if (WARN_ON(j >= ARRAY_SIZE(nested_svm_msrpm_merge_offsets)))
+		if (WARN_ON_ONCE(j >= ARRAY_SIZE(nested_svm_msrpm_merge_offsets)))
 			return -EIO;
 
 		nested_svm_msrpm_merge_offsets[j] = offset;
@@ -1065,7 +1065,7 @@ int enter_svm_guest_mode(struct kvm_vcpu *vcpu, u64 vmcb12_gpa, bool from_vmrun)
 
 	svm->nested.vmcb12_gpa = vmcb12_gpa;
 
-	WARN_ON(svm->vmcb == svm->nested.vmcb02.ptr);
+	WARN_ON_ONCE(svm->vmcb == svm->nested.vmcb02.ptr);
 
 	nested_svm_copy_common_state(svm->vmcb01.ptr, svm->nested.vmcb02.ptr);
 
@@ -1716,7 +1716,7 @@ static void nested_svm_inject_exception_vmexit(struct kvm_vcpu *vcpu)
 			kvm_update_dr7(vcpu);
 		}
 	} else {
-		WARN_ON(ex->has_payload);
+		WARN_ON_ONCE(ex->has_payload);
 	}
 
 	nested_svm_vmexit(svm);
@@ -2123,7 +2123,7 @@ out_free:
 
 static bool svm_get_nested_state_pages(struct kvm_vcpu *vcpu)
 {
-	if (WARN_ON(!is_guest_mode(vcpu)))
+	if (WARN_ON_ONCE(!is_guest_mode(vcpu)))
 		return true;
 
 	if (is_pae_paging(vcpu)) {
