@@ -60,13 +60,13 @@ void vmx_l2_guest_code(void)
 
 	/* L1 has now set up a shadow VMCS for us.  */
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0ffee);
-	GUEST_SYNC(10);
+	GUEST_SYNC(11);
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0ffee);
 	vmwrite(GUEST_RIP, 0xc0fffee);
-	GUEST_SYNC(11);
+	GUEST_SYNC(12);
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0fffee);
 	vmwrite(GUEST_RIP, 0xc0ffffee);
-	GUEST_SYNC(12);
+	GUEST_SYNC(13);
 
 	/* Done, exit to L1 and never come back.  */
 	vmcall();
@@ -107,15 +107,17 @@ static void vmx_l1_guest_code(struct vmx_pages *vmx_pages)
 
 	vmwrite(SECONDARY_VM_EXEC_CONTROL, SECONDARY_EXEC_SHADOW_VMCS);
 	vmwrite(VMCS_LINK_POINTER, vmx_pages->shadow_vmcs_gpa);
+	GUEST_SYNC(8);
 
 	vmptrld(vmx_pages->shadow_vmcs_gpa);
 	GUEST_ASSERT(__vmlaunch());
-	GUEST_SYNC(8);
+	GUEST_SYNC(9);
+
 	GUEST_ASSERT(__vmlaunch());
 	GUEST_ASSERT(__vmresume());
 
 	vmwrite(GUEST_RIP, 0xc0ffee);
-	GUEST_SYNC(9);
+	GUEST_SYNC(10);
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0ffee);
 
 	vmptrld(vmx_pages->vmcs_gpa);
@@ -126,7 +128,7 @@ static void vmx_l1_guest_code(struct vmx_pages *vmx_pages)
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0ffffee);
 	GUEST_ASSERT(__vmlaunch());
 	GUEST_ASSERT(__vmresume());
-	GUEST_SYNC(13);
+	GUEST_SYNC(14);
 	GUEST_ASSERT(vmread(GUEST_RIP) == 0xc0ffffee);
 	GUEST_ASSERT(__vmlaunch());
 	GUEST_ASSERT(__vmresume());

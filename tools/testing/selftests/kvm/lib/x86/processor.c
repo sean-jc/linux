@@ -1282,10 +1282,16 @@ struct kvm_x86_state *vcpu_save_state(struct kvm_vcpu *vcpu)
 	if (nested_size) {
 		state->nested.size = sizeof(state->nested_);
 
+		memset(state->nested_, 0xaa, sizeof(state->nested_));
+
 		vcpu_nested_state_get(vcpu, &state->nested);
 		TEST_ASSERT(state->nested.size <= nested_size,
 			    "Nested state size too big, %i (KVM_CHECK_CAP gave %i)",
 			    state->nested.size, nested_size);
+
+		for (i = state->nested.size; i < nested_size; i++)
+			TEST_ASSERT((unsigned char)state->nested_[i] == 0xaa,
+				    "KVM killed the canary at offset %u", i);
 	} else {
 		state->nested.size = 0;
 	}
