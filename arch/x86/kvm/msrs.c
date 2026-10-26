@@ -65,6 +65,22 @@ void kvm_destroy_user_return_msrs(void)
 	kvm_nr_uret_msrs = 0;
 }
 
+static bool kvm_is_msr_used_in_host(u32 msr)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_FRED))
+		return true;
+
+	switch (msr) {
+	case MSR_LSTAR:
+	case MSR_CSTAR:
+	case MSR_SYSCALL_MASK:
+		return false;
+	default:
+		break;
+	}
+	return true;
+}
+
 static void kvm_on_user_return(struct user_return_notifier *urn)
 {
 	unsigned slot;
@@ -77,7 +93,8 @@ static void kvm_on_user_return(struct user_return_notifier *urn)
 
 	for (slot = 0; slot < kvm_nr_uret_msrs; ++slot) {
 		values = &msrs->values[slot];
-		if (values->host != values->curr) {
+		if (kvm_is_msr_used_in_host(kvm_uret_msrs_list[slot]) &&
+		    values->host != values->curr) {
 			wrmsrq(kvm_uret_msrs_list[slot], values->host);
 			values->curr = values->host;
 		}
