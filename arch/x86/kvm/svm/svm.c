@@ -4304,7 +4304,7 @@ static void svm_enable_nmi_window(struct kvm_vcpu *vcpu)
 	svm->vmcb->save.rflags |= (X86_EFLAGS_TF | X86_EFLAGS_RF);
 }
 
-static void svm_flush_tlb_asid(struct kvm_vcpu *vcpu)
+static void svm_flush_tlb_asid(struct kvm_vcpu *vcpu, bool l1_pv_flush)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
@@ -4313,14 +4313,14 @@ static void svm_flush_tlb_asid(struct kvm_vcpu *vcpu)
 	 * A TLB flush for the current ASID flushes both "host" and "guest" TLB
 	 * entries, and thus is a superset of Hyper-V's fine grained flushing.
 	 */
-	kvm_hv_vcpu_purge_flush_tlb(vcpu);
+	kvm_hv_vcpu_purge_flush_tlb(vcpu, l1_pv_flush);
 
 	/*
 	 * Flush only the current ASID even if the TLB flush was invoked via
-	 * kvm_flush_remote_tlbs().  Although flushing remote TLBs requires all
-	 * ASIDs to be flushed, KVM uses a single ASID for L1 and L2, and
-	 * unconditionally does a TLB flush on both nested VM-Enter and nested
-	 * VM-Exit (via kvm_mmu_reset_context()).
+	 * kvm_flush_remote_tlbs() or is a PV TLB flush targeting L1.  Although
+	 * flushing remote TLBs requires all ASIDs to be flushed, KVM uses a
+	 * single ASID for L1 and L2, and unconditionally does a TLB flush on
+	 * both nested VM-Enter and nested VM-Exit (via kvm_mmu_reset_context()).
 	 */
 	if (cpu_feature_enabled(X86_FEATURE_FLUSHBYASID))
 		svm->vmcb->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
@@ -4341,7 +4341,7 @@ static void svm_flush_tlb_current(struct kvm_vcpu *vcpu)
 	if (svm_hv_is_enlightened_tlb_enabled(vcpu) && VALID_PAGE(root_tdp))
 		hyperv_flush_guest_mapping(root_tdp);
 
-	svm_flush_tlb_asid(vcpu);
+	svm_flush_tlb_asid(vcpu, false);
 }
 
 static void svm_flush_tlb_all(struct kvm_vcpu *vcpu)
@@ -4356,14 +4356,14 @@ static void svm_flush_tlb_all(struct kvm_vcpu *vcpu)
 	if (WARN_ON_ONCE(svm_hv_is_enlightened_tlb_enabled(vcpu)))
 		hv_flush_remote_tlbs(vcpu->kvm);
 
-	svm_flush_tlb_asid(vcpu);
+	svm_flush_tlb_asid(vcpu, false);
 }
 
-static void svm_flush_tlb_guest(struct kvm_vcpu *vcpu)
+static void svm_flush_tlb_guest(struct kvm_vcpu *vcpu, bool l1_pv_flush)
 {
 	kvm_register_mark_dirty(vcpu, VCPU_REG_ERAPS);
 
-	svm_flush_tlb_asid(vcpu);
+	svm_flush_tlb_asid(vcpu, l1_pv_flush);
 }
 
 static void svm_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t gva)
@@ -4381,7 +4381,7 @@ static void svm_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t gva)
 		return;
 	}
 
-	svm_flush_tlb_guest(vcpu);
+	svm_flush_tlb_guest(vcpu, false);
 }
 
 static inline void sync_cr8_to_lapic(struct kvm_vcpu *vcpu)

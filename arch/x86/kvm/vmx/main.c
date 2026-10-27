@@ -547,12 +547,12 @@ static void vt_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
 	vmx_flush_tlb_gva(vcpu, addr);
 }
 
-static void vt_flush_tlb_guest(struct kvm_vcpu *vcpu)
+static void vt_flush_tlb_guest(struct kvm_vcpu *vcpu, bool l1_pv_flush)
 {
 	if (is_td_vcpu(vcpu))
 		return;
 
-	vmx_flush_tlb_guest(vcpu);
+	vmx_flush_tlb_guest(vcpu, l1_pv_flush);
 }
 
 static void vt_inject_nmi(struct kvm_vcpu *vcpu)

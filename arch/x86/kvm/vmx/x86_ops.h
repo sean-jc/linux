@@ -82,7 +82,7 @@ bool vmx_get_if_flag(struct kvm_vcpu *vcpu);
 void vmx_flush_tlb_all(struct kvm_vcpu *vcpu);
 void vmx_flush_tlb_current(struct kvm_vcpu *vcpu);
 void vmx_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr);
-void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu);
+void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu, bool l1_pv_flush);
 void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 u32 vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu);
 void vmx_patch_hypercall(struct kvm_vcpu *vcpu, unsigned char *hypercall);

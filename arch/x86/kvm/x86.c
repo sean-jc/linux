@@ -2009,7 +2009,7 @@ static void kvm_vcpu_flush_tlb_all(struct kvm_vcpu *vcpu)
 	kvm_clear_request(KVM_REQ_TLB_FLUSH_CURRENT, vcpu);
 }
 
-static void kvm_vcpu_flush_tlb_guest(struct kvm_vcpu *vcpu)
+static void kvm_vcpu_flush_tlb_guest(struct kvm_vcpu *vcpu, bool l1_pv_flush)
 {
 	++vcpu->stat.tlb_flush;
 
@@ -2024,13 +2024,13 @@ static void kvm_vcpu_flush_tlb_guest(struct kvm_vcpu *vcpu)
 		kvm_mmu_sync_prev_roots(vcpu);
 	}
 
-	kvm_x86_call(flush_tlb_guest)(vcpu);
+	kvm_x86_call(flush_tlb_guest)(vcpu, l1_pv_flush);
 
 	/*
 	 * Flushing all "guest" TLB is always a superset of Hyper-V's fine
 	 * grained flushing.
 	 */
-	kvm_hv_vcpu_purge_flush_tlb(vcpu);
+	kvm_hv_vcpu_purge_flush_tlb(vcpu, l1_pv_flush);
 }
 
 
@@ -2052,7 +2052,7 @@ void kvm_service_local_tlb_flush_requests(struct kvm_vcpu *vcpu)
 		kvm_vcpu_flush_tlb_current(vcpu);
 
 	if (kvm_check_request(KVM_REQ_TLB_FLUSH_GUEST, vcpu))
-		kvm_vcpu_flush_tlb_guest(vcpu);
+		kvm_vcpu_flush_tlb_guest(vcpu, false);
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_service_local_tlb_flush_requests);
 
@@ -2118,7 +2118,7 @@ static void record_steal_time(struct kvm_vcpu *vcpu)
 		trace_kvm_pv_tlb_flush(vcpu->vcpu_id,
 				       st_preempted & KVM_VCPU_FLUSH_TLB);
 		if (st_preempted & KVM_VCPU_FLUSH_TLB)
-			kvm_vcpu_flush_tlb_guest(vcpu);
+			kvm_vcpu_flush_tlb_guest(vcpu, true);
 
 		if (!user_access_begin(st, sizeof(*st)))
 			goto dirty;
@@ -8193,7 +8193,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 #ifdef CONFIG_KVM_HYPERV
 		if (kvm_check_request(KVM_REQ_HV_TLB_FLUSH, vcpu) &&
 		    kvm_hv_vcpu_flush_tlb(vcpu))
-			kvm_vcpu_flush_tlb_guest(vcpu);
+			kvm_vcpu_flush_tlb_guest(vcpu, false);
 #endif
 
 		if (kvm_check_request(KVM_REQ_REPORT_TPR_ACCESS, vcpu)) {
