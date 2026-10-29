@@ -10043,7 +10043,7 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 
 	slot = id_to_memslot(slots, id);
 	if (size) {
-		if (slot && slot->npages)
+		if (slot)
 			return ERR_PTR_USR(-EEXIST);
 
 		/*
@@ -10055,7 +10055,7 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 		if (IS_ERR_VALUE(hva))
 			return (void __user *)hva;
 	} else {
-		if (!slot || !slot->npages)
+		if (!slot)
 			return NULL;
 
 		old_npages = slot->npages;
