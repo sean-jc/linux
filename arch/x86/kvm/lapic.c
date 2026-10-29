@@ -2917,8 +2917,8 @@ int kvm_alloc_apic_access_page(struct kvm *kvm)
 	    kvm->arch.apic_access_memslot_inhibited)
 		return 0;
 
-	hva = __x86_set_memory_region(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT,
-				      APIC_DEFAULT_PHYS_BASE, PAGE_SIZE);
+	hva = x86_set_internal_memslot(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT,
+				       APIC_DEFAULT_PHYS_BASE, PAGE_SIZE);
 	if (IS_ERR(hva))
 		return PTR_ERR(hva);
 
@@ -2943,7 +2943,7 @@ void kvm_inhibit_apic_access_page(struct kvm_vcpu *vcpu)
 	if (!kvm->arch.apic_access_memslot_enabled)
 		goto out;
 
-	p = __x86_set_memory_region(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT, 0, 0);
+	p = x86_set_internal_memslot(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT, 0, 0);
 	if (IS_ERR(p)) {
 		kvm_make_request(KVM_REQ_APICV_UPDATE, vcpu);
 		goto out;

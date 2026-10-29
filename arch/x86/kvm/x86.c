@@ -10007,8 +10007,8 @@ out:
 	return ret;
 }
 
-static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
-				    gpa_t gpa, struct file *f, u32 size)
+static int __x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
+				      gpa_t gpa, struct file *f, u32 size)
 {
 	struct kvm_userspace_memory_region2 m;
 	unsigned long hva;
@@ -10038,7 +10038,7 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
 }
 
 /**
- * __x86_set_memory_region: Setup KVM internal memory slot
+ * x86_set_internal_memslot: Setup KVM internal memory slot
  *
  * @kvm: the kvm pointer to the VM.
  * @id: the slot ID to setup.
@@ -10059,7 +10059,7 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
  * address, i.e. its accessibility is not guaranteed, and must be
  * accessed via __copy_{to,from}_user().
  */
-void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
+void __user *x86_set_internal_memslot(struct kvm *kvm, int id, gpa_t gpa,
 				      u32 size)
 {
 	struct file *f __free(fput) = NULL;
@@ -10081,12 +10081,12 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 	}
 
 	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
-		r = x86_set_internal_memslot(kvm, id, i, gpa, f, size);
+		r = __x86_set_internal_memslot(kvm, id, i, gpa, f, size);
 		if (!r)
 			continue;
 
 		for (i--; i >= 0 && size; i--)
-			x86_set_internal_memslot(kvm, id, i, gpa, NULL, 0);
+			__x86_set_internal_memslot(kvm, id, i, gpa, NULL, 0);
 
 		return ERR_PTR_USR(r);
 	}
@@ -10097,7 +10097,7 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 
 	return (void __user *)(slot ? slot->userspace_addr : 0);
 }
-EXPORT_SYMBOL_FOR_KVM_INTERNAL(__x86_set_memory_region);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(x86_set_internal_memslot);
 
 void kvm_arch_pre_destroy_vm(struct kvm *kvm)
 {
