@@ -4055,10 +4055,10 @@ static int init_rmode_identity_map(struct kvm *kvm)
 	if (!kvm_vmx->ept_identity_map_addr)
 		kvm_vmx->ept_identity_map_addr = VMX_EPT_IDENTITY_PAGETABLE_ADDR;
 
-	uaddr = __x86_set_memory_region(kvm,
-					IDENTITY_PAGETABLE_PRIVATE_MEMSLOT,
-					kvm_vmx->ept_identity_map_addr,
-					PAGE_SIZE);
+	uaddr = x86_set_internal_memslot(kvm,
+					 IDENTITY_PAGETABLE_PRIVATE_MEMSLOT,
+					 kvm_vmx->ept_identity_map_addr,
+					 PAGE_SIZE);
 	if (IS_ERR(uaddr)) {
 		r = PTR_ERR(uaddr);
 		goto out;
@@ -5295,8 +5295,8 @@ int vmx_set_tss_addr(struct kvm *kvm, unsigned int addr)
 		return 0;
 
 	mutex_lock(&kvm->slots_lock);
-	ret = __x86_set_memory_region(kvm, TSS_PRIVATE_MEMSLOT, addr,
-				      PAGE_SIZE * 3);
+	ret = x86_set_internal_memslot(kvm, TSS_PRIVATE_MEMSLOT, addr,
+				       PAGE_SIZE * 3);
 	mutex_unlock(&kvm->slots_lock);
 
 	if (IS_ERR(ret))
