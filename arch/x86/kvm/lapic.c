@@ -2931,6 +2931,7 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_alloc_apic_access_page);
 void kvm_inhibit_apic_access_page(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
+	void __user *p;
 
 	if (!kvm->arch.apic_access_memslot_enabled)
 		return;
@@ -2939,25 +2940,30 @@ void kvm_inhibit_apic_access_page(struct kvm_vcpu *vcpu)
 
 	mutex_lock(&kvm->slots_lock);
 
-	if (kvm->arch.apic_access_memslot_enabled) {
-		__x86_set_memory_region(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT, 0, 0);
-		/*
-		 * Clear "enabled" after the memslot is deleted so that a
-		 * different vCPU doesn't get a false negative when checking
-		 * the flag out of slots_lock.  No additional memory barrier is
-		 * needed as modifying memslots requires waiting other vCPUs to
-		 * drop SRCU (see above), and false positives are ok as the
-		 * flag is rechecked after acquiring slots_lock.
-		 */
-		kvm->arch.apic_access_memslot_enabled = false;
+	if (!kvm->arch.apic_access_memslot_enabled)
+		goto out;
 
-		/*
-		 * Mark the memslot as inhibited to prevent reallocating the
-		 * memslot during vCPU creation, e.g. if a vCPU is hotplugged.
-		 */
-		kvm->arch.apic_access_memslot_inhibited = true;
+	p = __x86_set_memory_region(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT, 0, 0);
+	if (IS_ERR(p)) {
+		kvm_make_request(KVM_REQ_APICV_UPDATE, vcpu);
+		goto out;
 	}
 
+	/*
+	 * Clear "enabled" after the memslot is deleted so that a different vCPU
+	 * doesn't get a false negative when checking the flag out of slots_lock.
+	 * No additional memory barrier is needed as modifying memslots requires
+	 * waiting other vCPUs to drop SRCU (see above), and false positives are
+	 * ok as the flag is rechecked after acquiring slots_lock.
+	 */
+	kvm->arch.apic_access_memslot_enabled = false;
+
+	/*
+	 * Mark the memslot as inhibited to prevent reallocating the memslot
+	 * during vCPU creation, e.g. if a vCPU is hotplugged.
+	 */
+	kvm->arch.apic_access_memslot_inhibited = true;
+out:
 	mutex_unlock(&kvm->slots_lock);
 
 	kvm_vcpu_srcu_read_lock(vcpu);
