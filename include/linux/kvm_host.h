@@ -984,11 +984,26 @@ static inline struct kvm_io_bus *kvm_get_bus(struct kvm *kvm, enum kvm_bus idx)
 					 lockdep_is_held(&kvm->slots_lock));
 }
 
+static inline bool kvm_is_vcpu_unreachable(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * There is no actual dependency on lockdep, but generally speaking KVM
+	 * shouldn't be making runtime decisions based on whether or not a vCPU
+	 * is reachable.
+	 */
+	BUILD_BUG_ON(!IS_ENABLED(CONFIG_LOCKDEP));
+	return vcpu->vcpu_idx < 0 || !refcount_read(&vcpu->kvm->users_count);
+}
+
+static inline void kvm_lockdep_assert_vcpu_is_unreachable(struct kvm_vcpu *vcpu)
+{
+	lockdep_assert_once(kvm_is_vcpu_unreachable(vcpu));
+}
+
 static inline void kvm_lockdep_assert_vcpu_is_locked_or_unreachable(struct kvm_vcpu *vcpu)
 {
 	lockdep_assert_once(lockdep_is_held(&vcpu->mutex) ||
-			    vcpu->vcpu_idx < 0 ||
-			    !refcount_read(&vcpu->kvm->users_count));
+			    kvm_is_vcpu_unreachable(vcpu));
 }
 
 static inline struct kvm_vcpu *kvm_get_vcpu(struct kvm *kvm, int i)
