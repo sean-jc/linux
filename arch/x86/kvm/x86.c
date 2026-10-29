@@ -10006,6 +10006,19 @@ out:
 	return ret;
 }
 
+static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
+				    gpa_t gpa, unsigned long hva, u32 size)
+{
+	struct kvm_userspace_memory_region2 m;
+
+	m.slot = id | (as_id << 16);
+	m.flags = 0;
+	m.guest_phys_addr = gpa;
+	m.userspace_addr = hva;
+	m.memory_size = size;
+	return kvm_set_internal_memslot(kvm, &m);
+}
+
 /**
  * __x86_set_memory_region: Setup KVM internal memory slot
  *
@@ -10062,16 +10075,17 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 	}
 
 	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
-		struct kvm_userspace_memory_region2 m;
+		r = x86_set_internal_memslot(kvm, id, i, gpa, hva, size);
+		if (!r)
+			continue;
 
-		m.slot = id | (i << 16);
-		m.flags = 0;
-		m.guest_phys_addr = gpa;
-		m.userspace_addr = hva;
-		m.memory_size = size;
-		r = kvm_set_internal_memslot(kvm, &m);
-		if (r < 0)
-			return ERR_PTR_USR(r);
+		if (size) {
+			for (i--; i >= 0; i--)
+				x86_set_internal_memslot(kvm, id, i, gpa, 0, 0);
+
+			vm_munmap(hva, size);
+		}
+		return ERR_PTR_USR(r);
 	}
 
 	return (void __user *)hva;
