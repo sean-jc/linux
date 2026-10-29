@@ -2103,9 +2103,11 @@ static int kvm_set_memory_region(struct kvm *kvm,
 	 * and/or destroyed by kvm_set_memslot().
 	 */
 	old = id_to_memslot(slots, id);
+	if (WARN_ON_ONCE(old && !old->npages))
+		return -EIO;
 
 	if (!mem->memory_size) {
-		if (!old || !old->npages)
+		if (!old)
 			return -EINVAL;
 
 		if (WARN_ON_ONCE(kvm->nr_memslot_pages < old->npages))
@@ -2117,7 +2119,7 @@ static int kvm_set_memory_region(struct kvm *kvm,
 	base_gfn = (mem->guest_phys_addr >> PAGE_SHIFT);
 	npages = (mem->memory_size >> PAGE_SHIFT);
 
-	if (!old || !old->npages) {
+	if (!old) {
 		change = KVM_MR_CREATE;
 
 		/*
