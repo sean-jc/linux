@@ -10011,6 +10011,9 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
 {
 	struct kvm_userspace_memory_region2 m;
 
+	if (!size && !id_to_memslot(__kvm_memslots(kvm, as_id), id))
+		return 0;
+
 	m.slot = id | (as_id << 16);
 	m.flags = 0;
 	m.guest_phys_addr = gpa;
@@ -10044,8 +10047,6 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
 void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 				      u32 size)
 {
-	struct kvm_memslots *slots = kvm_memslots(kvm);
-	struct kvm_memory_slot *slot;
 	unsigned long hva;
 	int i, r;
 
@@ -10054,11 +10055,10 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 	if (WARN_ON(id >= KVM_MEM_SLOTS_NUM))
 		return ERR_PTR_USR(-EINVAL);
 
-	slot = id_to_memslot(slots, id);
-	if (size) {
-		if (slot)
-			return ERR_PTR_USR(-EEXIST);
+	if (size && id_to_memslot(kvm_memslots(kvm), id))
+		return ERR_PTR_USR(-EEXIST);
 
+	if (size) {
 		/*
 		 * MAP_SHARED to prevent internal slot pages from being moved
 		 * by fork()/COW.
@@ -10068,9 +10068,6 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 		if (IS_ERR_VALUE(hva))
 			return (void __user *)hva;
 	} else {
-		if (!slot)
-			return NULL;
-
 		hva = 0;
 	}
 
