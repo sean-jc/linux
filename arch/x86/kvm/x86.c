@@ -59,6 +59,7 @@
 #include <linux/irqbypass.h>
 #include <linux/sched/stat.h>
 #include <linux/sched/isolation.h>
+#include <linux/shmem_fs.h>
 #include <linux/mem_encrypt.h>
 #include <linux/suspend.h>
 #include <linux/smp.h>
@@ -10007,9 +10008,19 @@ out:
 }
 
 static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
-				    gpa_t gpa, unsigned long hva, u32 size)
+				    gpa_t gpa, struct file *f, u32 size)
 {
 	struct kvm_userspace_memory_region2 m;
+	unsigned long hva;
+	int r;
+
+	if (f) {
+		hva = vm_mmap(f, 0, size, PROT_READ | PROT_WRITE, MAP_SHARED, 0);
+		if (IS_ERR_VALUE(hva))
+			return (long)hva;
+	} else {
+		hva = 0;
+	}
 
 	if (!size && !id_to_memslot(__kvm_memslots(kvm, as_id), id))
 		return 0;
@@ -10019,7 +10030,11 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
 	m.guest_phys_addr = gpa;
 	m.userspace_addr = hva;
 	m.memory_size = size;
-	return kvm_set_internal_memslot(kvm, &m);
+
+	r = kvm_set_internal_memslot(kvm, &m);
+	if (r && f)
+		vm_munmap(hva, size);
+	return r;
 }
 
 /**
@@ -10047,7 +10062,8 @@ static int x86_set_internal_memslot(struct kvm *kvm, int id, int as_id,
 void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 				      u32 size)
 {
-	unsigned long hva;
+	struct file *f __free(fput) = NULL;
+	struct kvm_memory_slot *slot;
 	int i, r;
 
 	lockdep_assert_held(&kvm->slots_lock);
@@ -10055,37 +10071,31 @@ void __user * __x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 	if (WARN_ON(id >= KVM_MEM_SLOTS_NUM))
 		return ERR_PTR_USR(-EINVAL);
 
-	if (size && id_to_memslot(kvm_memslots(kvm), id))
-		return ERR_PTR_USR(-EEXIST);
-
 	if (size) {
-		/*
-		 * MAP_SHARED to prevent internal slot pages from being moved
-		 * by fork()/COW.
-		 */
-		hva = vm_mmap(NULL, 0, size, PROT_READ | PROT_WRITE,
-			      MAP_SHARED | MAP_ANONYMOUS, 0);
-		if (IS_ERR_VALUE(hva))
-			return (void __user *)hva;
-	} else {
-		hva = 0;
+		if (id_to_memslot(kvm_memslots(kvm), id))
+			return ERR_PTR_USR(-EEXIST);
+
+		f = shmem_kernel_file_setup("kvm_memslot", size, EMPTY_VMA_FLAGS);
+		if (IS_ERR(f))
+			return (void __user *)f;
 	}
 
 	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
-		r = x86_set_internal_memslot(kvm, id, i, gpa, hva, size);
+		r = x86_set_internal_memslot(kvm, id, i, gpa, f, size);
 		if (!r)
 			continue;
 
-		if (size) {
-			for (i--; i >= 0; i--)
-				x86_set_internal_memslot(kvm, id, i, gpa, 0, 0);
+		for (i--; i >= 0 && size; i--)
+			x86_set_internal_memslot(kvm, id, i, gpa, NULL, 0);
 
-			vm_munmap(hva, size);
-		}
 		return ERR_PTR_USR(r);
 	}
 
-	return (void __user *)hva;
+	slot = id_to_memslot(kvm_memslots(kvm), id);
+	if (WARN_ON_ONCE(!!size != !!slot))
+		return ERR_PTR_USR(-EIO);
+
+	return (void __user *)(slot ? slot->userspace_addr : 0);
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(__x86_set_memory_region);
 
@@ -10158,12 +10168,8 @@ void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 	 * unless the memory map has changed due to process exit or fd copying.
 	 * Leak the mapping on failure, e.g. if the task is killed.  Worst case
 	 * scenario, the page(s) will be reclaimed when the process exits.
-	 *
-	 * TODO: Allocate VMAs for each address space and drop the check on the
-	 *       as_id, which depends on freeing memslots from 0=>N-1.
 	 */
-	if (current->mm == kvm->mm && slot->id >= KVM_USER_MEM_SLOTS &&
-	    slot->as_id == (kvm_arch_nr_memslot_as_ids(kvm) - 1))
+	if (current->mm == kvm->mm && slot->id >= KVM_USER_MEM_SLOTS)
 		vm_munmap(slot->userspace_addr, slot->npages * PAGE_SIZE);
 }
 
