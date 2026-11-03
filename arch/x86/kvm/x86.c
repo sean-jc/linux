@@ -8118,6 +8118,31 @@ static void kvm_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 	kvm_x86_call(update_cpu_dirty_logging)(vcpu, enable);
 }
 
+static bool kvm_handle_pv_async_pf(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_KVM_GUEST
+	u32 host_apf_flags;
+	u64 fault_address;
+
+	if (!kvm_x86_call(get_pf_exit_info)(vcpu, &fault_address))
+		return false;
+
+	host_apf_flags = kvm_read_and_reset_apf_flags();
+	if (!host_apf_flags ||
+	    WARN_ON_ONCE(!(host_apf_flags & KVM_PV_REASON_PAGE_NOT_PRESENT)))
+		return false;
+
+	guest_timing_exit_irqoff();
+
+	preempt_enable();
+	kvm_async_pf_task_wait_schedule(fault_address);
+	local_irq_enable();
+	return true;
+#else
+	return false;
+#endif
+}
+
 /*
  * Called within kvm->srcu read side.
  * Returns 1 to let vcpu_run() continue the guest execution loop without
@@ -8521,29 +8546,40 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		this_cpu_write(x86_ibpb_exit_to_user, true);
 
 	/*
-	 * Consume any pending interrupts, including the possible source of
-	 * VM-Exit on SVM and any ticks that occur between VM-Exit and now.
-	 * An instruction is required after local_irq_enable() to fully unblock
-	 * interrupts on processors that implement an interrupt shadow, the
-	 * stat.exits increment will do nicely.
+	 * Handle PV async #PFs, before enabling IRQs, to ensure the page ready
+	 * notification arrives after the async #PF is queued.  Note, the async
+	 * #PF handler is responsible for enabling preemption and IRQs, and for
+	 * exiting guest timing if the #PF is an async #PF (because handling PV
+	 * async #PFs enables IRQs and may schedule out this task).
 	 */
-	kvm_before_interrupt(vcpu, KVM_HANDLING_IRQ);
-	local_irq_enable();
-	++vcpu->stat.exits;
-	local_irq_disable();
-	kvm_after_interrupt(vcpu);
+	if (exit_fastpath == EXIT_FASTPATH_NONE && kvm_handle_pv_async_pf(vcpu)) {
+		exit_fastpath = EXIT_FASTPATH_EXIT_HANDLED;
+	} else {
+		/*
+		* Consume any pending interrupts, including the possible source
+		* of VM-Exit on SVM, and any ticks that occur between VM-Exit
+		* and now.  An instruction is required after local_irq_enable()
+		* to fully unblock interrupts on processors that implement an
+		* interrupt shadow, the stat.exits increment will do nicely.
+		*/
+		kvm_before_interrupt(vcpu, KVM_HANDLING_IRQ);
+		local_irq_enable();
+		++vcpu->stat.exits;
+		local_irq_disable();
+		kvm_after_interrupt(vcpu);
 
-	/*
-	 * Wait until after servicing IRQs to account guest time so that any
-	 * ticks that occurred while running the guest are properly accounted
-	 * to the guest.  Waiting until IRQs are enabled degrades the accuracy
-	 * of accounting via context tracking, but the loss of accuracy is
-	 * acceptable for all known use cases.
-	 */
-	guest_timing_exit_irqoff();
+		/*
+		 * Wait until after servicing IRQs to account guest time so that
+		 * any ticks that occurred while running the guest are properly
+		 * accounted to the guest.  Waiting until IRQs are enabled
+		 * degrades the accuracy of accounting via context tracking, but
+		 * the loss of accuracy is acceptable for all known use cases.
+		 */
+		guest_timing_exit_irqoff();
 
-	local_irq_enable();
-	preempt_enable();
+		local_irq_enable();
+		preempt_enable();
+	}
 
 	kvm_vcpu_srcu_read_lock(vcpu);
 

@@ -959,7 +959,6 @@ struct kvm_vcpu_arch {
 		u64 msr_int_val; /* MSR_KVM_ASYNC_PF_INT */
 		u16 vec;
 		u32 id;
-		u32 host_apf_flags;
 		bool pageready_pending;
 	} apf;
 
@@ -1683,6 +1682,7 @@ struct kvm_x86_ops {
 
 	void (*get_entry_info)(struct kvm_vcpu *vcpu,
 			       u32 *intr_info, u32 *error_code);
+	bool (*get_pf_exit_info)(struct kvm_vcpu *vcpu, u64 *fault_address);
 
 	int (*check_intercept)(struct kvm_vcpu *vcpu,
 			       struct x86_instruction_info *info,

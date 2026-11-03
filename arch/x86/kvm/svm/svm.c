@@ -3811,7 +3811,17 @@ static void svm_get_entry_info(struct kvm_vcpu *vcpu, u32 *intr_info,
 		*error_code = control->event_inj_err;
 	else
 		*error_code = 0;
+}
 
+static bool svm_get_pf_exit_info(struct kvm_vcpu *vcpu, u64 *fault_address)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (svm->vmcb->control.exit_code != SVM_EXIT_EXCP_BASE + PF_VECTOR)
+		return false;
+
+	*fault_address = svm->vmcb->control.exit_info_2;
+	return true;
 }
 
 static int svm_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
@@ -4758,11 +4768,6 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 			       vcpu_to_pmu(vcpu)->global_ctrl);
 	}
 
-	/* if exit due to PF check for async PF */
-	if (svm->vmcb->control.exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR)
-		vcpu->arch.apf.host_apf_flags =
-			kvm_read_and_reset_apf_flags();
-
 	kvm_clear_available_registers(vcpu, SVM_REGS_LAZY_LOAD_SET);
 
 	trace_kvm_exit(vcpu, KVM_ISA_SVM);
@@ -5544,6 +5549,7 @@ struct kvm_x86_ops svm_x86_ops __initdata = {
 
 	.get_exit_info = svm_get_exit_info,
 	.get_entry_info = svm_get_entry_info,
+	.get_pf_exit_info = svm_get_pf_exit_info,
 
 	.vcpu_after_set_cpuid = svm_vcpu_after_set_cpuid,
 

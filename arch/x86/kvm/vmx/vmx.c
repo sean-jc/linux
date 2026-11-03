@@ -5396,9 +5396,6 @@ static int vmx_handle_page_fault(struct kvm_vcpu *vcpu, u32 error_code)
 {
 	unsigned long cr2 = vt_get_exit_qual(vcpu);
 
-	if (vcpu->arch.apf.host_apf_flags)
-		goto handle_pf;
-
 	/* When using EPT, KVM intercepts #PF only to detect illegal GPAs. */
 	WARN_ON_ONCE(enable_ept && !allow_smaller_maxphyaddr);
 
@@ -5429,7 +5426,6 @@ static int vmx_handle_page_fault(struct kvm_vcpu *vcpu, u32 error_code)
 		return 1;
 	}
 
-handle_pf:
 	return kvm_handle_page_fault(vcpu, error_code, cr2, NULL, 0);
 }
 
@@ -6400,6 +6396,15 @@ void vmx_get_entry_info(struct kvm_vcpu *vcpu, u32 *intr_info, u32 *error_code)
 		*error_code = vmcs_read32(VM_ENTRY_EXCEPTION_ERROR_CODE);
 	else
 		*error_code = 0;
+}
+
+bool vmx_get_pf_exit_info(struct kvm_vcpu *vcpu, u64 *fault_address)
+{
+	if (!is_page_fault(vt_get_intr_info(vcpu)))
+		return false;
+
+	*fault_address = vt_get_exit_qual(vcpu);
+	return true;
 }
 
 static void vmx_destroy_pml_buffer(struct kvm_vcpu *vcpu)

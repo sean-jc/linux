@@ -113,6 +113,7 @@ static inline bool vmx_tdp_has_smep(struct kvm *kvm)
 void vmx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
 		       u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code);
 void vmx_get_entry_info(struct kvm_vcpu *vcpu, u32 *intr_info, u32 *error_code);
+bool vmx_get_pf_exit_info(struct kvm_vcpu *vcpu, u64 *fault_address);
 
 u64 vmx_get_l2_tsc_offset(struct kvm_vcpu *vcpu);
 u64 vmx_get_l2_tsc_multiplier(struct kvm_vcpu *vcpu);

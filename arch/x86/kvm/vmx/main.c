@@ -721,6 +721,14 @@ static void vt_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
 	vmx_get_exit_info(vcpu, reason, info1, info2, intr_info, error_code);
 }
 
+static bool vt_get_pf_exit_info(struct kvm_vcpu *vcpu, u64 *fault_address)
+{
+	if (is_td_vcpu(vcpu))
+		return false;
+
+	return vmx_get_pf_exit_info(vcpu, fault_address);
+}
+
 static void vt_update_cr8_intercept(struct kvm_vcpu *vcpu, int tpr, int irr)
 {
 	if (is_td_vcpu(vcpu))
@@ -914,11 +922,8 @@ static void handle_nm_fault_irqoff(struct kvm_vcpu *vcpu)
 
 static void handle_exception_irqoff(struct kvm_vcpu *vcpu, u32 intr_info)
 {
-	/* if exit due to PF check for async PF */
-	if (is_page_fault(intr_info))
-		vcpu->arch.apf.host_apf_flags = kvm_read_and_reset_apf_flags();
 	/* if exit due to NM, handle before interrupts are enabled */
-	else if (is_nm_fault(intr_info))
+	if (is_nm_fault(intr_info))
 		handle_nm_fault_irqoff(vcpu);
 	/* Handle machine checks before interrupts are enabled */
 	else if (is_machine_check(intr_info))
@@ -1100,6 +1105,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.get_exit_info = vt_op(get_exit_info),
 	.get_entry_info = vt_op(get_entry_info),
+	.get_pf_exit_info = vt_op(get_pf_exit_info),
 
 	.vcpu_after_set_cpuid = vt_op(vcpu_after_set_cpuid),
 
