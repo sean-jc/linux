@@ -2114,8 +2114,10 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 	 */
 	ret = nested_svm_load_cr3(&svm->vcpu, vcpu->arch.cr3,
 				  nested_npt_enabled(svm), false);
-	if (ret)
+	if (ret) {
+		svm_leave_nested(vcpu);
 		goto out_free;
+	}
 
 	svm->nested.force_msr_bitmap_recalc = true;
 
