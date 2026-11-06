@@ -210,8 +210,8 @@ static unsigned int ple_window_max        = KVM_VMX_DEFAULT_PLE_WINDOW_MAX;
 module_param(ple_window_max, uint, 0444);
 
 /* Default is SYSTEM mode, 1 for host-guest mode (which is BROKEN) */
+#ifdef CONFIG_KVM_INTEL_PT
 int __read_mostly pt_mode = PT_MODE_SYSTEM;
-#ifdef CONFIG_BROKEN
 module_param(pt_mode, int, S_IRUGO);
 #endif
 
@@ -1231,6 +1231,165 @@ static unsigned long segment_base(u16 selector)
 }
 #endif
 
+#ifdef CONFIG_KVM_INTEL_PT
+static int vmx_rtit_ctl_check(struct kvm_vcpu *vcpu, u64 data)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	unsigned long value;
+
+	/*
+	 * Any MSR write that attempts to change bits marked reserved will
+	 * case a #GP fault.
+	 */
+	if (data & vmx->pt_desc.ctl_bitmask)
+		return 1;
+
+	/*
+	 * Any attempt to modify IA32_RTIT_CTL while TraceEn is set will
+	 * result in a #GP unless the same write also clears TraceEn.
+	 */
+	if ((vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN) &&
+	    (data & RTIT_CTL_TRACEEN) &&
+	    data != vmx->pt_desc.guest.ctl)
+		return 1;
+
+	/*
+	 * WRMSR to IA32_RTIT_CTL that sets TraceEn but clears this bit
+	 * and FabricEn would cause #GP, if
+	 * CPUID.(EAX=14H, ECX=0):ECX.SNGLRGNOUT[bit 2] = 0
+	 */
+	if ((data & RTIT_CTL_TRACEEN) && !(data & RTIT_CTL_TOPA) &&
+		!(data & RTIT_CTL_FABRIC_EN) &&
+		!intel_pt_validate_cap(vmx->pt_desc.caps,
+					PT_CAP_single_range_output))
+		return 1;
+
+	/*
+	 * MTCFreq, CycThresh and PSBFreq encodings check, any MSR write that
+	 * utilize encodings marked reserved will cause a #GP fault.
+	 */
+	value = intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc_periods);
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc) &&
+			!test_bit((data & RTIT_CTL_MTC_RANGE) >>
+			RTIT_CTL_MTC_RANGE_OFFSET, &value))
+		return 1;
+	value = intel_pt_validate_cap(vmx->pt_desc.caps,
+						PT_CAP_cycle_thresholds);
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc) &&
+			!test_bit((data & RTIT_CTL_CYC_THRESH) >>
+			RTIT_CTL_CYC_THRESH_OFFSET, &value))
+		return 1;
+	value = intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_periods);
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc) &&
+			!test_bit((data & RTIT_CTL_PSB_FREQ) >>
+			RTIT_CTL_PSB_FREQ_OFFSET, &value))
+		return 1;
+
+	/*
+	 * If ADDRx_CFG is reserved or the encodings is >2 will
+	 * cause a #GP fault.
+	 */
+	value = (data & RTIT_CTL_ADDR0) >> RTIT_CTL_ADDR0_OFFSET;
+	if ((value && (vmx->pt_desc.num_address_ranges < 1)) || (value > 2))
+		return 1;
+	value = (data & RTIT_CTL_ADDR1) >> RTIT_CTL_ADDR1_OFFSET;
+	if ((value && (vmx->pt_desc.num_address_ranges < 2)) || (value > 2))
+		return 1;
+	value = (data & RTIT_CTL_ADDR2) >> RTIT_CTL_ADDR2_OFFSET;
+	if ((value && (vmx->pt_desc.num_address_ranges < 3)) || (value > 2))
+		return 1;
+	value = (data & RTIT_CTL_ADDR3) >> RTIT_CTL_ADDR3_OFFSET;
+	if ((value && (vmx->pt_desc.num_address_ranges < 4)) || (value > 2))
+		return 1;
+
+	return 0;
+}
+
+static void update_intel_pt_cfg(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	struct kvm_cpuid_entry2 *best = NULL;
+	int i;
+
+	for (i = 0; i < PT_CPUID_LEAVES; i++) {
+		best = kvm_find_cpuid_entry_index(vcpu, 0x14, i);
+		if (!best)
+			return;
+		vmx->pt_desc.caps[CPUID_EAX + i*PT_CPUID_REGS_NUM] = best->eax;
+		vmx->pt_desc.caps[CPUID_EBX + i*PT_CPUID_REGS_NUM] = best->ebx;
+		vmx->pt_desc.caps[CPUID_ECX + i*PT_CPUID_REGS_NUM] = best->ecx;
+		vmx->pt_desc.caps[CPUID_EDX + i*PT_CPUID_REGS_NUM] = best->edx;
+	}
+
+	/* Get the number of configurable Address Ranges for filtering */
+	vmx->pt_desc.num_address_ranges = intel_pt_validate_cap(vmx->pt_desc.caps,
+						PT_CAP_num_address_ranges);
+
+	/* Initialize and clear the no dependency bits */
+	vmx->pt_desc.ctl_bitmask = ~(RTIT_CTL_TRACEEN | RTIT_CTL_OS |
+			RTIT_CTL_USR | RTIT_CTL_TSC_EN | RTIT_CTL_DISRETC |
+			RTIT_CTL_BRANCH_EN);
+
+	/*
+	 * If CPUID.(EAX=14H,ECX=0):EBX[0]=1 CR3Filter can be set otherwise
+	 * will inject an #GP
+	 */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_cr3_filtering))
+		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_CR3EN;
+
+	/*
+	 * If CPUID.(EAX=14H,ECX=0):EBX[1]=1 CYCEn, CycThresh and
+	 * PSBFreq can be set
+	 */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc))
+		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_CYCLEACC |
+				RTIT_CTL_CYC_THRESH | RTIT_CTL_PSB_FREQ);
+
+	/*
+	 * If CPUID.(EAX=14H,ECX=0):EBX[3]=1 MTCEn and MTCFreq can be set
+	 */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc))
+		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_MTC_EN |
+					      RTIT_CTL_MTC_RANGE);
+
+	/* If CPUID.(EAX=14H,ECX=0):EBX[4]=1 FUPonPTW and PTWEn can be set */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_ptwrite))
+		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_FUP_ON_PTW |
+							RTIT_CTL_PTW_EN);
+
+	/* If CPUID.(EAX=14H,ECX=0):EBX[5]=1 PwrEvEn can be set */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_power_event_trace))
+		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_PWR_EVT_EN;
+
+	/* If CPUID.(EAX=14H,ECX=0):ECX[0]=1 ToPA can be set */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_topa_output))
+		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_TOPA;
+
+	/* If CPUID.(EAX=14H,ECX=0):ECX[3]=1 FabricEn can be set */
+	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_output_subsys))
+		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_FABRIC_EN;
+
+	/* unmask address range configure area */
+	for (i = 0; i < vmx->pt_desc.num_address_ranges; i++)
+		vmx->pt_desc.ctl_bitmask &= ~(0xfULL << (32 + i * 4));
+}
+
+void pt_update_intercept_for_msr(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	bool flag = !(vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN);
+	u32 i;
+
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_STATUS, MSR_TYPE_RW, flag);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_OUTPUT_BASE, MSR_TYPE_RW, flag);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_OUTPUT_MASK, MSR_TYPE_RW, flag);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_CR3_MATCH, MSR_TYPE_RW, flag);
+	for (i = 0; i < vmx->pt_desc.num_address_ranges; i++) {
+		vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_ADDR0_A + i * 2, MSR_TYPE_RW, flag);
+		vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_ADDR0_B + i * 2, MSR_TYPE_RW, flag);
+	}
+}
+
 static inline bool pt_can_write_msr(struct vcpu_vmx *vmx)
 {
 	return vmx_pt_mode_is_host_guest() &&
@@ -1305,6 +1464,25 @@ static void pt_guest_exit(struct vcpu_vmx *vmx)
 	if (vmx->pt_desc.host.ctl)
 		wrmsrq(MSR_IA32_RTIT_CTL, vmx->pt_desc.host.ctl);
 }
+
+static unsigned int vmx_handle_intel_pt_intr(void)
+{
+	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
+
+	/* '0' on failure so that the !PT case can use a RET0 static call. */
+	if (!vcpu || !kvm_handling_nmi_from_guest(vcpu))
+		return 0;
+
+	kvm_make_request(KVM_REQ_PMI, vcpu);
+	__set_bit(MSR_CORE_PERF_GLOBAL_OVF_CTRL_TRACE_TOPA_PMI_BIT,
+		  (unsigned long *)&vcpu->arch.pmu.global_status);
+	return 1;
+}
+#else
+static void pt_guest_enter(struct vcpu_vmx *vmx) { }
+static void pt_guest_exit(struct vcpu_vmx *vmx) { }
+static void update_intel_pt_cfg(struct kvm_vcpu *vcpu) { WARN_ON_ONCE(1); }
+#endif /* CONFIG_KVM_INTEL_PT */
 
 void vmx_set_host_fs_gs(struct vmcs_host_state *host, u16 fs_sel, u16 gs_sel,
 			unsigned long fs_base, unsigned long gs_base)
@@ -1708,79 +1886,6 @@ void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
 		vmcs_write32(GUEST_INTERRUPTIBILITY_INFO, interruptibility);
 }
 
-static int vmx_rtit_ctl_check(struct kvm_vcpu *vcpu, u64 data)
-{
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	unsigned long value;
-
-	/*
-	 * Any MSR write that attempts to change bits marked reserved will
-	 * case a #GP fault.
-	 */
-	if (data & vmx->pt_desc.ctl_bitmask)
-		return 1;
-
-	/*
-	 * Any attempt to modify IA32_RTIT_CTL while TraceEn is set will
-	 * result in a #GP unless the same write also clears TraceEn.
-	 */
-	if ((vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN) &&
-	    (data & RTIT_CTL_TRACEEN) &&
-	    data != vmx->pt_desc.guest.ctl)
-		return 1;
-
-	/*
-	 * WRMSR to IA32_RTIT_CTL that sets TraceEn but clears this bit
-	 * and FabricEn would cause #GP, if
-	 * CPUID.(EAX=14H, ECX=0):ECX.SNGLRGNOUT[bit 2] = 0
-	 */
-	if ((data & RTIT_CTL_TRACEEN) && !(data & RTIT_CTL_TOPA) &&
-		!(data & RTIT_CTL_FABRIC_EN) &&
-		!intel_pt_validate_cap(vmx->pt_desc.caps,
-					PT_CAP_single_range_output))
-		return 1;
-
-	/*
-	 * MTCFreq, CycThresh and PSBFreq encodings check, any MSR write that
-	 * utilize encodings marked reserved will cause a #GP fault.
-	 */
-	value = intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc_periods);
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc) &&
-			!test_bit((data & RTIT_CTL_MTC_RANGE) >>
-			RTIT_CTL_MTC_RANGE_OFFSET, &value))
-		return 1;
-	value = intel_pt_validate_cap(vmx->pt_desc.caps,
-						PT_CAP_cycle_thresholds);
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc) &&
-			!test_bit((data & RTIT_CTL_CYC_THRESH) >>
-			RTIT_CTL_CYC_THRESH_OFFSET, &value))
-		return 1;
-	value = intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_periods);
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc) &&
-			!test_bit((data & RTIT_CTL_PSB_FREQ) >>
-			RTIT_CTL_PSB_FREQ_OFFSET, &value))
-		return 1;
-
-	/*
-	 * If ADDRx_CFG is reserved or the encodings is >2 will
-	 * cause a #GP fault.
-	 */
-	value = (data & RTIT_CTL_ADDR0) >> RTIT_CTL_ADDR0_OFFSET;
-	if ((value && (vmx->pt_desc.num_address_ranges < 1)) || (value > 2))
-		return 1;
-	value = (data & RTIT_CTL_ADDR1) >> RTIT_CTL_ADDR1_OFFSET;
-	if ((value && (vmx->pt_desc.num_address_ranges < 2)) || (value > 2))
-		return 1;
-	value = (data & RTIT_CTL_ADDR2) >> RTIT_CTL_ADDR2_OFFSET;
-	if ((value && (vmx->pt_desc.num_address_ranges < 3)) || (value > 2))
-		return 1;
-	value = (data & RTIT_CTL_ADDR3) >> RTIT_CTL_ADDR3_OFFSET;
-	if ((value && (vmx->pt_desc.num_address_ranges < 4)) || (value > 2))
-		return 1;
-
-	return 0;
-}
-
 int vmx_check_emulate_instruction(struct kvm_vcpu *vcpu, int emul_type,
 				  void *insn, int insn_len)
 {
@@ -2130,7 +2235,6 @@ int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	struct vmx_uret_msr *msr;
-	u32 index;
 
 	switch (msr_info->index) {
 #ifdef CONFIG_X86_64
@@ -2216,6 +2320,7 @@ int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 							&msr_info->data);
 #endif
 		break;
+#ifdef CONFIG_KVM_INTEL_PT
 	case MSR_IA32_RTIT_CTL:
 		if (!vmx_pt_mode_is_host_guest())
 			return 1;
@@ -2251,8 +2356,9 @@ int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 		msr_info->data = vmx->pt_desc.guest.output_mask;
 		break;
-	case MSR_IA32_RTIT_ADDR0_A ... MSR_IA32_RTIT_ADDR3_B:
-		index = msr_info->index - MSR_IA32_RTIT_ADDR0_A;
+	case MSR_IA32_RTIT_ADDR0_A ... MSR_IA32_RTIT_ADDR3_B: {
+		u32 index = msr_info->index - MSR_IA32_RTIT_ADDR0_A;
+
 		if (!vmx_pt_mode_is_host_guest() ||
 		    (index >= 2 * vmx->pt_desc.num_address_ranges))
 			return 1;
@@ -2261,6 +2367,8 @@ int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		else
 			msr_info->data = vmx->pt_desc.guest.addr_a[index / 2];
 		break;
+	}
+#endif
 	case MSR_IA32_S_CET:
 		msr_info->data = vmcs_readl(GUEST_S_CET);
 		break;
@@ -2339,7 +2447,6 @@ int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	int ret = 0;
 	u32 msr_index = msr_info->index;
 	u64 data = msr_info->data;
-	u32 index;
 
 	switch (msr_index) {
 	case MSR_EFER:
@@ -2529,6 +2636,7 @@ int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!guest_cpu_cap_has(vcpu, X86_FEATURE_VMX))
 			return 1;
 		return vmx_set_vmx_msr(vcpu, msr_index, data);
+#ifdef CONFIG_KVM_INTEL_PT
 	case MSR_IA32_RTIT_CTL:
 		if (!vmx_pt_mode_is_host_guest() ||
 			vmx_rtit_ctl_check(vcpu, data) ||
@@ -2575,7 +2683,9 @@ int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 		vmx->pt_desc.guest.output_mask = data;
 		break;
-	case MSR_IA32_RTIT_ADDR0_A ... MSR_IA32_RTIT_ADDR3_B:
+	case MSR_IA32_RTIT_ADDR0_A ... MSR_IA32_RTIT_ADDR3_B: {
+		u32 index;
+
 		if (!pt_can_write_msr(vmx))
 			return 1;
 		index = msr_info->index - MSR_IA32_RTIT_ADDR0_A;
@@ -2588,6 +2698,8 @@ int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		else
 			vmx->pt_desc.guest.addr_a[index / 2] = data;
 		break;
+	}
+#endif
 	case MSR_IA32_S_CET:
 		vmcs_writel(GUEST_S_CET, data);
 		break;
@@ -4219,22 +4331,6 @@ static void vmx_update_msr_bitmap_x2apic(struct kvm_vcpu *vcpu)
 	}
 }
 
-void pt_update_intercept_for_msr(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	bool flag = !(vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN);
-	u32 i;
-
-	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_STATUS, MSR_TYPE_RW, flag);
-	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_OUTPUT_BASE, MSR_TYPE_RW, flag);
-	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_OUTPUT_MASK, MSR_TYPE_RW, flag);
-	vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_CR3_MATCH, MSR_TYPE_RW, flag);
-	for (i = 0; i < vmx->pt_desc.num_address_ranges; i++) {
-		vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_ADDR0_A + i * 2, MSR_TYPE_RW, flag);
-		vmx_set_intercept_for_msr(vcpu, MSR_IA32_RTIT_ADDR0_B + i * 2, MSR_TYPE_RW, flag);
-	}
-}
-
 static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 {
 	u64 vm_exit_controls_bits = VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL |
@@ -4994,12 +5090,14 @@ static void init_vmcs(struct kvm_vcpu *vcpu)
 
 	vmx_write_encls_bitmap(vcpu, NULL);
 
+#ifdef CONFIG_KVM_INTEL_PT
 	if (vmx_pt_mode_is_host_guest()) {
 		memset(&vmx->pt_desc, 0, sizeof(vmx->pt_desc));
 		/* Bit[6~0] are forced to 1, writes are ignored. */
 		vmx->pt_desc.guest.output_mask = 0x7F;
 		vmcs_write64(GUEST_IA32_RTIT_CTL, 0);
 	}
+#endif
 
 	vmcs_write32(GUEST_SYSENTER_CS, 0);
 	vmcs_writel(GUEST_SYSENTER_ESP, 0);
@@ -7755,75 +7853,6 @@ static void nested_vmx_cr_fixed1_bits_update(struct kvm_vcpu *vcpu)
 #undef cr4_fixed1_update
 }
 
-static void update_intel_pt_cfg(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	struct kvm_cpuid_entry2 *best = NULL;
-	int i;
-
-	for (i = 0; i < PT_CPUID_LEAVES; i++) {
-		best = kvm_find_cpuid_entry_index(vcpu, 0x14, i);
-		if (!best)
-			return;
-		vmx->pt_desc.caps[CPUID_EAX + i*PT_CPUID_REGS_NUM] = best->eax;
-		vmx->pt_desc.caps[CPUID_EBX + i*PT_CPUID_REGS_NUM] = best->ebx;
-		vmx->pt_desc.caps[CPUID_ECX + i*PT_CPUID_REGS_NUM] = best->ecx;
-		vmx->pt_desc.caps[CPUID_EDX + i*PT_CPUID_REGS_NUM] = best->edx;
-	}
-
-	/* Get the number of configurable Address Ranges for filtering */
-	vmx->pt_desc.num_address_ranges = intel_pt_validate_cap(vmx->pt_desc.caps,
-						PT_CAP_num_address_ranges);
-
-	/* Initialize and clear the no dependency bits */
-	vmx->pt_desc.ctl_bitmask = ~(RTIT_CTL_TRACEEN | RTIT_CTL_OS |
-			RTIT_CTL_USR | RTIT_CTL_TSC_EN | RTIT_CTL_DISRETC |
-			RTIT_CTL_BRANCH_EN);
-
-	/*
-	 * If CPUID.(EAX=14H,ECX=0):EBX[0]=1 CR3Filter can be set otherwise
-	 * will inject an #GP
-	 */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_cr3_filtering))
-		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_CR3EN;
-
-	/*
-	 * If CPUID.(EAX=14H,ECX=0):EBX[1]=1 CYCEn, CycThresh and
-	 * PSBFreq can be set
-	 */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_psb_cyc))
-		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_CYCLEACC |
-				RTIT_CTL_CYC_THRESH | RTIT_CTL_PSB_FREQ);
-
-	/*
-	 * If CPUID.(EAX=14H,ECX=0):EBX[3]=1 MTCEn and MTCFreq can be set
-	 */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_mtc))
-		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_MTC_EN |
-					      RTIT_CTL_MTC_RANGE);
-
-	/* If CPUID.(EAX=14H,ECX=0):EBX[4]=1 FUPonPTW and PTWEn can be set */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_ptwrite))
-		vmx->pt_desc.ctl_bitmask &= ~(RTIT_CTL_FUP_ON_PTW |
-							RTIT_CTL_PTW_EN);
-
-	/* If CPUID.(EAX=14H,ECX=0):EBX[5]=1 PwrEvEn can be set */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_power_event_trace))
-		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_PWR_EVT_EN;
-
-	/* If CPUID.(EAX=14H,ECX=0):ECX[0]=1 ToPA can be set */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_topa_output))
-		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_TOPA;
-
-	/* If CPUID.(EAX=14H,ECX=0):ECX[3]=1 FabricEn can be set */
-	if (intel_pt_validate_cap(vmx->pt_desc.caps, PT_CAP_output_subsys))
-		vmx->pt_desc.ctl_bitmask &= ~RTIT_CTL_FABRIC_EN;
-
-	/* unmask address range configure area */
-	for (i = 0; i < vmx->pt_desc.num_address_ranges; i++)
-		vmx->pt_desc.ctl_bitmask &= ~(0xfULL << (32 + i * 4));
-}
-
 void vmx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -8468,20 +8497,6 @@ gva_t vmx_get_untagged_addr(struct kvm_vcpu *vcpu, gva_t gva, unsigned int flags
 	return (sign_extend64(gva, lam_bit) & ~BIT_ULL(63)) | (gva & BIT_ULL(63));
 }
 
-static unsigned int vmx_handle_intel_pt_intr(void)
-{
-	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
-
-	/* '0' on failure so that the !PT case can use a RET0 static call. */
-	if (!vcpu || !kvm_handling_nmi_from_guest(vcpu))
-		return 0;
-
-	kvm_make_request(KVM_REQ_PMI, vcpu);
-	__set_bit(MSR_CORE_PERF_GLOBAL_OVF_CTRL_TRACE_TOPA_PMI_BIT,
-		  (unsigned long *)&vcpu->arch.pmu.global_status);
-	return 1;
-}
-
 static __init void vmx_setup_user_return_msrs(void)
 {
 
@@ -8668,6 +8683,7 @@ __init int vmx_hardware_setup(void)
 	kvm_caps.supported_mce_cap |= MCG_LMCE_P;
 	kvm_caps.supported_mce_cap |= MCG_CMCI_P;
 
+#ifdef CONFIG_KVM_INTEL_PT
 	if (pt_mode != PT_MODE_SYSTEM && pt_mode != PT_MODE_HOST_GUEST)
 		return -EINVAL;
 	if (!enable_ept || !enable_pmu || !cpu_has_vmx_intel_pt())
@@ -8676,6 +8692,7 @@ __init int vmx_hardware_setup(void)
 		vt_init_ops.handle_intel_pt_intr = vmx_handle_intel_pt_intr;
 	else
 		vt_init_ops.handle_intel_pt_intr = NULL;
+#endif
 
 	setup_default_sgx_lepubkeyhash();
 

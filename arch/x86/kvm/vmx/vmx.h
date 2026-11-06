@@ -46,6 +46,7 @@ enum segment_cache_field {
 	SEG_FIELD_NR = 4
 };
 
+#ifdef CONFIG_KVM_INTEL_PT
 #define RTIT_ADDR_RANGE		4
 
 struct pt_ctx {
@@ -65,6 +66,7 @@ struct pt_desc {
 	struct pt_ctx host;
 	struct pt_ctx guest;
 };
+#endif
 
 /*
  * The nested_vmx structure is part of vcpu_vmx, and holds information we need
@@ -280,7 +282,9 @@ struct vcpu_vmx {
 	u64 msr_ia32_mcu_opt_ctrl;
 	bool disable_fb_clear;
 
+#ifdef CONFIG_KVM_INTEL_PT
 	struct pt_desc pt_desc;
+#endif
 	struct lbr_desc lbr_desc;
 
 	/* ve_info must be page aligned. */

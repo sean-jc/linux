@@ -5455,10 +5455,12 @@ static int enter_vmx_operation(struct kvm_vcpu *vcpu)
 	vmx->nested.vmcs02_initialized = false;
 	vmx->nested.vmxon = true;
 
+#ifdef CONFIG_KVM_INTEL_PT
 	if (vmx_pt_mode_is_host_guest()) {
 		vmx->pt_desc.guest.ctl = 0;
 		pt_update_intercept_for_msr(vcpu);
 	}
+#endif
 
 	return 0;
 

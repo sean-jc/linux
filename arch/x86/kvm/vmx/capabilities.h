@@ -17,10 +17,15 @@ extern bool __read_mostly enable_ept_ad_bits;
 extern bool __read_mostly enable_cet;
 extern bool __read_mostly enable_pml;
 extern bool __read_mostly enable_mbec;
-extern int __read_mostly pt_mode;
 
 #define PT_MODE_SYSTEM		0
 #define PT_MODE_HOST_GUEST	1
+
+#ifdef CONFIG_KVM_INTEL_PT
+extern int __read_mostly pt_mode;
+#else
+#define pt_mode			PT_MODE_SYSTEM
+#endif
 
 struct nested_vmx_msrs {
 	/*

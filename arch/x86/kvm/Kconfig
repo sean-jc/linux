@@ -151,6 +151,9 @@ config KVM_INTEL_TDX
 
 	  If unsure, say N.
 
+config KVM_INTEL_PT
+	def_bool y if BROKEN
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM && (CPU_SUP_AMD || CPU_SUP_HYGON)

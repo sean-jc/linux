@@ -2596,6 +2596,7 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 		if (!kvm_cpu_cap_has(X86_FEATURE_WAITPKG))
 			return;
 		break;
+#ifdef CONFIG_KVM_INTEL_PT
 	case MSR_IA32_RTIT_CTL:
 	case MSR_IA32_RTIT_STATUS:
 		if (!kvm_cpu_cap_has(X86_FEATURE_INTEL_PT))
@@ -2619,6 +2620,7 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 		     intel_pt_validate_hw_cap(PT_CAP_num_address_ranges) * 2))
 			return;
 		break;
+#endif
 	case MSR_ARCH_PERFMON_PERFCTR0 ...
 	     MSR_ARCH_PERFMON_PERFCTR0 + KVM_MAX_NR_GP_COUNTERS - 1:
 		if (msr_index - MSR_ARCH_PERFMON_PERFCTR0 >=
