@@ -639,8 +639,10 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 	 * reasons), and so nSVM/nVMX would clobber state that is loaded from
 	 * SMRAM and from the VMCS/VMCB.
 	 */
-	if (kvm_x86_call(leave_smm)(vcpu, &smram))
-		return X86EMUL_UNHANDLEABLE;
+	if (kvm_x86_call(leave_smm)(vcpu, &smram)) {
+		ret = X86EMUL_UNHANDLEABLE;
+		goto out;
+	}
 
 #ifdef CONFIG_X86_64
 	if (guest_cpu_cap_has(vcpu, X86_FEATURE_LM))
@@ -661,6 +663,7 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 	 * the shutdown, so that L1 enters shutdown instead of seeing a VM-Exit
 	 * that architecturally shouldn't be possible.
 	 */
+out:
 	if (ret != X86EMUL_CONTINUE && is_guest_mode(vcpu))
 		kvm_leave_nested(vcpu);
 	return ret;
