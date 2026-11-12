@@ -2047,6 +2047,9 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
         if (((cr0 & X86_CR0_CD) == 0) && (cr0 & X86_CR0_NW))
 		goto out_free;
 
+	if (!kvm_vcpu_is_legal_cr3(vcpu, vcpu->arch.cr3))
+		goto out_free;
+
 	/*
 	 * Validate host state saved from before VMRUN (see
 	 * nested_svm_check_permissions). Note that the g_pat field is not
@@ -2114,7 +2117,7 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 	 */
 	ret = nested_svm_load_cr3(&svm->vcpu, vcpu->arch.cr3,
 				  nested_npt_enabled(svm), false);
-	if (ret)
+	if (KVM_BUG_ON(ret, vcpu->kvm))
 		goto out_free;
 
 	svm->nested.force_msr_bitmap_recalc = true;
