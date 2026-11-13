@@ -3245,6 +3245,9 @@ static bool kvm_mmu_prefetch_sptes(struct kvm_vcpu *vcpu, gfn_t gfn, u64 *sptep,
 	if (!slot)
 		return false;
 
+	if (kvm_memslot_is_gmem_only(slot))
+		return false;
+
 	nr_pages = kvm_prefetch_pages(slot, gfn, pages, nr_pages);
 	if (nr_pages <= 0)
 		return false;
