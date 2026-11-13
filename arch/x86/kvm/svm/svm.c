@@ -4726,8 +4726,6 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 	if (unlikely(svm->vmcb->control.exit_code == SVM_EXIT_NMI))
 		kvm_after_interrupt(vcpu);
 
-	sync_cr8_to_lapic(vcpu);
-
 	svm->next_rip = 0;
 	if (is_guest_mode(vcpu)) {
 		nested_sync_control_from_vmcb02(svm);
@@ -4757,6 +4755,13 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 			rdmsrq(MSR_AMD64_PERF_CNTR_GLOBAL_CTL,
 			       vcpu_to_pmu(vcpu)->global_ctrl);
 	}
+
+	/*
+	 * Note!  Any action that might dirty the VMCB must be done *after*
+	 * marking all VMCB fields as clean, e.g. syncing CR8 can toggle the
+	 * CR8 write intercept and thus mark the intercepts field dirty.
+	 */
+	sync_cr8_to_lapic(vcpu);
 
 	/* if exit due to PF check for async PF */
 	if (svm->vmcb->control.exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR)
