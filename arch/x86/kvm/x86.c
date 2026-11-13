@@ -6054,7 +6054,7 @@ static void prepare_emulation_failure_exit(struct kvm_vcpu *vcpu, u64 *data,
 	info_start = 1;
 	run->emulation_failure.flags = 0;
 
-	if (insn_size) {
+	if (insn_size && !(WARN_ON_ONCE(insn_size > 15))) {
 		BUILD_BUG_ON((sizeof(run->emulation_failure.insn_size) +
 			      sizeof(run->emulation_failure.insn_bytes) != 16));
 		info_start += 2;
@@ -6071,14 +6071,6 @@ static void prepare_emulation_failure_exit(struct kvm_vcpu *vcpu, u64 *data,
 	       ndata * sizeof(data[0]));
 
 	run->emulation_failure.ndata = info_start + ARRAY_SIZE(info) + ndata;
-}
-
-static void prepare_emulation_ctxt_failure_exit(struct kvm_vcpu *vcpu)
-{
-	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
-
-	prepare_emulation_failure_exit(vcpu, NULL, 0, ctxt->fetch.data,
-				       ctxt->fetch.end - ctxt->fetch.data);
 }
 
 void __kvm_prepare_emulation_failure_exit(struct kvm_vcpu *vcpu, u64 *data,
@@ -6128,7 +6120,8 @@ void kvm_prepare_unexpected_reason_exit(struct kvm_vcpu *vcpu, u64 exit_reason)
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_prepare_unexpected_reason_exit);
 
-static int handle_emulation_failure(struct kvm_vcpu *vcpu, int emulation_type)
+static int __handle_emulation_failure(struct kvm_vcpu *vcpu, int emulation_type,
+				      u8 *insn, u8 insn_len)
 {
 	struct kvm *kvm = vcpu->kvm;
 
@@ -6142,18 +6135,26 @@ static int handle_emulation_failure(struct kvm_vcpu *vcpu, int emulation_type)
 
 	if (kvm->arch.exit_on_emulation_error ||
 	    (emulation_type & EMULTYPE_SKIP)) {
-		prepare_emulation_ctxt_failure_exit(vcpu);
+		prepare_emulation_failure_exit(vcpu, NULL, 0, insn, insn_len);
 		return 0;
 	}
 
 	kvm_queue_exception(vcpu, UD_VECTOR);
 
 	if (!is_guest_mode(vcpu) && kvm_x86_call(get_cpl)(vcpu) == 0) {
-		prepare_emulation_ctxt_failure_exit(vcpu);
+		prepare_emulation_failure_exit(vcpu, NULL, 0, insn, insn_len);
 		return 0;
 	}
 
 	return 1;
+}
+
+static int handle_emulation_failure(struct kvm_vcpu *vcpu, int emulation_type)
+{
+	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
+
+	return __handle_emulation_failure(vcpu, emulation_type, ctxt->fetch.data,
+					  ctxt->fetch.end - ctxt->fetch.data);
 }
 
 static bool kvm_unprotect_and_retry_on_failure(struct kvm_vcpu *vcpu,
@@ -6397,7 +6398,7 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		}
 
 		WARN_ON_ONCE(r != X86EMUL_UNHANDLEABLE);
-		return handle_emulation_failure(vcpu, emulation_type);
+		return __handle_emulation_failure(vcpu, emulation_type, insn, insn_len);
 	}
 
 	kvm_request_l1tf_flush_l1d();
