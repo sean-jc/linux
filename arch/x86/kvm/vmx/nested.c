@@ -1225,34 +1225,14 @@ static bool nested_msr_store_list_has_msr(struct kvm_vcpu *vcpu, u32 msr_index)
 	return false;
 }
 
-/*
- * Load guest's/host's cr3 at nested entry/exit.  @nested_ept is true if we are
- * emulating VM-Entry into a guest with EPT enabled.  On failure, the expected
- * Exit Qualification (for a VM-Entry consistency check VM-Exit) is assigned to
- * @entry_failure_code.
- */
 static int nested_vmx_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 			       bool nested_ept, bool reload_pdptrs,
 			       enum vm_entry_failure_code *entry_failure_code)
 {
-	/*
-	 * If PAE paging and EPT are both on, CR3 is not used by the CPU and
-	 * must not be dereferenced.
-	 */
-	if (reload_pdptrs && !nested_ept && is_pae_paging(vcpu) &&
-	    CC(!load_pdptrs(vcpu, cr3))) {
+	if (CC(kvm_nested_load_cr3(vcpu, cr3, nested_ept, reload_pdptrs))) {
 		*entry_failure_code = ENTRY_FAIL_PDPTE;
 		return -EINVAL;
 	}
-
-	vcpu->arch.cr3 = cr3;
-	kvm_register_mark_dirty(vcpu, VCPU_REG_CR3);
-
-	/* Re-initialize the MMU, e.g. to pick up CR4 MMU role changes. */
-	kvm_init_mmu(vcpu);
-
-	if (!nested_ept)
-		kvm_mmu_new_pgd(vcpu, cr3);
 
 	return 0;
 }

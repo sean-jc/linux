@@ -710,29 +710,13 @@ static void nested_svm_transition_tlb_flush(struct kvm_vcpu *vcpu)
 	kvm_make_request(KVM_REQ_TLB_FLUSH_CURRENT, vcpu);
 }
 
-/*
- * Load guest's/host's cr3 on nested vmentry or vmexit. @nested_npt is true
- * if we are emulating VM-Entry into a guest with NPT enabled.
- */
 static int nested_svm_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 			       bool nested_npt, bool reload_pdptrs)
 {
-	if (reload_pdptrs && is_pae_paging(vcpu)) {
-		if (nested_npt)
-			kvm_register_mark_for_reload(vcpu, VCPU_REG_PDPTR);
-		else if (CC(!load_pdptrs(vcpu, cr3)))
-			return -EINVAL;
-	}
+	if (reload_pdptrs && is_pae_paging(vcpu) && nested_npt)
+		kvm_register_mark_for_reload(vcpu, VCPU_REG_PDPTR);
 
-	vcpu->arch.cr3 = cr3;
-
-	/* Re-initialize the MMU, e.g. to pick up CR4 MMU role changes. */
-	kvm_init_mmu(vcpu);
-
-	if (!nested_npt)
-		kvm_mmu_new_pgd(vcpu, cr3);
-
-	return 0;
+	return kvm_nested_load_cr3(vcpu, cr3, nested_npt, reload_pdptrs);
 }
 
 static void nested_vmcb02_prepare_save(struct vcpu_svm *svm)

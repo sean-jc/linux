@@ -201,6 +201,29 @@ int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3)
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(load_pdptrs);
 
+int kvm_nested_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
+			bool nested_tdp, bool reload_pdptrs)
+{
+	/*
+	 * If TDP is enabled, then the PDPTRs either come from the VMCS (EPT)
+	 * or are read from memory on-demand (NPT), i.e. aren't loaded here.
+	 */
+	if (reload_pdptrs && !nested_tdp && is_pae_paging(vcpu) &&
+	    !load_pdptrs(vcpu, cr3))
+		return -EINVAL;
+
+	vcpu->arch.cr3 = cr3;
+
+	/* Re-initialize the MMU, e.g. to pick up CR4 MMU role changes. */
+	kvm_init_mmu(vcpu);
+
+	if (!nested_tdp)
+		kvm_mmu_new_pgd(vcpu, cr3);
+
+	return 0;
+}
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_nested_load_cr3);
+
 static bool kvm_is_valid_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 {
 #ifdef CONFIG_X86_64

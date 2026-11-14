@@ -64,6 +64,8 @@ unsigned long kvm_get_dr6_fixed_1(struct kvm_vcpu *vcpu);
 unsigned long kvm_get_cr8(struct kvm_vcpu *vcpu);
 void kvm_lmsw(struct kvm_vcpu *vcpu, unsigned long msw);
 int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
+int kvm_nested_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
+			bool nested_tdp, bool reload_pdptrs);
 
 static inline bool is_long_mode(struct kvm_vcpu *vcpu)
 {
