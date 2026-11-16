@@ -204,14 +204,6 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(load_pdptrs);
 int kvm_nested_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 			bool nested_tdp, bool reload_pdptrs)
 {
-	/*
-	 * If TDP is enabled, then the PDPTRs either come from the VMCS (EPT)
-	 * or are read from memory on-demand (NPT), i.e. aren't loaded here.
-	 */
-	if (reload_pdptrs && !nested_tdp && is_pae_paging(vcpu) &&
-	    !load_pdptrs(vcpu, cr3))
-		return -EINVAL;
-
 	vcpu->arch.cr3 = cr3;
 	kvm_register_mark_dirty(vcpu, VCPU_REG_CR3);
 
@@ -220,6 +212,20 @@ int kvm_nested_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 
 	if (!nested_tdp)
 		kvm_mmu_new_pgd(vcpu, cr3);
+
+	/*
+	 * If TDP is enabled, then the PDPTRs either come from the VMCS (EPT)
+	 * or are read from memory on-demand (NPT), i.e. aren't loaded here.
+	 * Load PDPTRs *after* initializing the MMU and PGD, to ensure the MMU
+	 * is initialized even if the nested transition ultimately fails.  On
+	 * an emulated VM-Exit, failure will put the vCPU in a shutdown state,
+	 * but KVM still needs to keep the MMU up-to-date.  On an emulated
+	 * VM-Entry, failure will generate a nested VM-Exit, i.e. L1's state
+	 * and MMU will be explicitly loaded.
+	 */
+	if (reload_pdptrs && !nested_tdp && is_pae_paging(vcpu) &&
+	    !load_pdptrs(vcpu, cr3))
+		return -EINVAL;
 
 	return 0;
 }
