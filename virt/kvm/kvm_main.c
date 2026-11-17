@@ -213,19 +213,11 @@ static void ack_kick(void *_completed)
 {
 }
 
-static inline bool kvm_kick_many_cpus(struct cpumask *cpus, bool wait)
-{
-	if (cpumask_empty(cpus))
-		return false;
-
-	smp_call_function_many(cpus, ack_kick, NULL, wait);
-	return true;
-}
-
 struct kvm_cpu_kick {
 	int me;
 	unsigned int req;
 	struct cpumask *cpus;
+	bool need_kick;
 };
 
 static __always_inline struct kvm_cpu_kick kvm_init_cpu_kick(unsigned int req)
@@ -242,12 +234,12 @@ static __always_inline struct kvm_cpu_kick kvm_init_cpu_kick(unsigned int req)
 
 static bool kvm_finish_cpu_kick(struct kvm_cpu_kick *kick)
 {
-	bool kicked;
-
-	kicked = kvm_kick_many_cpus(kick->cpus, !!(kick->req & KVM_REQUEST_WAIT));
+	if (kick->need_kick)
+		smp_call_function_many(kick->cpus, ack_kick, NULL,
+				       !!(kick->req & KVM_REQUEST_WAIT));
 
 	put_cpu();
-	return kicked;
+	return kick->need_kick;
 }
 
 static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu,
@@ -273,8 +265,10 @@ static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu,
 	 */
 	if (kvm_request_needs_ipi(vcpu, kick->req)) {
 		cpu = READ_ONCE(vcpu->cpu);
-		if (cpu != -1 && cpu != kick->me)
+		if (cpu != -1 && cpu != kick->me) {
+			kick->need_kick = true;
 			__cpumask_set_cpu(cpu, kick->cpus);
+		}
 	}
 }
 
