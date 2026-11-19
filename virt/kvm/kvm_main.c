@@ -209,6 +209,11 @@ static bool kvm_request_needs_ipi(struct kvm_vcpu *vcpu, unsigned req)
 	return mode == IN_GUEST_MODE;
 }
 
+static bool kvm_cpu_needs_ipi(int cpu, int me)
+{
+	return cpu >= 0 && cpu != me && cpu_online(cpu);
+}
+
 static void ack_kick(void *_completed)
 {
 }
@@ -273,7 +278,7 @@ static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu,
 	 */
 	if (kvm_request_needs_ipi(vcpu, kick->req)) {
 		cpu = READ_ONCE(vcpu->cpu);
-		if (cpu != -1 && cpu != kick->me && cpu_online(cpu)) {
+		if (kvm_cpu_needs_ipi(cpu, kick->me)) {
 			kick->need_kick = true;
 			if (kick->cpus)
 				__cpumask_set_cpu(cpu, kick->cpus);
@@ -3951,7 +3956,7 @@ void __kvm_vcpu_kick(struct kvm_vcpu *vcpu, bool wait)
 	 */
 	if (kvm_arch_vcpu_should_kick(vcpu)) {
 		cpu = READ_ONCE(vcpu->cpu);
-		if (cpu != me && (unsigned int)cpu < nr_cpu_ids && cpu_online(cpu)) {
+		if (kvm_cpu_needs_ipi(cpu, me)) {
 			/*
 			 * Use a reschedule IPI to kick the vCPU if the caller
 			 * doesn't need to wait for a response, as KVM allows
